@@ -874,8 +874,11 @@ def gui_main_loop():
             last_window_check = current_time
             if not has_open_windows():
                 # No windows open, hide viewport and wait for new requests
-                print("[GUI] All windows closed, hiding viewport...")
-                dpg.hide_viewport()
+                print("[GUI] All windows closed, minimizing viewport...")
+                try:
+                    dpg.minimize_viewport()
+                except:
+                    pass
                 
                 # Wait for new window requests
                 while not GUI_SHUTDOWN_REQUESTED:
@@ -933,7 +936,7 @@ def create_result_window(text, endpoint=None, title=None):
     """Create a result display window"""
     window_id = get_next_window_id()
     window_tag = f"result_window_{window_id}"
-    text_tag = f"result_text_{window_id}"
+    content_group_tag = f"result_content_{window_id}"
     status_tag = f"result_status_{window_id}"
     wrap_btn_tag = f"wrap_btn_{window_id}"
     md_btn_tag = f"md_btn_{window_id}"
@@ -957,18 +960,24 @@ def create_result_window(text, endpoint=None, title=None):
     
     def update_display():
         """Update the text display"""
-        dpg.set_value(text_tag, get_display_text())
+        # Clear existing content
+        dpg.delete_item(content_group_tag, children_only=True)
+        
+        # Update buttons
         dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
         dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
         
-        # Handle wrapping
+        # Handle wrapping configuration
+        wrap_width = 0 if state['wrapped'] else -1
+        
+        # Configure parent scrollbar
         if state['wrapped']:
-            dpg.configure_item(text_tag, width=-1)
             dpg.configure_item(scroll_area_tag, horizontal_scrollbar=False)
         else:
-            # Set a large width to prevent wrapping and enable horizontal scroll on parent
-            dpg.configure_item(text_tag, width=3000)
             dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
+            
+        # Add text item
+        dpg.add_text(get_display_text(), parent=content_group_tag, wrap=wrap_width)
     
     def toggle_wrap():
         state['wrapped'] = not state['wrapped']
@@ -1009,8 +1018,10 @@ def create_result_window(text, endpoint=None, title=None):
         
         # Scrollable area for text
         with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-60, horizontal_scrollbar=False):
-            dpg.add_input_text(tag=text_tag, default_value=get_display_text(), multiline=True, 
-                              readonly=True, width=-1, height=-1, tab_input=True)
+            dpg.add_group(tag=content_group_tag)
+            
+        # Initial display
+        update_display()
         
         dpg.add_separator()
         
@@ -1024,7 +1035,7 @@ def create_chat_window(session, initial_response=None):
     """Create a chat window for interactive conversation"""
     window_id = get_next_window_id()
     window_tag = f"chat_window_{window_id}"
-    chat_log_tag = f"chat_log_{window_id}"
+    chat_log_group = f"chat_log_{window_id}"
     input_tag = f"chat_input_{window_id}"
     status_tag = f"chat_status_{window_id}"
     send_btn_tag = f"send_btn_{window_id}"
@@ -1040,7 +1051,7 @@ def create_chat_window(session, initial_response=None):
     }
     
     def get_conversation_text():
-        """Build conversation text based on current display mode"""
+        """Build conversation text based on current display mode (for clipboard)"""
         parts = []
         for msg in session.messages:
             role = "You" if msg["role"] == "user" else "Assistant"
@@ -1051,18 +1062,39 @@ def create_chat_window(session, initial_response=None):
         return "\n".join(parts)
     
     def update_chat_display():
-        dpg.set_value(chat_log_tag, get_conversation_text())
+        # Clear existing messages
+        dpg.delete_item(chat_log_group, children_only=True)
+        
+        # Update buttons
         dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
         dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
         
         # Handle wrapping
+        wrap_width = 0 if state['wrapped'] else -1
+        
         if state['wrapped']:
-            dpg.configure_item(chat_log_tag, width=-1)
             dpg.configure_item(scroll_area_tag, horizontal_scrollbar=False)
         else:
-            # Set a large width to prevent wrapping and enable horizontal scroll on parent
-            dpg.configure_item(chat_log_tag, width=3000)
             dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
+            
+        # Re-render messages with colors
+        for i, msg in enumerate(session.messages):
+            role = msg["role"]
+            content = msg["content"]
+            if not state['markdown']:
+                content = strip_markdown(content)
+            
+            if role == "user":
+                dpg.add_text("You:", color=(100, 200, 255), parent=chat_log_group)
+            else:
+                dpg.add_text("Assistant:", color=(150, 255, 150), parent=chat_log_group)
+                
+            dpg.add_text(content, parent=chat_log_group, wrap=wrap_width, bullet=True)
+            dpg.add_separator(parent=chat_log_group)
+            
+        # Scroll to bottom (simple hack: set scroll y to max)
+        # Note: DPG scroll setting is sometimes tricky, usually requires next frame
+        # dpg.set_y_scroll(scroll_area_tag, dpg.get_y_scroll_max(scroll_area_tag))
     
     def toggle_wrap():
         state['wrapped'] = not state['wrapped']
@@ -1146,8 +1178,10 @@ def create_chat_window(session, initial_response=None):
         
         # Scrollable area for chat log
         with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-150, horizontal_scrollbar=False):
-            dpg.add_input_text(tag=chat_log_tag, default_value=get_conversation_text(), 
-                              multiline=True, readonly=True, width=-1, height=-1, tab_input=True)
+            dpg.add_group(tag=chat_log_group)
+            
+        # Initial display
+        update_chat_display()
         
         dpg.add_separator()
         dpg.add_text("Your message:", color=(150, 200, 255))
