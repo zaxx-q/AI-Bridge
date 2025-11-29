@@ -8,6 +8,7 @@ with smart key rotation, auto-retry, configurable endpoints, and GUI display.
 import base64
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -78,12 +79,20 @@ KEY_MANAGERS = {}
 CHAT_SESSIONS = OrderedDict()
 SESSION_LOCK = threading.Lock()
 
-# GUI state
+# GUI state - Improved for on-demand creation
 GUI_QUEUE = queue.Queue()
 GUI_THREAD = None
-GUI_INITIALIZED = False
+GUI_LOCK = threading.Lock()
+GUI_RUNNING = False
+GUI_CONTEXT_CREATED = False
+GUI_SHUTDOWN_REQUESTED = False
+OPEN_WINDOWS = set()
+OPEN_WINDOWS_LOCK = threading.Lock()
 WINDOW_COUNTER = 0
 WINDOW_COUNTER_LOCK = threading.Lock()
+
+# Default font reference
+DEFAULT_FONT = None
 
 
 # ============================================================================
@@ -454,7 +463,6 @@ def call_google_api(key_manager, model, messages, ai_params, timeout):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     headers = {"x-goog-api-key": current_key, "Content-Type": "application/json"}
     
-    import re
     contents = []
     for msg in messages:
         role = "user" if msg["role"] == "user" else "model"
@@ -657,7 +665,57 @@ def call_api_chat(session):
 
 
 # ============================================================================
-# DEAR PYGUI GUI FUNCTIONS
+# MARKDOWN UTILITIES
+# ============================================================================
+
+def strip_markdown(text):
+    """Convert markdown to plain text by stripping formatting"""
+    if not text:
+        return text
+    
+    result = text
+    
+    # Remove code blocks (``` ... ```)
+    result = re.sub(r'```[\s\S]*?```', lambda m: m.group(0).replace('```', '').strip(), result)
+    
+    # Remove inline code (`code`)
+    result = re.sub(r'`([^`]+)`', r'\1', result)
+    
+    # Remove bold (**text** or __text__)
+    result = re.sub(r'\*\*([^*]+)\*\*', r'\1', result)
+    result = re.sub(r'__([^_]+)__', r'\1', result)
+    
+    # Remove italic (*text* or _text_)
+    result = re.sub(r'\*([^*]+)\*', r'\1', result)
+    result = re.sub(r'(?<!\w)_([^_]+)_(?!\w)', r'\1', result)
+    
+    # Remove strikethrough (~~text~~)
+    result = re.sub(r'~~([^~]+)~~', r'\1', result)
+    
+    # Remove headers (# Header)
+    result = re.sub(r'^#{1,6}\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove blockquotes (> text)
+    result = re.sub(r'^>\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove horizontal rules
+    result = re.sub(r'^[-*_]{3,}\s*$', '', result, flags=re.MULTILINE)
+    
+    # Remove link formatting [text](url) -> text
+    result = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', result)
+    
+    # Remove image formatting ![alt](url) -> alt
+    result = re.sub(r'!\[([^\]]*)\]\([^)]+\)', r'\1', result)
+    
+    # Remove list markers
+    result = re.sub(r'^[\s]*[-*+]\s+', '• ', result, flags=re.MULTILINE)
+    result = re.sub(r'^[\s]*\d+\.\s+', '', result, flags=re.MULTILINE)
+    
+    return result
+
+
+# ============================================================================
+# DEAR PYGUI GUI FUNCTIONS - ON-DEMAND CREATION
 # ============================================================================
 
 def copy_to_clipboard(text):
@@ -685,64 +743,112 @@ def copy_to_clipboard(text):
         return False
 
 
+def register_window(window_tag):
+    """Register a window as open"""
+    with OPEN_WINDOWS_LOCK:
+        OPEN_WINDOWS.add(window_tag)
+
+
+def unregister_window(window_tag):
+    """Unregister a window when closed"""
+    with OPEN_WINDOWS_LOCK:
+        OPEN_WINDOWS.discard(window_tag)
+
+
+def has_open_windows():
+    """Check if any windows are open"""
+    with OPEN_WINDOWS_LOCK:
+        return len(OPEN_WINDOWS) > 0
+
+
 def init_dearpygui():
     """Initialize Dear PyGui context and viewport"""
-    global GUI_INITIALIZED
-    if GUI_INITIALIZED:
-        return
+    global GUI_CONTEXT_CREATED, DEFAULT_FONT
     
-    dpg.create_context()
-    dpg.create_viewport(title='ShareX Middleman', width=900, height=700, decorated=True)
+    if GUI_CONTEXT_CREATED:
+        return True
     
-    # Create a font registry with a larger default font
-    with dpg.font_registry():
-        # Try to load system fonts, fall back to default
-        font_paths = [
-            "C:/Windows/Fonts/consola.ttf",  # Windows Consolas
-            "C:/Windows/Fonts/segoeui.ttf",  # Windows Segoe UI
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",  # Linux
-            "/System/Library/Fonts/SFNSMono.ttf",  # macOS
-            "/System/Library/Fonts/Menlo.ttc",  # macOS fallback
-        ]
+    try:
+        dpg.create_context()
+        dpg.create_viewport(title='ShareX Middleman', width=900, height=700, decorated=True)
         
-        default_font = None
-        for font_path in font_paths:
-            if Path(font_path).exists():
-                try:
-                    default_font = dpg.add_font(font_path, 16)
-                    break
-                except:
-                    continue
+        # Create a font registry with a larger default font
+        with dpg.font_registry():
+            font_paths = [
+                "C:/Windows/Fonts/consola.ttf",  # Windows Consolas
+                "C:/Windows/Fonts/segoeui.ttf",  # Windows Segoe UI
+                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",  # Linux
+                "/System/Library/Fonts/SFNSMono.ttf",  # macOS
+                "/System/Library/Fonts/Menlo.ttc",  # macOS fallback
+            ]
+            
+            for font_path in font_paths:
+                if Path(font_path).exists():
+                    try:
+                        DEFAULT_FONT = dpg.add_font(font_path, 16)
+                        break
+                    except:
+                        continue
+            
+            if DEFAULT_FONT:
+                dpg.bind_font(DEFAULT_FONT)
         
-        if default_font:
-            dpg.bind_font(default_font)
+        # Set theme
+        with dpg.theme() as global_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+                dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 6)
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 6)
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 6)
+                dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (30, 30, 40))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (45, 45, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_Button, (70, 100, 150))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (90, 120, 170))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (60, 90, 140))
+        
+        dpg.bind_theme(global_theme)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        GUI_CONTEXT_CREATED = True
+        return True
+    except Exception as e:
+        print(f"[GUI Error] Failed to initialize Dear PyGui: {e}")
+        return False
+
+
+def shutdown_dearpygui():
+    """Shutdown Dear PyGui context"""
+    global GUI_CONTEXT_CREATED, GUI_RUNNING, DEFAULT_FONT
     
-    # Set theme
-    with dpg.theme() as global_theme:
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 6)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 6)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 6)
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (30, 30, 40))
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (45, 45, 60))
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (70, 100, 150))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (90, 120, 170))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (60, 90, 140))
+    try:
+        if GUI_CONTEXT_CREATED:
+            dpg.destroy_context()
+            GUI_CONTEXT_CREATED = False
+            DEFAULT_FONT = None
+            with OPEN_WINDOWS_LOCK:
+                OPEN_WINDOWS.clear()
+    except Exception as e:
+        print(f"[GUI Error] Failed to shutdown Dear PyGui: {e}")
     
-    dpg.bind_theme(global_theme)
-    dpg.setup_dearpygui()
-    dpg.show_viewport()
-    GUI_INITIALIZED = True
+    GUI_RUNNING = False
 
 
 def gui_main_loop():
-    """Main GUI loop running in separate thread"""
-    global GUI_INITIALIZED
+    """Main GUI loop running in separate thread - runs only when windows are open"""
+    global GUI_RUNNING, GUI_SHUTDOWN_REQUESTED
     
-    init_dearpygui()
+    if not init_dearpygui():
+        print("[GUI Error] Failed to start GUI")
+        GUI_RUNNING = False
+        return
     
-    while dpg.is_dearpygui_running():
+    GUI_RUNNING = True
+    GUI_SHUTDOWN_REQUESTED = False
+    last_window_check = time.time()
+    
+    print("[GUI] Started")
+    
+    while dpg.is_dearpygui_running() and not GUI_SHUTDOWN_REQUESTED:
         # Process any queued GUI requests
         try:
             while not GUI_QUEUE.empty():
@@ -761,9 +867,66 @@ def gui_main_loop():
             pass
         
         dpg.render_dearpygui_frame()
+        
+        # Check if all windows are closed (every 0.5 seconds)
+        current_time = time.time()
+        if current_time - last_window_check > 0.5:
+            last_window_check = current_time
+            if not has_open_windows():
+                # No windows open, hide viewport and wait for new requests
+                print("[GUI] All windows closed, hiding viewport...")
+                dpg.hide_viewport()
+                
+                # Wait for new window requests
+                while not GUI_SHUTDOWN_REQUESTED:
+                    try:
+                        task = GUI_QUEUE.get(timeout=0.5)
+                        task_type = task.get("type")
+                        
+                        # Show viewport again and process request
+                        dpg.show_viewport()
+                        
+                        if task_type == "result":
+                            create_result_window(task["text"], task.get("endpoint"), task.get("title"))
+                        elif task_type == "chat":
+                            create_chat_window(task["session"], task.get("initial_response"))
+                        elif task_type == "browser":
+                            create_session_browser_window()
+                        
+                        GUI_QUEUE.task_done()
+                        break
+                    except queue.Empty:
+                        continue
+                    except:
+                        break
     
-    dpg.destroy_context()
-    GUI_INITIALIZED = False
+    shutdown_dearpygui()
+    print("[GUI] Stopped")
+
+
+def ensure_gui_running():
+    """Ensure GUI thread is running, start if needed"""
+    global GUI_THREAD, GUI_RUNNING, GUI_SHUTDOWN_REQUESTED
+    
+    if not HAVE_GUI:
+        return False
+    
+    with GUI_LOCK:
+        if GUI_RUNNING and GUI_THREAD and GUI_THREAD.is_alive():
+            return True
+        
+        # Start new GUI thread
+        GUI_SHUTDOWN_REQUESTED = False
+        GUI_THREAD = threading.Thread(target=gui_main_loop, daemon=True)
+        GUI_THREAD.start()
+        
+        # Wait for GUI to initialize
+        for _ in range(50):  # Wait up to 5 seconds
+            if GUI_RUNNING and GUI_CONTEXT_CREATED:
+                return True
+            time.sleep(0.1)
+        
+        return GUI_RUNNING
 
 
 def create_result_window(text, endpoint=None, title=None):
@@ -772,17 +935,62 @@ def create_result_window(text, endpoint=None, title=None):
     window_tag = f"result_window_{window_id}"
     text_tag = f"result_text_{window_id}"
     status_tag = f"result_status_{window_id}"
+    wrap_btn_tag = f"wrap_btn_{window_id}"
+    md_btn_tag = f"md_btn_{window_id}"
+    scroll_area_tag = f"scroll_area_{window_id}"
     
     title = title or f"Response - /{endpoint}" if endpoint else "AI Response"
     
+    # State for toggles
+    state = {
+        'wrapped': True,
+        'markdown': True,  # Default to markdown mode
+        'original_text': text
+    }
+    
+    def get_display_text():
+        """Get text based on current display mode"""
+        if state['markdown']:
+            return state['original_text']
+        else:
+            return strip_markdown(state['original_text'])
+    
+    def update_display():
+        """Update the text display"""
+        dpg.set_value(text_tag, get_display_text())
+        dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
+        dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
+        
+        # Handle wrapping
+        if state['wrapped']:
+            dpg.configure_item(text_tag, width=-1)
+            dpg.configure_item(scroll_area_tag, horizontal_scrollbar=False)
+        else:
+            # Set a large width to prevent wrapping and enable horizontal scroll on parent
+            dpg.configure_item(text_tag, width=3000)
+            dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
+    
+    def toggle_wrap():
+        state['wrapped'] = not state['wrapped']
+        update_display()
+        dpg.set_value(status_tag, f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
+    
+    def toggle_markdown():
+        state['markdown'] = not state['markdown']
+        update_display()
+        dpg.set_value(status_tag, f"Mode: {'Markdown' if state['markdown'] else 'Plain Text'}")
+    
     def copy_callback():
-        if copy_to_clipboard(text):
+        if copy_to_clipboard(get_display_text()):
             dpg.set_value(status_tag, "✓ Copied to clipboard!")
         else:
             dpg.set_value(status_tag, "✗ Failed to copy")
     
     def close_callback():
+        unregister_window(window_tag)
         dpg.delete_item(window_tag)
+    
+    register_window(window_tag)
     
     with dpg.window(label=title, tag=window_tag, width=700, height=500, 
                     pos=[100 + (window_id % 5) * 30, 100 + (window_id % 5) * 30],
@@ -792,9 +1000,17 @@ def create_result_window(text, endpoint=None, title=None):
             dpg.add_text(f"Endpoint: /{endpoint}")
             dpg.add_separator()
         
-        dpg.add_text("Response:", color=(150, 200, 255))
-        dpg.add_input_text(tag=text_tag, default_value=text, multiline=True, 
-                          readonly=True, width=-1, height=-60, tab_input=True)
+        # Toggle buttons row
+        with dpg.group(horizontal=True):
+            dpg.add_text("Response:", color=(150, 200, 255))
+            dpg.add_spacer(width=20)
+            dpg.add_button(label="Wrap: ON", tag=wrap_btn_tag, callback=toggle_wrap, width=100)
+            dpg.add_button(label="Markdown", tag=md_btn_tag, callback=toggle_markdown, width=100)
+        
+        # Scrollable area for text
+        with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-60, horizontal_scrollbar=False):
+            dpg.add_input_text(tag=text_tag, default_value=get_display_text(), multiline=True, 
+                              readonly=True, width=-1, height=-1, tab_input=True)
         
         dpg.add_separator()
         
@@ -812,25 +1028,51 @@ def create_chat_window(session, initial_response=None):
     input_tag = f"chat_input_{window_id}"
     status_tag = f"chat_status_{window_id}"
     send_btn_tag = f"send_btn_{window_id}"
+    wrap_btn_tag = f"wrap_btn_{window_id}"
+    md_btn_tag = f"md_btn_{window_id}"
+    scroll_area_tag = f"scroll_area_{window_id}"
     
-    # Build initial conversation text
-    conversation_parts = []
-    if initial_response:
-        conversation_parts.append(f"[Assistant]\n{initial_response}\n")
+    # State for toggles
+    state = {
+        'wrapped': True,
+        'markdown': True,  # Default to markdown mode
+        'last_response': initial_response or ""
+    }
     
-    for msg in session.messages:
-        role = "You" if msg["role"] == "user" else "Assistant"
-        conversation_parts.append(f"[{role}]\n{msg['content']}\n")
-    
-    conversation_text = "\n".join(conversation_parts)
-    last_response = [initial_response or ""]  # Use list to allow modification in closure
-    
-    def update_chat_display():
+    def get_conversation_text():
+        """Build conversation text based on current display mode"""
         parts = []
         for msg in session.messages:
             role = "You" if msg["role"] == "user" else "Assistant"
-            parts.append(f"[{role}]\n{msg['content']}\n")
-        dpg.set_value(chat_log_tag, "\n".join(parts))
+            content = msg['content']
+            if not state['markdown']:
+                content = strip_markdown(content)
+            parts.append(f"[{role}]\n{content}\n")
+        return "\n".join(parts)
+    
+    def update_chat_display():
+        dpg.set_value(chat_log_tag, get_conversation_text())
+        dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
+        dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
+        
+        # Handle wrapping
+        if state['wrapped']:
+            dpg.configure_item(chat_log_tag, width=-1)
+            dpg.configure_item(scroll_area_tag, horizontal_scrollbar=False)
+        else:
+            # Set a large width to prevent wrapping and enable horizontal scroll on parent
+            dpg.configure_item(chat_log_tag, width=3000)
+            dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
+    
+    def toggle_wrap():
+        state['wrapped'] = not state['wrapped']
+        update_chat_display()
+        dpg.set_value(status_tag, f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
+    
+    def toggle_markdown():
+        state['markdown'] = not state['markdown']
+        update_chat_display()
+        dpg.set_value(status_tag, f"Mode: {'Markdown' if state['markdown'] else 'Plain Text'}")
     
     def send_callback():
         user_input = dpg.get_value(input_tag).strip()
@@ -854,7 +1096,7 @@ def create_chat_window(session, initial_response=None):
                 session.messages.pop()  # Remove failed user message
             else:
                 session.add_message("assistant", response_text)
-                last_response[0] = response_text
+                state['last_response'] = response_text
                 update_chat_display()
                 dpg.set_value(status_tag, "✓ Response received")
                 add_session(session)
@@ -864,20 +1106,26 @@ def create_chat_window(session, initial_response=None):
         threading.Thread(target=process_message, daemon=True).start()
     
     def copy_all_callback():
-        all_text = dpg.get_value(chat_log_tag)
+        all_text = get_conversation_text()
         if copy_to_clipboard(all_text):
             dpg.set_value(status_tag, "✓ Copied all!")
         else:
             dpg.set_value(status_tag, "✗ Failed to copy")
     
     def copy_last_callback():
-        if copy_to_clipboard(last_response[0]):
+        text = state['last_response']
+        if not state['markdown']:
+            text = strip_markdown(text)
+        if copy_to_clipboard(text):
             dpg.set_value(status_tag, "✓ Copied last response!")
         else:
             dpg.set_value(status_tag, "✗ Failed to copy")
     
     def close_callback():
+        unregister_window(window_tag)
         dpg.delete_item(window_tag)
+    
+    register_window(window_tag)
     
     title = f"Chat - {session.title or session.session_id}"
     
@@ -889,9 +1137,17 @@ def create_chat_window(session, initial_response=None):
                     color=(150, 150, 200))
         dpg.add_separator()
         
-        dpg.add_text("Conversation:", color=(150, 200, 255))
-        dpg.add_input_text(tag=chat_log_tag, default_value=conversation_text, 
-                          multiline=True, readonly=True, width=-1, height=-150, tab_input=True)
+        # Toggle buttons row
+        with dpg.group(horizontal=True):
+            dpg.add_text("Conversation:", color=(150, 200, 255))
+            dpg.add_spacer(width=20)
+            dpg.add_button(label="Wrap: ON", tag=wrap_btn_tag, callback=toggle_wrap, width=100)
+            dpg.add_button(label="Markdown", tag=md_btn_tag, callback=toggle_markdown, width=100)
+        
+        # Scrollable area for chat log
+        with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-150, horizontal_scrollbar=False):
+            dpg.add_input_text(tag=chat_log_tag, default_value=get_conversation_text(), 
+                              multiline=True, readonly=True, width=-1, height=-1, tab_input=True)
         
         dpg.add_separator()
         dpg.add_text("Your message:", color=(150, 200, 255))
@@ -915,7 +1171,7 @@ def create_session_browser_window():
     status_tag = f"browser_status_{window_id}"
     
     sessions = list_sessions()
-    selected_session = {'id': None}  # Use dict instead of list
+    selected_session = {'id': None}
     
     def refresh_table():
         nonlocal sessions
@@ -927,9 +1183,8 @@ def create_session_browser_window():
         
         # Add rows
         for s in sessions:
-            sid = s['id']  # Capture session id in local variable
+            sid = s['id']
             with dpg.table_row(parent=table_tag):
-                # Make session ID clickable - create closure that properly captures sid
                 def make_callback(session_id):
                     return lambda *args: select_session(session_id)
                 dpg.add_selectable(label=sid, callback=make_callback(sid))
@@ -967,7 +1222,10 @@ def create_session_browser_window():
             dpg.set_value(status_tag, "No session selected")
     
     def close_callback():
+        unregister_window(window_tag)
         dpg.delete_item(window_tag)
+    
+    register_window(window_tag)
     
     with dpg.window(label="Session Browser", tag=window_tag, width=850, height=500,
                     pos=[50 + (window_id % 3) * 30, 50 + (window_id % 3) * 30],
@@ -988,9 +1246,8 @@ def create_session_browser_window():
             dpg.add_table_column(label="Updated", width_fixed=True, init_width_or_weight=130)
             
             for s in sessions:
-                sid = s['id']  # Capture session id in local variable
+                sid = s['id']
                 with dpg.table_row():
-                    # Create closure that properly captures sid
                     def make_callback(session_id):
                         return lambda *args: select_session(session_id)
                     dpg.add_selectable(label=sid, callback=make_callback(sid))
@@ -1016,24 +1273,42 @@ def show_result_gui(text, title="AI Response", endpoint=None):
     """Queue a result GUI window to be created"""
     if not HAVE_GUI:
         print("[Warning] GUI not available.")
-        return
+        return False
+    
+    if not ensure_gui_running():
+        print("[Warning] Failed to start GUI.")
+        return False
+    
     GUI_QUEUE.put({"type": "result", "text": text, "title": title, "endpoint": endpoint})
+    return True
 
 
 def show_chat_gui(session, initial_response=None):
     """Queue a chat GUI window to be created"""
     if not HAVE_GUI:
         print("[Warning] GUI not available.")
-        return
+        return False
+    
+    if not ensure_gui_running():
+        print("[Warning] Failed to start GUI.")
+        return False
+    
     GUI_QUEUE.put({"type": "chat", "session": session, "initial_response": initial_response})
+    return True
 
 
 def show_session_browser():
     """Queue a session browser window to be created"""
     if not HAVE_GUI:
         print("[Warning] GUI not available.")
-        return
+        return False
+    
+    if not ensure_gui_running():
+        print("[Warning] Failed to start GUI.")
+        return False
+    
     GUI_QUEUE.put({"type": "browser"})
+    return True
 
 
 # ============================================================================
@@ -1156,6 +1431,7 @@ def index():
         "service": "Universal ShareX Middleman",
         "status": "running",
         "gui_available": HAVE_GUI,
+        "gui_running": GUI_RUNNING,
         "default_provider": CONFIG.get("default_provider", "google"),
         "available_providers": available_providers,
         "endpoints": {f"/{name}": prompt[:100] + "..." if len(prompt) > 100 else prompt 
@@ -1174,6 +1450,7 @@ def health():
     return jsonify({
         "status": "healthy",
         "gui_available": HAVE_GUI,
+        "gui_running": GUI_RUNNING,
         "providers": {p: km.get_key_count() for p, km in KEY_MANAGERS.items() if km.has_keys()},
         "endpoints_count": len(ENDPOINTS),
         "sessions_count": len(CHAT_SESSIONS)
@@ -1191,6 +1468,15 @@ def get_session_api(session_id):
     if not session:
         return jsonify({"error": "Session not found"}), 404
     return jsonify(session.to_dict())
+
+
+@app.route('/gui/browser')
+def open_browser_api():
+    """Open the session browser via HTTP request"""
+    if show_session_browser():
+        return jsonify({"status": "ok", "message": "Session browser opened"})
+    else:
+        return jsonify({"status": "error", "message": "GUI not available"}), 503
 
 
 @app.errorhandler(400)
@@ -1213,6 +1499,7 @@ def terminal_session_manager():
     print("  [L] List sessions       [O] Open session browser (GUI)")
     print("  [S] Show session        [D] Delete session")
     print("  [C] Clear all sessions  [H] Help")
+    print("  [G] Toggle GUI status")
     print("─"*60 + "\n")
     
     def get_input_nonblocking():
@@ -1265,6 +1552,18 @@ def terminal_session_manager():
                     show_session_browser()
                 else:
                     print("\n[GUI not available]\n")
+            
+            elif key == 'g':
+                print(f"\n{'─'*60}")
+                print(f"GUI STATUS:")
+                print(f"  Available: {HAVE_GUI}")
+                print(f"  Running: {GUI_RUNNING}")
+                print(f"  Context Created: {GUI_CONTEXT_CREATED}")
+                print(f"  Open Windows: {len(OPEN_WINDOWS)}")
+                if OPEN_WINDOWS:
+                    for w in list(OPEN_WINDOWS):
+                        print(f"    - {w}")
+                print(f"{'─'*60}\n")
             
             elif key == 's':
                 print("\nEnter session ID: ", end='', flush=True)
@@ -1328,6 +1627,7 @@ def terminal_session_manager():
                 print("  [S] Show session        - Display a session by ID")
                 print("  [D] Delete session      - Delete a session by ID")
                 print("  [C] Clear all           - Delete all sessions")
+                print("  [G] GUI status          - Show GUI state information")
                 print("  [H] Help                - Show this help")
                 print("─"*60 + "\n")
             
@@ -1346,7 +1646,7 @@ def initialize():
     global CONFIG, AI_PARAMS, ENDPOINTS, KEY_MANAGERS
     
     print("=" * 60)
-    print("Universal ShareX Middleman Server (Dear PyGui)")
+    print("Universal ShareX Middleman Server (Dear PyGui - On Demand)")
     print("=" * 60)
     
     print(f"\nLoading configuration from '{CONFIG_FILE}'...")
@@ -1373,6 +1673,7 @@ def initialize():
     print(f"  Default Provider: {CONFIG.get('default_provider', 'google')}")
     print(f"  Default Show Mode: {CONFIG.get('default_show', 'no')}")
     print(f"  GUI Available: {HAVE_GUI}")
+    print(f"  GUI Mode: On-demand (starts when needed)")
     print(f"  Max Sessions: {CONFIG.get('max_sessions', 50)}")
     
     if AI_PARAMS:
@@ -1516,11 +1817,12 @@ if __name__ == '__main__':
         print("\n⚠️  WARNING: No API keys configured!")
         print("Please add your API keys to config.ini\n")
     
-    # Start GUI thread if available
+    # NOTE: GUI is NOT started at startup - it will be started on-demand
+    # when a GUI window is requested (via ?show=gui, ?show=chatgui, or pressing 'O')
     if HAVE_GUI:
-        GUI_THREAD = threading.Thread(target=gui_main_loop, daemon=True)
-        GUI_THREAD.start()
-        print("✓ GUI thread started")
+        print("✓ GUI available (will start on-demand when needed)")
+    else:
+        print("✗ GUI not available (Dear PyGui not installed)")
     
     # Start terminal session manager
     terminal_thread = threading.Thread(target=terminal_session_manager, daemon=True)
@@ -1534,7 +1836,7 @@ if __name__ == '__main__':
     print(f"   Endpoints: {', '.join('/' + e for e in ENDPOINTS.keys())}")
     print(f"\n   Show modes:")
     print(f"     ?show=no      - Return text only (default)")
-    print(f"     ?show=gui     - Display result in GUI window")
+    print(f"     ?show=gui     - Display result in GUI window (starts GUI on first use)")
     print(f"     ?show=chatgui - Display result in chat GUI with follow-up input")
     print("\nPress Ctrl+C to stop\n")
     
