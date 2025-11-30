@@ -93,6 +93,15 @@ WINDOW_COUNTER_LOCK = threading.Lock()
 
 # Default font reference
 DEFAULT_FONT = None
+FONTS = {
+    "regular": None,
+    "bold": None,
+    "italic": None,
+    "bold_italic": None,
+    "header1": None,
+    "header2": None,
+    "code": None
+}
 
 
 # ============================================================================
@@ -714,6 +723,98 @@ def strip_markdown(text):
     return result
 
 
+def render_markdown(text, parent, wrap_width=-1):
+    """Render markdown text to DPG items"""
+    lines = text.split('\n')
+    in_code_block = False
+    code_block_lines = []
+    code_lang = ""
+    
+    # Helper to flush code block
+    def flush_code_block():
+        nonlocal code_block_lines, code_lang
+        if code_block_lines:
+            code_text = '\n'.join(code_block_lines)
+            # Estimate height: lines * 18 pixels + padding
+            height = max(60, len(code_block_lines) * 18 + 20)
+            dpg.add_input_text(default_value=code_text, multiline=True, readonly=True, 
+                              width=-1, height=height, parent=parent)
+            code_block_lines = []
+            code_lang = ""
+
+    for line in lines:
+        stripped_line = line.strip()
+        
+        # Code Block Detection
+        if stripped_line.startswith('```'):
+            if in_code_block:
+                # End of code block
+                flush_code_block()
+                in_code_block = False
+            else:
+                # Start of code block
+                in_code_block = True
+                code_lang = stripped_line[3:].strip()
+            continue
+            
+        if in_code_block:
+            code_block_lines.append(line)
+            continue
+            
+        # Headers
+        if stripped_line.startswith('#'):
+            level = len(stripped_line.split(' ')[0])
+            content = stripped_line.lstrip('#').strip()
+            if level == 1:
+                item = dpg.add_text(content, parent=parent, wrap=wrap_width, color=(255, 200, 100))
+                if FONTS.get("header1"): dpg.bind_item_font(item, FONTS.get("header1"))
+            elif level == 2:
+                item = dpg.add_text(content, parent=parent, wrap=wrap_width, color=(200, 200, 255))
+                if FONTS.get("header2"): dpg.bind_item_font(item, FONTS.get("header2"))
+            else:
+                item = dpg.add_text(content, parent=parent, wrap=wrap_width, color=(180, 220, 255))
+                if FONTS.get("bold"): dpg.bind_item_font(item, FONTS.get("bold"))
+            continue
+            
+        # Bullet Points
+        if stripped_line.startswith('- ') or stripped_line.startswith('* '):
+            content = stripped_line[2:].strip()
+            # Clean up bold markers for cleaner bullet display
+            content = content.replace('**', '').replace('__', '')
+            dpg.add_text(content, parent=parent, wrap=wrap_width, bullet=True)
+            continue
+            
+        # Bold Line (whole line)
+        if stripped_line.startswith('**') and stripped_line.endswith('**') and len(stripped_line) > 4:
+            content = stripped_line[2:-2]
+            item = dpg.add_text(content, parent=parent, wrap=wrap_width)
+            if FONTS.get("bold"): dpg.bind_item_font(item, FONTS.get("bold"))
+            continue
+            
+        # Italic Line (whole line)
+        if (stripped_line.startswith('*') and stripped_line.endswith('*') and len(stripped_line) > 2) or \
+           (stripped_line.startswith('_') and stripped_line.endswith('_') and len(stripped_line) > 2):
+            content = stripped_line[1:-1]
+            item = dpg.add_text(content, parent=parent, wrap=wrap_width)
+            if FONTS.get("italic"): dpg.bind_item_font(item, FONTS.get("italic"))
+            continue
+
+        # Regular Text (with simple inline stripping for display)
+        # Note: We don't support true inline bold/italic yet, so we strip markers for cleaner look
+        # but keep the text.
+        
+        # Check if empty line (spacer)
+        if not stripped_line:
+            dpg.add_spacer(height=5, parent=parent)
+            continue
+            
+        dpg.add_text(line, parent=parent, wrap=wrap_width)
+
+    # Flush any remaining code block
+    if in_code_block:
+        flush_code_block()
+
+
 # ============================================================================
 # DEAR PYGUI GUI FUNCTIONS - ON-DEMAND CREATION
 # ============================================================================
@@ -763,7 +864,7 @@ def has_open_windows():
 
 def init_dearpygui():
     """Initialize Dear PyGui context and viewport"""
-    global GUI_CONTEXT_CREATED, DEFAULT_FONT
+    global GUI_CONTEXT_CREATED, DEFAULT_FONT, FONTS
     
     if GUI_CONTEXT_CREATED:
         return True
@@ -772,23 +873,43 @@ def init_dearpygui():
         dpg.create_context()
         dpg.create_viewport(title='ShareX Middleman', width=900, height=700, decorated=True)
         
-        # Create a font registry with a larger default font
+        # Create a font registry with a larger default font and styles
         with dpg.font_registry():
-            font_paths = [
-                "C:/Windows/Fonts/consola.ttf",  # Windows Consolas
-                "C:/Windows/Fonts/segoeui.ttf",  # Windows Segoe UI
-                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",  # Linux
-                "/System/Library/Fonts/SFNSMono.ttf",  # macOS
-                "/System/Library/Fonts/Menlo.ttc",  # macOS fallback
-            ]
-            
-            for font_path in font_paths:
-                if Path(font_path).exists():
-                    try:
-                        DEFAULT_FONT = dpg.add_font(font_path, 16)
-                        break
-                    except:
-                        continue
+            # Try to load Consolas family (Windows)
+            base_path = Path("C:/Windows/Fonts")
+            if (base_path / "consola.ttf").exists():
+                try:
+                    FONTS["regular"] = dpg.add_font(str(base_path / "consola.ttf"), 16)
+                    FONTS["bold"] = dpg.add_font(str(base_path / "consolab.ttf"), 16)
+                    FONTS["italic"] = dpg.add_font(str(base_path / "consolai.ttf"), 16)
+                    FONTS["bold_italic"] = dpg.add_font(str(base_path / "consolaz.ttf"), 16)
+                    FONTS["header1"] = dpg.add_font(str(base_path / "consolab.ttf"), 26)
+                    FONTS["header2"] = dpg.add_font(str(base_path / "consolab.ttf"), 20)
+                    FONTS["code"] = dpg.add_font(str(base_path / "consola.ttf"), 14)
+                    DEFAULT_FONT = FONTS["regular"]
+                except Exception as e:
+                    print(f"[GUI Warning] Failed to load Consolas fonts: {e}")
+
+            # Fallback if Consolas failed or not on Windows
+            if not DEFAULT_FONT:
+                font_paths = [
+                    "C:/Windows/Fonts/segoeui.ttf",  # Windows Segoe UI
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",  # Linux
+                    "/System/Library/Fonts/SFNSMono.ttf",  # macOS
+                    "/System/Library/Fonts/Menlo.ttc",  # macOS fallback
+                ]
+                
+                for font_path in font_paths:
+                    if Path(font_path).exists():
+                        try:
+                            DEFAULT_FONT = dpg.add_font(font_path, 16)
+                            FONTS["regular"] = DEFAULT_FONT
+                            # Create larger variants for headers if possible (re-adding same font with different size)
+                            FONTS["header1"] = dpg.add_font(font_path, 26)
+                            FONTS["header2"] = dpg.add_font(font_path, 20)
+                            break
+                        except:
+                            continue
             
             if DEFAULT_FONT:
                 dpg.bind_font(DEFAULT_FONT)
@@ -912,8 +1033,7 @@ def create_result_window(text, endpoint=None, title=None):
     content_group_tag = f"result_content_{window_id}"
     status_tag = f"result_status_{window_id}"
     wrap_btn_tag = f"wrap_btn_{window_id}"
-    md_btn_tag = f"md_btn_{window_id}"
-    select_btn_tag = f"select_btn_{window_id}"
+    mode_btn_tag = f"mode_btn_{window_id}"
     scroll_area_tag = f"scroll_area_{window_id}"
     
     title = title or f"Response - /{endpoint}" if endpoint else "AI Response"
@@ -921,14 +1041,13 @@ def create_result_window(text, endpoint=None, title=None):
     # State for toggles
     state = {
         'wrapped': True,
-        'markdown': True,  # Default to markdown mode
-        'selectable': False,
+        'mode': 'rich',  # 'rich' (markdown) or 'text' (selectable)
         'original_text': text
     }
     
     def get_display_text():
         """Get text based on current display mode"""
-        if state['markdown']:
+        if state['mode'] == 'rich':
             return state['original_text']
         else:
             return strip_markdown(state['original_text'])
@@ -940,8 +1059,7 @@ def create_result_window(text, endpoint=None, title=None):
         
         # Update buttons
         dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
-        dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
-        dpg.configure_item(select_btn_tag, label=f"Select: {'ON' if state['selectable'] else 'OFF'}")
+        dpg.configure_item(mode_btn_tag, label=f"Mode: {'Rich' if state['mode'] == 'rich' else 'Text'}")
         
         # Configure parent scrollbar
         if state['wrapped']:
@@ -950,7 +1068,7 @@ def create_result_window(text, endpoint=None, title=None):
             dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
             
         # Add content based on mode
-        if state['selectable']:
+        if state['mode'] == 'text':
             # Use InputText for selection (monochrome)
             width = -1 if state['wrapped'] else 3000
             dpg.add_input_text(default_value=get_display_text(), parent=content_group_tag, 
@@ -958,22 +1076,17 @@ def create_result_window(text, endpoint=None, title=None):
         else:
             # Use Text for rich display (colored potential, clean wrapping)
             wrap_width = 0 if state['wrapped'] else -1
-            dpg.add_text(get_display_text(), parent=content_group_tag, wrap=wrap_width)
+            render_markdown(state['original_text'], parent=content_group_tag, wrap_width=wrap_width)
     
     def toggle_wrap():
         state['wrapped'] = not state['wrapped']
         update_display()
         dpg.set_value(status_tag, f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
     
-    def toggle_markdown():
-        state['markdown'] = not state['markdown']
+    def toggle_mode():
+        state['mode'] = 'text' if state['mode'] == 'rich' else 'rich'
         update_display()
-        dpg.set_value(status_tag, f"Mode: {'Markdown' if state['markdown'] else 'Plain Text'}")
-        
-    def toggle_selectable():
-        state['selectable'] = not state['selectable']
-        update_display()
-        dpg.set_value(status_tag, f"Selectable: {'ON' if state['selectable'] else 'OFF'}")
+        dpg.set_value(status_tag, f"Mode: {state['mode'].title()}")
     
     def copy_callback():
         if copy_to_clipboard(get_display_text()):
@@ -1000,8 +1113,7 @@ def create_result_window(text, endpoint=None, title=None):
             dpg.add_text("Response:", color=(150, 200, 255))
             dpg.add_spacer(width=20)
             dpg.add_button(label="Wrap: ON", tag=wrap_btn_tag, callback=toggle_wrap, width=100)
-            dpg.add_button(label="Markdown", tag=md_btn_tag, callback=toggle_markdown, width=100)
-            dpg.add_button(label="Select: OFF", tag=select_btn_tag, callback=toggle_selectable, width=100)
+            dpg.add_button(label="Mode: Rich", tag=mode_btn_tag, callback=toggle_mode, width=100)
         
         # Scrollable area for text
         with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-60, horizontal_scrollbar=False):
@@ -1027,15 +1139,13 @@ def create_chat_window(session, initial_response=None):
     status_tag = f"chat_status_{window_id}"
     send_btn_tag = f"send_btn_{window_id}"
     wrap_btn_tag = f"wrap_btn_{window_id}"
-    md_btn_tag = f"md_btn_{window_id}"
-    select_btn_tag = f"select_btn_{window_id}"
+    mode_btn_tag = f"mode_btn_{window_id}"
     scroll_area_tag = f"scroll_area_{window_id}"
     
     # State for toggles
     state = {
         'wrapped': True,
-        'markdown': True,  # Default to markdown mode
-        'selectable': False,
+        'mode': 'rich',  # 'rich' (markdown) or 'text' (selectable)
         'last_response': initial_response or ""
     }
     
@@ -1045,7 +1155,7 @@ def create_chat_window(session, initial_response=None):
         for msg in session.messages:
             role = "You" if msg["role"] == "user" else "Assistant"
             content = msg['content']
-            if not state['markdown']:
+            if state['mode'] == 'text':
                 content = strip_markdown(content)
             parts.append(f"[{role}]\n{content}\n")
         return "\n".join(parts)
@@ -1084,8 +1194,12 @@ def create_chat_window(session, initial_response=None):
                     dpg.add_text("You:", color=(100, 200, 255), parent=chat_log_group)
                 else:
                     dpg.add_text("Assistant:", color=(150, 255, 150), parent=chat_log_group)
+                
+                if state['markdown']:
+                    render_markdown(content, parent=chat_log_group, wrap_width=wrap_width)
+                else:
+                    dpg.add_text(content, parent=chat_log_group, wrap=wrap_width, bullet=True)
                     
-                dpg.add_text(content, parent=chat_log_group, wrap=wrap_width, bullet=True)
                 dpg.add_separator(parent=chat_log_group)
             
         # Scroll to bottom (simple hack: set scroll y to max)

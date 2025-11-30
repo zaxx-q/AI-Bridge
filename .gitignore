@@ -2,3 +2,4 @@ run_py.bat
 .env
 config.ini
 chat_sessions.json
+**/__pycache__
