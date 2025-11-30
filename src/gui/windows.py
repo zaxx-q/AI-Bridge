@@ -140,15 +140,15 @@ def create_chat_window(session, initial_response=None):
     status_tag = f"chat_status_{window_id}"
     send_btn_tag = f"send_btn_{window_id}"
     wrap_btn_tag = f"wrap_btn_{window_id}"
-    mode_btn_tag = f"mode_btn_{window_id}"
-    auto_scroll_tag = f"auto_scroll_btn_{window_id}"
+    md_btn_tag = f"md_btn_{window_id}"
+    select_btn_tag = f"select_btn_{window_id}"
     scroll_area_tag = f"scroll_area_{window_id}"
     
     # State for toggles
     state = {
         'wrapped': True,
-        'mode': 'markdown',  # 'markdown' or 'selectable'
-        'auto_scroll': True,
+        'markdown': True,
+        'selectable': False,
         'last_response': initial_response or ""
     }
     
@@ -158,25 +158,19 @@ def create_chat_window(session, initial_response=None):
         for msg in session.messages:
             role = "You" if msg["role"] == "user" else "Assistant"
             content = msg['content']
-            if state['mode'] == 'selectable':
+            if not state['markdown']:
                 content = strip_markdown(content)
             parts.append(f"[{role}]\n{content}\n")
         return "\n".join(parts)
     
-    def update_chat_display(scroll_to_bottom=False):
-        # Save current scroll position
-        try:
-            current_scroll = dpg.get_y_scroll(scroll_area_tag)
-        except:
-            current_scroll = 0
-        
+    def update_chat_display():
         # Clear existing messages
         dpg.delete_item(chat_log_group, children_only=True)
         
         # Update buttons
         dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
-        dpg.configure_item(mode_btn_tag, label=f"Mode: {'Markdown' if state['mode'] == 'markdown' else 'Selectable'}")
-        dpg.configure_item(auto_scroll_tag, label=f"Auto-scroll: {'ON' if state['auto_scroll'] else 'OFF'}")
+        dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
+        dpg.configure_item(select_btn_tag, label=f"Select: {'ON' if state['selectable'] else 'OFF'}")
         
         # Handle wrapping
         wrap_width = 0 if state['wrapped'] else -1
@@ -186,56 +180,45 @@ def create_chat_window(session, initial_response=None):
         else:
             dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
             
-        if state['mode'] == 'selectable':
-            # Selectable mode: One big text box (monochrome, plain text)
+        if state['selectable']:
+            # Selectable mode: One big text box (monochrome)
             width = -1 if state['wrapped'] else 3000
             dpg.add_input_text(default_value=get_conversation_text(), parent=chat_log_group, 
                               multiline=True, readonly=True, width=width, height=-1)
         else:
-            # Markdown mode: Colored text blocks with markdown rendering
+            # Rich mode: Colored text blocks
             for i, msg in enumerate(session.messages):
                 role = msg["role"]
                 content = msg["content"]
+                if not state['markdown']:
+                    content = strip_markdown(content)
                 
                 if role == "user":
                     dpg.add_text("You:", color=(100, 200, 255), parent=chat_log_group)
                 else:
                     dpg.add_text("Assistant:", color=(150, 255, 150), parent=chat_log_group)
                 
-                render_markdown(content, parent=chat_log_group, wrap_width=wrap_width, fonts=FONTS)
+                if state['markdown']:
+                    render_markdown(content, parent=chat_log_group, wrap_width=wrap_width, fonts=FONTS)
+                else:
+                    dpg.add_text(content, parent=chat_log_group, wrap=wrap_width, bullet=True)
+                    
                 dpg.add_separator(parent=chat_log_group)
-        
-        # Restore scroll position or scroll to bottom if requested
-        if scroll_to_bottom and state['auto_scroll']:
-            # Schedule scroll to bottom on next frame
-            def scroll_bottom():
-                try:
-                    max_scroll = dpg.get_y_scroll_max(scroll_area_tag)
-                    dpg.set_y_scroll(scroll_area_tag, max_scroll)
-                except:
-                    pass
-            dpg.split_frame()
-            scroll_bottom()
-        else:
-            # Restore previous scroll position
-            try:
-                dpg.set_y_scroll(scroll_area_tag, current_scroll)
-            except:
-                pass
     
     def toggle_wrap():
         state['wrapped'] = not state['wrapped']
         update_chat_display()
         dpg.set_value(status_tag, f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
     
-    def toggle_mode():
-        state['mode'] = 'selectable' if state['mode'] == 'markdown' else 'markdown'
+    def toggle_markdown():
+        state['markdown'] = not state['markdown']
         update_chat_display()
-        dpg.set_value(status_tag, f"Mode: {'Markdown' if state['mode'] == 'markdown' else 'Selectable'}")
-    
-    def toggle_auto_scroll():
-        state['auto_scroll'] = not state['auto_scroll']
-        dpg.set_value(status_tag, f"Auto-scroll: {'ON' if state['auto_scroll'] else 'OFF'}")
+        dpg.set_value(status_tag, f"Mode: {'Markdown' if state['markdown'] else 'Plain Text'}")
+        
+    def toggle_selectable():
+        state['selectable'] = not state['selectable']
+        update_chat_display()
+        dpg.set_value(status_tag, f"Selectable: {'ON' if state['selectable'] else 'OFF'}")
     
     def send_callback():
         user_input = dpg.get_value(input_tag).strip()
@@ -268,7 +251,7 @@ def create_chat_window(session, initial_response=None):
             else:
                 session.add_message("assistant", response_text)
                 state['last_response'] = response_text
-                update_chat_display(scroll_to_bottom=True)
+                update_chat_display()
                 dpg.set_value(status_tag, "✓ Response received")
                 add_session(session, web_server.CONFIG.get("max_sessions", 50))
             
@@ -313,8 +296,8 @@ def create_chat_window(session, initial_response=None):
             dpg.add_text("Conversation:", color=(150, 200, 255))
             dpg.add_spacer(width=20)
             dpg.add_button(label="Wrap: ON", tag=wrap_btn_tag, callback=toggle_wrap, width=100)
-            dpg.add_button(label="Mode: Markdown", tag=mode_btn_tag, callback=toggle_mode, width=150)
-            dpg.add_button(label="Auto-scroll: ON", tag=auto_scroll_tag, callback=toggle_auto_scroll, width=150)
+            dpg.add_button(label="Markdown", tag=md_btn_tag, callback=toggle_markdown, width=100)
+            dpg.add_button(label="Select: OFF", tag=select_btn_tag, callback=toggle_selectable, width=100)
         
         # Scrollable area for chat log
         with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-150, horizontal_scrollbar=False):
@@ -324,30 +307,9 @@ def create_chat_window(session, initial_response=None):
         update_chat_display()
         
         dpg.add_separator()
-        dpg.add_text("Your message (Enter to send, Shift+Enter for new line):", color=(150, 200, 255))
+        dpg.add_text("Your message:", color=(150, 200, 255))
         dpg.add_input_text(tag=input_tag, multiline=True, width=-1, height=60, 
                           hint="Type your follow-up message here...")
-        
-        # Add key handler for Enter key
-        with dpg.handler_registry():
-            dpg.add_key_press_handler(key=dpg.mvKey_Return, callback=lambda: handle_enter_key())
-        
-        def handle_enter_key():
-            # Check if input is focused
-            if dpg.is_item_focused(input_tag):
-                # Check if either Shift key is held (Left Shift or Right Shift)
-                try:
-                    shift_held = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
-                except AttributeError:
-                    # Fallback to raw key codes if constants not available
-                    shift_held = dpg.is_key_down(340) or dpg.is_key_down(344)
-                
-                if shift_held:
-                    # Let Shift+Enter add newline (default behavior)
-                    pass
-                else:
-                    # Enter alone sends the message
-                    send_callback()
         
         with dpg.group(horizontal=True):
             dpg.add_button(label="Send", tag=send_btn_tag, callback=send_callback)

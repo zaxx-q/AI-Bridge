@@ -99,42 +99,24 @@ def render_markdown(text, parent, wrap_width=-1, fonts=None):
         # Bullet Points
         if stripped_line.startswith('- ') or stripped_line.startswith('* '):
             content = stripped_line[2:].strip()
-            
-            # Check if entire content is bold: **text**
-            bold_match = re.match(r'^\*\*(.+?)\*\*$', content)
-            if bold_match:
-                # Entire bullet content is bold
-                text_content = bold_match.group(1)
-                item = dpg.add_text(text_content, parent=parent, wrap=wrap_width, bullet=True)
-                if fonts.get("bold"):
-                    dpg.bind_item_font(item, fonts.get("bold"))
-            else:
-                # Mixed or no formatting - strip markers for cleaner display
-                clean_content = content.replace('**', '').replace('__', '')
-                dpg.add_text(clean_content, parent=parent, wrap=wrap_width, bullet=True)
+            # Clean up bold markers for cleaner bullet display
+            content = content.replace('**', '').replace('__', '')
+            dpg.add_text(content, parent=parent, wrap=wrap_width, bullet=True)
             continue
             
-        # Bold text (whole line or with trailing punctuation)
-        # Match **text** or **text**. or **text**, etc.
-        bold_match = re.match(r'^\*\*(.+?)\*\*([.,;:!?\s]*)$', stripped_line)
-        if bold_match:
-            text_content = bold_match.group(1)
-            punctuation = bold_match.group(2)
-            full_content = text_content + punctuation
-            item = dpg.add_text(full_content, parent=parent, wrap=wrap_width)
-            if fonts.get("bold"):
-                dpg.bind_item_font(item, fonts.get("bold"))
+        # Bold Line (whole line)
+        if stripped_line.startswith('**') and stripped_line.endswith('**') and len(stripped_line) > 4:
+            content = stripped_line[2:-2]
+            item = dpg.add_text(content, parent=parent, wrap=wrap_width)
+            if fonts.get("bold"): dpg.bind_item_font(item, fonts.get("bold"))
             continue
             
-        # Italic text (whole line or with trailing punctuation)
-        italic_match = re.match(r'^[\*_](.+?)[\*_]([.,;:!?\s]*)$', stripped_line)
-        if italic_match and len(stripped_line) > 2:
-            text_content = italic_match.group(1)
-            punctuation = italic_match.group(2)
-            full_content = text_content + punctuation
-            item = dpg.add_text(full_content, parent=parent, wrap=wrap_width)
-            if fonts.get("italic"):
-                dpg.bind_item_font(item, fonts.get("italic"))
+        # Italic Line (whole line)
+        if (stripped_line.startswith('*') and stripped_line.endswith('*') and len(stripped_line) > 2) or \
+           (stripped_line.startswith('_') and stripped_line.endswith('_') and len(stripped_line) > 2):
+            content = stripped_line[1:-1]
+            item = dpg.add_text(content, parent=parent, wrap=wrap_width)
+            if fonts.get("italic"): dpg.bind_item_font(item, fonts.get("italic"))
             continue
 
         # Check if empty line (spacer)
