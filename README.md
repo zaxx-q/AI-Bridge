@@ -134,7 +134,7 @@ Edit `config.ini` to customize:
 
 The refactored version is **100% backward compatible**. All features work exactly the same:
 
-1. **Old way:** `python server.py`
+1. **Old way:** `python deprecated.py`
 2. **New way:** `python main.py`
 
 All endpoints, features, and functionality remain identical.
