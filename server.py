@@ -873,35 +873,8 @@ def gui_main_loop():
         if current_time - last_window_check > 0.5:
             last_window_check = current_time
             if not has_open_windows():
-                # No windows open, hide viewport and wait for new requests
-                print("[GUI] All windows closed, minimizing viewport...")
-                try:
-                    dpg.minimize_viewport()
-                except:
-                    pass
-                
-                # Wait for new window requests
-                while not GUI_SHUTDOWN_REQUESTED:
-                    try:
-                        task = GUI_QUEUE.get(timeout=0.5)
-                        task_type = task.get("type")
-                        
-                        # Show viewport again and process request
-                        dpg.show_viewport()
-                        
-                        if task_type == "result":
-                            create_result_window(task["text"], task.get("endpoint"), task.get("title"))
-                        elif task_type == "chat":
-                            create_chat_window(task["session"], task.get("initial_response"))
-                        elif task_type == "browser":
-                            create_session_browser_window()
-                        
-                        GUI_QUEUE.task_done()
-                        break
-                    except queue.Empty:
-                        continue
-                    except:
-                        break
+                print("[GUI] All windows closed, stopping...")
+                break
     
     shutdown_dearpygui()
     print("[GUI] Stopped")
@@ -940,6 +913,7 @@ def create_result_window(text, endpoint=None, title=None):
     status_tag = f"result_status_{window_id}"
     wrap_btn_tag = f"wrap_btn_{window_id}"
     md_btn_tag = f"md_btn_{window_id}"
+    select_btn_tag = f"select_btn_{window_id}"
     scroll_area_tag = f"scroll_area_{window_id}"
     
     title = title or f"Response - /{endpoint}" if endpoint else "AI Response"
@@ -948,6 +922,7 @@ def create_result_window(text, endpoint=None, title=None):
     state = {
         'wrapped': True,
         'markdown': True,  # Default to markdown mode
+        'selectable': False,
         'original_text': text
     }
     
@@ -966,9 +941,7 @@ def create_result_window(text, endpoint=None, title=None):
         # Update buttons
         dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
         dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
-        
-        # Handle wrapping configuration
-        wrap_width = 0 if state['wrapped'] else -1
+        dpg.configure_item(select_btn_tag, label=f"Select: {'ON' if state['selectable'] else 'OFF'}")
         
         # Configure parent scrollbar
         if state['wrapped']:
@@ -976,8 +949,16 @@ def create_result_window(text, endpoint=None, title=None):
         else:
             dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
             
-        # Add text item
-        dpg.add_text(get_display_text(), parent=content_group_tag, wrap=wrap_width)
+        # Add content based on mode
+        if state['selectable']:
+            # Use InputText for selection (monochrome)
+            width = -1 if state['wrapped'] else 3000
+            dpg.add_input_text(default_value=get_display_text(), parent=content_group_tag, 
+                              multiline=True, readonly=True, width=width, height=-1)
+        else:
+            # Use Text for rich display (colored potential, clean wrapping)
+            wrap_width = 0 if state['wrapped'] else -1
+            dpg.add_text(get_display_text(), parent=content_group_tag, wrap=wrap_width)
     
     def toggle_wrap():
         state['wrapped'] = not state['wrapped']
@@ -988,6 +969,11 @@ def create_result_window(text, endpoint=None, title=None):
         state['markdown'] = not state['markdown']
         update_display()
         dpg.set_value(status_tag, f"Mode: {'Markdown' if state['markdown'] else 'Plain Text'}")
+        
+    def toggle_selectable():
+        state['selectable'] = not state['selectable']
+        update_display()
+        dpg.set_value(status_tag, f"Selectable: {'ON' if state['selectable'] else 'OFF'}")
     
     def copy_callback():
         if copy_to_clipboard(get_display_text()):
@@ -1015,6 +1001,7 @@ def create_result_window(text, endpoint=None, title=None):
             dpg.add_spacer(width=20)
             dpg.add_button(label="Wrap: ON", tag=wrap_btn_tag, callback=toggle_wrap, width=100)
             dpg.add_button(label="Markdown", tag=md_btn_tag, callback=toggle_markdown, width=100)
+            dpg.add_button(label="Select: OFF", tag=select_btn_tag, callback=toggle_selectable, width=100)
         
         # Scrollable area for text
         with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-60, horizontal_scrollbar=False):
@@ -1041,12 +1028,14 @@ def create_chat_window(session, initial_response=None):
     send_btn_tag = f"send_btn_{window_id}"
     wrap_btn_tag = f"wrap_btn_{window_id}"
     md_btn_tag = f"md_btn_{window_id}"
+    select_btn_tag = f"select_btn_{window_id}"
     scroll_area_tag = f"scroll_area_{window_id}"
     
     # State for toggles
     state = {
         'wrapped': True,
         'markdown': True,  # Default to markdown mode
+        'selectable': False,
         'last_response': initial_response or ""
     }
     
@@ -1068,6 +1057,7 @@ def create_chat_window(session, initial_response=None):
         # Update buttons
         dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
         dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
+        dpg.configure_item(select_btn_tag, label=f"Select: {'ON' if state['selectable'] else 'OFF'}")
         
         # Handle wrapping
         wrap_width = 0 if state['wrapped'] else -1
@@ -1077,20 +1067,26 @@ def create_chat_window(session, initial_response=None):
         else:
             dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
             
-        # Re-render messages with colors
-        for i, msg in enumerate(session.messages):
-            role = msg["role"]
-            content = msg["content"]
-            if not state['markdown']:
-                content = strip_markdown(content)
-            
-            if role == "user":
-                dpg.add_text("You:", color=(100, 200, 255), parent=chat_log_group)
-            else:
-                dpg.add_text("Assistant:", color=(150, 255, 150), parent=chat_log_group)
+        if state['selectable']:
+            # Selectable mode: One big text box (monochrome)
+            width = -1 if state['wrapped'] else 3000
+            dpg.add_input_text(default_value=get_conversation_text(), parent=chat_log_group, 
+                              multiline=True, readonly=True, width=width, height=-1)
+        else:
+            # Rich mode: Colored text blocks
+            for i, msg in enumerate(session.messages):
+                role = msg["role"]
+                content = msg["content"]
+                if not state['markdown']:
+                    content = strip_markdown(content)
                 
-            dpg.add_text(content, parent=chat_log_group, wrap=wrap_width, bullet=True)
-            dpg.add_separator(parent=chat_log_group)
+                if role == "user":
+                    dpg.add_text("You:", color=(100, 200, 255), parent=chat_log_group)
+                else:
+                    dpg.add_text("Assistant:", color=(150, 255, 150), parent=chat_log_group)
+                    
+                dpg.add_text(content, parent=chat_log_group, wrap=wrap_width, bullet=True)
+                dpg.add_separator(parent=chat_log_group)
             
         # Scroll to bottom (simple hack: set scroll y to max)
         # Note: DPG scroll setting is sometimes tricky, usually requires next frame
@@ -1105,6 +1101,11 @@ def create_chat_window(session, initial_response=None):
         state['markdown'] = not state['markdown']
         update_chat_display()
         dpg.set_value(status_tag, f"Mode: {'Markdown' if state['markdown'] else 'Plain Text'}")
+        
+    def toggle_selectable():
+        state['selectable'] = not state['selectable']
+        update_chat_display()
+        dpg.set_value(status_tag, f"Selectable: {'ON' if state['selectable'] else 'OFF'}")
     
     def send_callback():
         user_input = dpg.get_value(input_tag).strip()
@@ -1175,6 +1176,7 @@ def create_chat_window(session, initial_response=None):
             dpg.add_spacer(width=20)
             dpg.add_button(label="Wrap: ON", tag=wrap_btn_tag, callback=toggle_wrap, width=100)
             dpg.add_button(label="Markdown", tag=md_btn_tag, callback=toggle_markdown, width=100)
+            dpg.add_button(label="Select: OFF", tag=select_btn_tag, callback=toggle_selectable, width=100)
         
         # Scrollable area for chat log
         with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-150, horizontal_scrollbar=False):
