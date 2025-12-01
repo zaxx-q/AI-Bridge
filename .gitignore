@@ -3,3 +3,5 @@ run_py.bat
 config.ini
 chat_sessions.json
 **/__pycache__
+sharex_config.json
+HotkeyConfig.json

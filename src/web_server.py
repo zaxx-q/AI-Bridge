@@ -78,7 +78,10 @@ def create_endpoint_handler(endpoint_name, prompt_template):
         else:
             effective_model = "unknown"
         
-        show_mode = request.args.get('show', CONFIG.get('default_show', 'no')).lower()
+        show_mode = request.args.get('show', CONFIG.get('default_show', 'no'))
+        if isinstance(show_mode, bool):
+            show_mode = 'no'
+        show_mode = str(show_mode).lower()
         
         # Enhanced request logging
         print(f"\n{'='*60}")
