@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TextEditTool module for ShareX-Middleman-Server
+TextEditTool module for AI Bridge
 Provides hotkey-triggered text processing with AI
 """
 

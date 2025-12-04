@@ -1,17 +1,18 @@
-# ShareX Middleman Server
+# AI Bridge
 
-Universal ShareX Middleman Server with GUI Support (Dear PyGui) - supports OpenRouter, Google Gemini, and custom OpenAI-compatible APIs with smart key rotation, auto-retry, and interactive GUI.
+**AI Bridge** - A versatile multi-modal AI assistant server supporting hotkey-triggered text editing, image processing, and AI assistance through customizable APIs with Dear PyGui interface.
 
 ## Project Structure
 
 The project has been refactored into a clean, modular structure:
 
 ```
-ShareX-Middleman-Server/
+AI-Bridge/
 ├── main.py                 # Main entry point
 ├── requirements.txt        # Python dependencies
 ├── config.ini             # Configuration file (created on first run)
 ├── chat_sessions.json     # Saved chat sessions (auto-created)
+├── text_edit_tool_options.json  # TextEditTool prompts configuration
 └── src/                   # Source code package
     ├── __init__.py
     ├── config.py          # Configuration loading and defaults
@@ -21,6 +22,15 @@ ShareX-Middleman-Server/
     ├── api_client.py      # API calling with retry logic
     ├── terminal.py        # Interactive terminal commands
     ├── web_server.py      # Flask web server and routes
+    ├── text_edit_tool/    # TextEditTool module (hotkey text processing)
+    │   ├── __init__.py
+    │   ├── app.py         # Main controller
+    │   ├── hotkey_listener.py
+    │   ├── text_handler.py
+    │   ├── popup_window.py
+    │   ├── response_window.py
+    │   ├── ai_client.py
+    │   └── options.py
     └── gui/               # GUI components (Dear PyGui)
         ├── __init__.py
         ├── core.py        # GUI initialization and threading
@@ -33,11 +43,15 @@ ShareX-Middleman-Server/
 1. Install dependencies:
    ```bash
    pip install -r requirements.txt
+   # or with uv:
+   uv pip install -r requirements.txt
    ```
 
 2. Run the server for the first time to generate `config.ini`:
    ```bash
    python main.py
+   # or with uv:
+   uv run python main.py
    ```
 
 3. Edit `config.ini` and add your API keys
@@ -57,7 +71,7 @@ python main.py
 
 The server will start at `http://127.0.0.1:5000` by default.
 
-### Endpoints
+### ShareX Image Processing
 
 All endpoints accept POST requests with an image:
 
@@ -68,7 +82,7 @@ All endpoints accept POST requests with an image:
 - `/code` - Extract code from image
 - And more... (customizable in config.ini)
 
-### Show Modes
+#### Show Modes
 
 Add `?show=<mode>` to any endpoint:
 
@@ -79,6 +93,20 @@ Add `?show=<mode>` to any endpoint:
 Example:
 ```
 POST http://127.0.0.1:5000/ocr?show=chatgui
+```
+
+### TextEditTool (Hotkey Text Processing)
+
+Press **Ctrl+Space** (configurable) to activate:
+
+- **With text selected**: Shows prompt options (Proofread, Rewrite, Summarize, etc.)
+- **Without text selected**: Opens direct AI chat
+
+Configure in `config.ini`:
+```ini
+text_edit_tool_enabled = true
+text_edit_tool_hotkey = ctrl+space
+text_edit_tool_response_mode = replace  # or "popup"
 ```
 
 ### Terminal Commands
@@ -111,42 +139,32 @@ Edit `config.ini` to customize:
 - Retry settings
 - AI parameters (temperature, max_tokens, etc.)
 - Custom endpoints
+- TextEditTool settings (hotkey, response mode)
 
 ## Features
 
-✅ **All original features preserved:**
+✅ **ShareX Integration:**
 - Multiple API provider support (Google Gemini, OpenRouter, Custom)
 - Smart API key rotation on rate limits
 - Automatic retry with exponential backoff
 - Chat sessions with history
 - GUI windows for results and interactive chat
-- Terminal session management
 - Configurable endpoints
 - Provider/model override via query params or headers
 
-✅ **Improved code organization:**
+✅ **TextEditTool:**
+- Global hotkey activation (Ctrl+Space by default)
+- Text selection-based prompts
+- AI chat without selection
+- Replace or popup response modes
+- Customizable prompts
+- Dark/light mode support
+
+✅ **Clean Architecture:**
 - Modular structure for easier maintenance
 - Clear separation of concerns
 - Better testability
 - Easier to extend with new features
-
-## Migration from server.py
-
-The refactored version is **100% backward compatible**. All features work exactly the same:
-
-1. **Old way:** `python deprecated.py`
-2. **New way:** `python main.py`
-
-All endpoints, features, and functionality remain identical.
-
-## Development
-
-The modular structure makes it easy to:
-
-- Add new API providers (edit `src/api_client.py`)
-- Create new endpoints (edit `config.ini`)
-- Customize GUI windows (edit `src/gui/windows.py`)
-- Add new utilities (edit `src/utils.py`)
 
 ## License
 

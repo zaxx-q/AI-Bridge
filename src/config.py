@@ -158,7 +158,7 @@ def load_config(filepath=CONFIG_FILE):
 def generate_example_config():
     """Generate example configuration file content"""
     return '''# ============================================================
-# Universal ShareX Middleman Server Configuration
+# AI Bridge - Multi-modal AI Assistant Server Configuration
 # ============================================================
 
 [config]

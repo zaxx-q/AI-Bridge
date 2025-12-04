@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Universal ShareX Middleman Server with GUI Support (Dear PyGui)
+AI Bridge - Multi-modal AI Assistant Server
 Main entry point
 """
 
@@ -29,7 +29,7 @@ except ImportError as e:
 def initialize():
     """Initialize the server"""
     print("=" * 60)
-    print("Universal ShareX Middleman Server (Dear PyGui - On Demand)")
+    print("AI Bridge - Multi-modal AI Assistant Server")
     print("=" * 60)
     
     print(f"\nLoading configuration from '{CONFIG_FILE}'...")

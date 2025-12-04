@@ -1,1 +1,1 @@
-# ShareX Middleman Server - Modular Package
+# AI Bridge - Modular Package

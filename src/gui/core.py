@@ -78,7 +78,7 @@ def init_dearpygui():
     
     try:
         dpg.create_context()
-        dpg.create_viewport(title='ShareX Middleman', width=900, height=700, decorated=True)
+        dpg.create_viewport(title='AI Bridge', width=900, height=700, decorated=True)
         
         # Create a font registry with a larger default font and styles
         with dpg.font_registry():
