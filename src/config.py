@@ -24,6 +24,10 @@ DEFAULT_CONFIG = {
     "request_timeout": 120,
     "max_sessions": 50,
     "default_show": "no",
+    # TextEditTool settings
+    "text_edit_tool_enabled": True,
+    "text_edit_tool_hotkey": "ctrl+space",
+    "text_edit_tool_response_mode": "replace",  # "replace" or "popup"
 }
 
 # Default endpoint definitions
@@ -190,6 +194,19 @@ max_sessions = 50
 # temperature = 0.7
 # max_tokens = 4096
 # top_p = 1.0
+
+# ============================================================
+# TEXT EDIT TOOL - Hotkey-triggered text processing with AI
+# ============================================================
+# Enable/disable TextEditTool
+text_edit_tool_enabled = true
+
+# Hotkey combination (e.g., ctrl+space, ctrl+alt+w)
+text_edit_tool_hotkey = ctrl+space
+
+# Response mode: replace (replace selected text) or popup (show in window)
+text_edit_tool_response_mode = replace
+
 
 # ============================================================
 # API KEYS - Add your keys below (one per line)

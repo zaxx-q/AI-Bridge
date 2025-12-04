@@ -6,6 +6,7 @@ Main entry point
 
 import sys
 import threading
+import signal
 from pathlib import Path
 
 from src.config import load_config, generate_example_config, CONFIG_FILE
@@ -14,6 +15,15 @@ from src.session_manager import load_sessions
 from src.terminal import terminal_session_manager
 from src.gui.core import HAVE_GUI
 from src import web_server
+
+# TextEditTool - optional component
+TEXT_EDIT_TOOL_APP = None
+try:
+    from src.text_edit_tool import TextEditToolApp
+    HAVE_TEXT_EDIT_TOOL = True
+except ImportError as e:
+    HAVE_TEXT_EDIT_TOOL = False
+    print(f"[Note] TextEditTool not available: {e}")
 
 
 def initialize():
@@ -66,10 +76,60 @@ def initialize():
     web_server.register_endpoints(endpoints)
     
     print("\n" + "=" * 60)
+    
+    return config, ai_params
+
+
+def initialize_text_edit_tool(config, ai_params):
+    """Initialize TextEditTool if enabled"""
+    global TEXT_EDIT_TOOL_APP
+    
+    if not HAVE_TEXT_EDIT_TOOL:
+        print("  ✗ TextEditTool: Not available (missing dependencies)")
+        return None
+    
+    if not config.get("text_edit_tool_enabled", True):
+        print("  ✗ TextEditTool: Disabled in config")
+        return None
+    
+    try:
+        print("\nInitializing TextEditTool...")
+        TEXT_EDIT_TOOL_APP = TextEditToolApp(
+            config=config,
+            ai_params=ai_params,
+            key_managers=web_server.KEY_MANAGERS,
+            options_file="text_edit_tool_options.json"
+        )
+        TEXT_EDIT_TOOL_APP.start()
+        return TEXT_EDIT_TOOL_APP
+    except Exception as e:
+        print(f"  ✗ TextEditTool: Failed to initialize: {e}")
+        return None
+
+
+def cleanup():
+    """Cleanup on shutdown"""
+    global TEXT_EDIT_TOOL_APP
+    
+    if TEXT_EDIT_TOOL_APP:
+        print("\nStopping TextEditTool...")
+        TEXT_EDIT_TOOL_APP.stop()
+        TEXT_EDIT_TOOL_APP = None
+
+
+def signal_handler(signum, frame):
+    """Handle interrupt signals"""
+    print("\n\nShutdown signal received...")
+    cleanup()
+    sys.exit(0)
 
 
 def main():
     """Main entry point"""
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     # Create example config if needed
     if not Path(CONFIG_FILE).exists():
         print(f"Config file '{CONFIG_FILE}' not found.")
@@ -81,7 +141,7 @@ def main():
         sys.exit(0)
     
     # Initialize
-    initialize()
+    config, ai_params = initialize()
     
     # Check for API keys
     has_any_keys = any(km.has_keys() for km in web_server.KEY_MANAGERS.values())
@@ -95,6 +155,9 @@ def main():
         print("✓ GUI available (will start on-demand when needed)")
     else:
         print("✗ GUI not available (Dear PyGui not installed)")
+    
+    # Initialize TextEditTool
+    initialize_text_edit_tool(config, ai_params)
     
     # Start terminal session manager
     terminal_thread = threading.Thread(target=terminal_session_manager, daemon=True)
@@ -110,10 +173,22 @@ def main():
     print(f"     ?show=no      - Return text only (default)")
     print(f"     ?show=gui     - Display result in GUI window (starts GUI on first use)")
     print(f"     ?show=chatgui - Display result in chat GUI with follow-up input")
+    
+    if TEXT_EDIT_TOOL_APP:
+        hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
+        mode = config.get("text_edit_tool_response_mode", "replace")
+        print(f"\n   TextEditTool:")
+        print(f"     Press '{hotkey}' to activate")
+        print(f"     Response mode: {mode}")
+    
     print("\nPress Ctrl+C to stop\n")
     
-    web_server.run_server(host, port)
+    try:
+        web_server.run_server(host, port)
+    finally:
+        cleanup()
 
 
 if __name__ == '__main__':
     main()
+
