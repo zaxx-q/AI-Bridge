@@ -80,6 +80,7 @@ All endpoints accept POST requests with an image:
 - `/summarize` - Summarize image content
 - `/describe` - Describe image in detail
 - `/code` - Extract code from image
+- `/textedit` - Logical endpoint used by TextEditTool sessions
 - And more... (customizable in config.ini)
 
 #### Show Modes
@@ -87,8 +88,8 @@ All endpoints accept POST requests with an image:
 Add `?show=<mode>` to any endpoint:
 
 - `?show=no` - Return text only (default)
-- `?show=gui` - Display result in GUI window
-- `?show=chatgui` - Display in chat GUI with follow-up capability
+- `?show=yes` - Display result in chat GUI window
+- Note: Older `gui`/`chatgui` values are deprecated.
 
 Example:
 ```
@@ -106,7 +107,7 @@ Configure in `config.ini`:
 ```ini
 text_edit_tool_enabled = true
 text_edit_tool_hotkey = ctrl+space
-text_edit_tool_response_mode = replace  # or "popup"
+# Response mode is now selected via popup radio buttons (Default/Replace/Show)
 ```
 
 ### Terminal Commands
