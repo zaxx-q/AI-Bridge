@@ -11,7 +11,7 @@ from flask import Flask, request, abort, jsonify
 from .config import CONFIG_FILE
 from .api_client import call_api_simple, call_api_chat
 from .session_manager import ChatSession, add_session, get_session, list_sessions
-from .gui.core import show_result_gui, show_chat_gui, show_session_browser, get_gui_status, HAVE_GUI
+from .gui.core import show_chat_gui, show_session_browser, get_gui_status, HAVE_GUI
 
 # Global state - will be initialized by main.py
 CONFIG = {}
@@ -78,10 +78,12 @@ def create_endpoint_handler(endpoint_name, prompt_template):
         else:
             effective_model = "unknown"
         
-        show_mode = request.args.get('show', CONFIG.get('default_show', 'no'))
-        if isinstance(show_mode, bool):
-            show_mode = 'no'
-        show_mode = str(show_mode).lower()
+        # Show parameter: yes/true/1 = show chat window, anything else = no
+        show_param = request.args.get('show', CONFIG.get('default_show', 'no'))
+        if isinstance(show_param, bool):
+            show_gui = show_param
+        else:
+            show_gui = str(show_param).lower() in ('yes', 'true', '1')
         
         # Enhanced request logging
         print(f"\n{'='*60}")
@@ -89,7 +91,7 @@ def create_endpoint_handler(endpoint_name, prompt_template):
         print(f"  Provider: {provider}")
         print(f"  Model: {effective_model}{' (override)' if model_override else ' (default)'}")
         print(f"  Image: {len(image_bytes) / 1024:.1f} KB ({mime_type})")
-        print(f"  Show mode: {show_mode}")
+        print(f"  Show GUI: {show_gui}")
         print(f"  Prompt: {prompt[:80]}{'...' if len(prompt) > 80 else ''}")
         
         result, error = call_api_simple(
@@ -101,19 +103,13 @@ def create_endpoint_handler(endpoint_name, prompt_template):
         if error:
             print(f"  [FAILED] {error} ({elapsed:.1f}s)")
             print(f"{'='*60}\n")
-            
-            if show_mode in ('gui', 'chatgui') and HAVE_GUI:
-                show_result_gui(f"Error: {error}", title="Error", endpoint=endpoint_name)
-            
             return jsonify({"error": error, "elapsed": elapsed}), 500
         
         print(f"  [SUCCESS] {len(result)} chars ({elapsed:.1f}s)")
         print(f"{'='*60}\n")
         
-        if show_mode == 'gui' and HAVE_GUI:
-            show_result_gui(result, title=f"Response - /{endpoint_name}", endpoint=endpoint_name)
-        
-        elif show_mode == 'chatgui' and HAVE_GUI:
+        # Show chat window if requested
+        if show_gui and HAVE_GUI:
             session = ChatSession(
                 endpoint=endpoint_name,
                 provider=provider,
@@ -148,10 +144,9 @@ def index():
         "available_providers": available_providers,
         "endpoints": {f"/{name}": prompt[:100] + "..." if len(prompt) > 100 else prompt 
                      for name, prompt in ENDPOINTS.items()},
-        "show_modes": {
-            "no": "Return text only (default)",
-            "gui": "Show result in a GUI window",
-            "chatgui": "Show result in a chat GUI with input for follow-up"
+        "show_parameter": {
+            "yes": "Show result in a chat GUI window",
+            "no": "Return text only (default)"
         },
         "sessions": len(list_sessions())
     })
@@ -172,9 +167,9 @@ def health():
 
 
 @app.route('/sessions')
-def sessions_api():
-    """List all sessions"""
-    return jsonify({"sessions": list_sessions()})
+def sessions_list():
+    """List all chat sessions"""
+    return jsonify(list_sessions())
 
 
 @app.route('/sessions/<session_id>')
@@ -207,13 +202,17 @@ def server_error(e):
     return jsonify({"error": "Internal server error"}), 500
 
 
-def register_endpoints(endpoints):
-    """Register all endpoint handlers"""
+def init_web_server(config, ai_params, endpoints, key_managers):
+    """Initialize web server with configuration"""
+    global CONFIG, AI_PARAMS, ENDPOINTS, KEY_MANAGERS
+    CONFIG = config
+    AI_PARAMS = ai_params
+    ENDPOINTS = endpoints
+    KEY_MANAGERS = key_managers
+    
+    # Register dynamic endpoints
     for endpoint_name, prompt in endpoints.items():
         handler = create_endpoint_handler(endpoint_name, prompt)
         app.add_url_rule(f'/{endpoint_name}', endpoint_name, handler, methods=['POST'])
-
-
-def run_server(host, port):
-    """Run the Flask server"""
-    app.run(host=host, port=port, debug=False, threaded=True)
+    
+    return app

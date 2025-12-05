@@ -106,10 +106,7 @@ def process_gui_queue():
             task = GUI_QUEUE.get_nowait()
             task_type = task.get("type")
             
-            if task_type == "result":
-                from .windows import create_result_window
-                create_result_window(task["text"], task.get("endpoint"), task.get("title"))
-            elif task_type == "chat":
+            if task_type == "chat":
                 from .windows import create_chat_window
                 create_chat_window(task["session"], task.get("initial_response"))
             elif task_type == "browser":
@@ -205,19 +202,6 @@ def ensure_gui_running():
             time.sleep(0.1)
         
         return GUI_RUNNING
-
-
-def show_result_gui(text, title="AI Response", endpoint=None):
-    """Queue a result GUI window to be created"""
-    if not ensure_gui_running():
-        print("[Warning] Failed to start GUI.")
-        return False
-    
-    GUI_QUEUE.put({"type": "result", "text": text, "title": title, "endpoint": endpoint})
-    
-    # Trigger queue processing
-    schedule_gui_task(process_gui_queue)
-    return True
 
 
 def show_chat_gui(session, initial_response=None):

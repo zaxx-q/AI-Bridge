@@ -16,10 +16,10 @@ from src.terminal import terminal_session_manager
 from src.gui.core import HAVE_GUI
 from src import web_server
 
-# TextEditTool - optional component
+# TextEditTool - now part of gui module
 TEXT_EDIT_TOOL_APP = None
 try:
-    from src.text_edit_tool import TextEditToolApp
+    from src.gui import TextEditToolApp
     HAVE_TEXT_EDIT_TOOL = True
 except ImportError as e:
     HAVE_TEXT_EDIT_TOOL = False
@@ -56,7 +56,7 @@ def initialize():
     print(f"  Host: {config.get('host', '127.0.0.1')}")
     print(f"  Port: {config.get('port', 5000)}")
     print(f"  Default Provider: {config.get('default_provider', 'google')}")
-    print(f"  Default Show Mode: {config.get('default_show', 'no')}")
+    print(f"  Default Show: {config.get('default_show', 'no')}")
     print(f"  GUI Available: {HAVE_GUI}")
     print(f"  GUI Mode: On-demand (starts when needed)")
     print(f"  Max Sessions: {config.get('max_sessions', 50)}")
@@ -72,8 +72,8 @@ def initialize():
         print(f"  /{endpoint_name}")
         print(f"      → {prompt_preview}")
     
-    # Register endpoints with Flask
-    web_server.register_endpoints(endpoints)
+    # Initialize web server with config and endpoints
+    web_server.init_web_server(config, ai_params, endpoints, web_server.KEY_MANAGERS)
     
     print("\n" + "=" * 60)
     
@@ -171,8 +171,7 @@ def main():
     print(f"   Endpoints: {', '.join('/' + e for e in web_server.ENDPOINTS.keys())}")
     print(f"\n   Show modes:")
     print(f"     ?show=no      - Return text only (default)")
-    print(f"     ?show=gui     - Display result in GUI window (starts GUI on first use)")
-    print(f"     ?show=chatgui - Display result in chat GUI with follow-up input")
+    print(f"     ?show=yes     - Display result in chat GUI window")
     
     if TEXT_EDIT_TOOL_APP:
         hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
@@ -184,7 +183,7 @@ def main():
     print("\nPress Ctrl+C to stop\n")
     
     try:
-        web_server.run_server(host, port)
+        web_server.app.run(host=host, port=port)
     finally:
         cleanup()
 

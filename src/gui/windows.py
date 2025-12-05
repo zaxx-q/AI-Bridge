@@ -16,206 +16,6 @@ from .core import (
 from .utils import copy_to_clipboard, render_markdown, get_color_scheme, setup_text_tags
 
 
-class ResultWindow:
-    """Result display window for AI responses"""
-    
-    def __init__(self, text: str, endpoint: Optional[str] = None, title: Optional[str] = None):
-        self.original_text = text
-        self.endpoint = endpoint
-        self.title = title or (f"Response - /{endpoint}" if endpoint else "AI Response")
-        
-        self.window_id = get_next_window_id()
-        self.window_tag = f"result_window_{self.window_id}"
-        
-        # State
-        self.wrapped = True
-        self.mode = 'rich'  # 'rich' or 'text'
-        
-        # Colors
-        self.colors = get_color_scheme()
-        
-        # Create window
-        self._create_window()
-    
-    def _create_window(self):
-        """Create the result window"""
-        if not GUI_ROOT:
-            return
-        
-        self.root = tk.Toplevel(GUI_ROOT)
-        self.root.title(self.title)
-        self.root.geometry("700x500")
-        self.root.configure(bg=self.colors["bg"])
-        self.root.minsize(400, 300)
-        
-        # Position window
-        offset = (self.window_id % 5) * 30
-        self.root.geometry(f"+{100 + offset}+{100 + offset}")
-        
-        # Configure grid
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(2, weight=1)
-        
-        # Endpoint info
-        if self.endpoint:
-            endpoint_label = tk.Label(
-                self.root,
-                text=f"Endpoint: /{self.endpoint}",
-                font=("Segoe UI", 10),
-                bg=self.colors["bg"],
-                fg=self.colors["blockquote"]
-            )
-            endpoint_label.grid(row=0, column=0, sticky=tk.W, padx=15, pady=(10, 5))
-        
-        # Toggle buttons row
-        btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
-        btn_frame.grid(row=1, column=0, sticky=tk.EW, padx=15, pady=5)
-        
-        tk.Label(
-            btn_frame,
-            text="Response:",
-            font=("Segoe UI", 10, "bold"),
-            bg=self.colors["bg"],
-            fg=self.colors["accent"]
-        ).pack(side=tk.LEFT)
-        
-        tk.Label(btn_frame, width=2, bg=self.colors["bg"]).pack(side=tk.LEFT)
-        
-        self.wrap_btn = tk.Button(
-            btn_frame,
-            text="Wrap: ON",
-            font=("Segoe UI", 9),
-            bg=self.colors["input_bg"],
-            fg=self.colors["fg"],
-            activebackground=self.colors["border"],
-            relief=tk.FLAT,
-            padx=10,
-            command=self._toggle_wrap
-        )
-        self.wrap_btn.pack(side=tk.LEFT, padx=2)
-        
-        self.mode_btn = tk.Button(
-            btn_frame,
-            text="Mode: Rich",
-            font=("Segoe UI", 9),
-            bg=self.colors["input_bg"],
-            fg=self.colors["fg"],
-            activebackground=self.colors["border"],
-            relief=tk.FLAT,
-            padx=10,
-            command=self._toggle_mode
-        )
-        self.mode_btn.pack(side=tk.LEFT, padx=2)
-        
-        # Text area
-        text_frame = tk.Frame(self.root, bg=self.colors["bg"])
-        text_frame.grid(row=2, column=0, sticky=tk.NSEW, padx=15, pady=5)
-        text_frame.columnconfigure(0, weight=1)
-        text_frame.rowconfigure(0, weight=1)
-        
-        self.text_widget = scrolledtext.ScrolledText(
-            text_frame,
-            wrap=tk.WORD,
-            font=("Segoe UI", 11),
-            bg=self.colors["text_bg"],
-            fg=self.colors["fg"],
-            insertbackground=self.colors["fg"],
-            relief=tk.FLAT,
-            highlightbackground=self.colors["border"],
-            highlightthickness=1,
-            padx=10,
-            pady=10
-        )
-        self.text_widget.grid(row=0, column=0, sticky=tk.NSEW)
-        
-        # Setup tags
-        setup_text_tags(self.text_widget, self.colors)
-        
-        # Bottom bar
-        bottom_frame = tk.Frame(self.root, bg=self.colors["bg"])
-        bottom_frame.grid(row=3, column=0, sticky=tk.EW, padx=15, pady=(5, 15))
-        
-        tk.Button(
-            bottom_frame,
-            text="Copy to Clipboard",
-            font=("Segoe UI", 10),
-            bg=self.colors["accent"],
-            fg="#ffffff",
-            activebackground=self.colors["accent_green"],
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            command=self._copy
-        ).pack(side=tk.LEFT, padx=2)
-        
-        tk.Button(
-            bottom_frame,
-            text="Close",
-            font=("Segoe UI", 10),
-            bg=self.colors["input_bg"],
-            fg=self.colors["fg"],
-            activebackground=self.colors["border"],
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            command=self._close
-        ).pack(side=tk.LEFT, padx=2)
-        
-        self.status_label = tk.Label(
-            bottom_frame,
-            text="",
-            font=("Segoe UI", 10),
-            bg=self.colors["bg"],
-            fg=self.colors["accent_green"]
-        )
-        self.status_label.pack(side=tk.LEFT, padx=10)
-        
-        # Register and bind
-        register_window(self.window_tag)
-        self.root.protocol("WM_DELETE_WINDOW", self._close)
-        
-        # Initial display
-        self._update_display()
-    
-    def _update_display(self):
-        """Update the text display"""
-        self.text_widget.configure(state=tk.NORMAL)
-        self.text_widget.delete("1.0", tk.END)
-        
-        self.wrap_btn.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
-        self.mode_btn.configure(text=f"Mode: {'Rich' if self.mode == 'rich' else 'Text'}")
-        
-        if self.mode == 'rich':
-            render_markdown(self.original_text, self.text_widget, self.colors, wrap=self.wrapped)
-        else:
-            plain_text = strip_markdown(self.original_text)
-            self.text_widget.configure(wrap=tk.WORD if self.wrapped else tk.NONE)
-            self.text_widget.insert(tk.END, plain_text)
-        
-        self.text_widget.configure(state=tk.DISABLED)
-    
-    def _toggle_wrap(self):
-        self.wrapped = not self.wrapped
-        self._update_display()
-        self.status_label.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
-    
-    def _toggle_mode(self):
-        self.mode = 'text' if self.mode == 'rich' else 'rich'
-        self._update_display()
-        self.status_label.configure(text=f"Mode: {self.mode.title()}")
-    
-    def _copy(self):
-        text = self.original_text if self.mode == 'rich' else strip_markdown(self.original_text)
-        if copy_to_clipboard(text, self.root):
-            self.status_label.configure(text="✓ Copied to clipboard!")
-        else:
-            self.status_label.configure(text="✗ Failed to copy")
-    
-    def _close(self):
-        unregister_window(self.window_tag)
-        self.root.destroy()
-
-
 class ChatWindow:
     """Chat window for interactive conversation"""
     
@@ -229,7 +29,6 @@ class ChatWindow:
         # State
         self.wrapped = True
         self.markdown = True
-        self.selectable = False  # Note: Tkinter text is always selectable
         self.auto_scroll = True
         self.last_response = initial_response or ""
         self.is_loading = False
@@ -547,7 +346,7 @@ class ChatWindow:
         self.status_label.configure(text="Sending...")
         
         def process_message():
-            from ..api_client import call_api_chat
+            from ..api_client import call_api_with_retry
             from .. import web_server
             
             self.session.add_message("user", user_input)
@@ -557,11 +356,16 @@ class ChatWindow:
             self.root.after(0, lambda: self.input_text.configure(state=tk.NORMAL))
             self.root.after(0, lambda: self.input_text.delete("1.0", tk.END))
             
-            response_text, error = call_api_chat(
-                self.session,
-                web_server.CONFIG,
-                web_server.AI_PARAMS,
-                web_server.KEY_MANAGERS
+            # Get conversation for API
+            messages = self.session.get_conversation_for_api(include_image=True)
+            
+            response_text, error = call_api_with_retry(
+                provider=self.session.provider,
+                messages=messages,
+                model_override=self.session.model,
+                config=web_server.CONFIG,
+                ai_params=web_server.AI_PARAMS,
+                key_managers=web_server.KEY_MANAGERS
             )
             
             def handle_response():
@@ -848,12 +652,7 @@ class SessionBrowserWindow:
         self.root.destroy()
 
 
-# Factory functions to maintain compatibility with core.py
-def create_result_window(text: str, endpoint: Optional[str] = None, title: Optional[str] = None):
-    """Create a result display window"""
-    ResultWindow(text, endpoint, title)
-
-
+# Factory functions for core.py
 def create_chat_window(session, initial_response: Optional[str] = None):
     """Create a chat window for interactive conversation"""
     ChatWindow(session, initial_response)

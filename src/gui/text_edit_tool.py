@@ -5,19 +5,18 @@ Main TextEditTool application controller
 
 import json
 import logging
-import os
-import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict
 
-from .hotkey_listener import HotkeyListener
+from .hotkey import HotkeyListener
 from .text_handler import TextHandler
-from .popup_window import PopupWindow
-from .response_window import ResponseWindow
-from .ai_client import TextEditToolAIClient
+from .popups import InputPopup, PromptSelectionPopup
 from .options import DEFAULT_OPTIONS, CHAT_SYSTEM_INSTRUCTION, FOLLOWUP_SYSTEM_INSTRUCTION, ERROR_INCOMPATIBLE
+
+# Import API client directly (no wrapper needed)
+from ..api_client import call_api_with_retry
 
 
 class TextEditToolApp:
@@ -58,13 +57,13 @@ class TextEditToolApp:
         # Initialize components
         self.hotkey_listener: Optional[HotkeyListener] = None
         self.text_handler = TextHandler()
-        self.ai_client = TextEditToolAIClient(config, ai_params, key_managers)
         
         # Current state
-        self.popup_window: Optional[PopupWindow] = None
-        self.response_window: Optional[ResponseWindow] = None
+        self.popup = None
+        self.chat_window = None
         self.current_selected_text = ""
         self.is_processing = False
+        self.cancel_requested = False
         
         logging.debug('TextEditToolApp initialized')
     
@@ -121,9 +120,7 @@ class TextEditToolApp:
             self.hotkey_listener.stop()
             self.hotkey_listener = None
         
-        # Cancel any pending AI request
-        if self.ai_client:
-            self.ai_client.cancel()
+        self.cancel_requested = True
     
     def pause(self):
         """Pause the hotkey listener."""
@@ -143,8 +140,7 @@ class TextEditToolApp:
             logging.debug('Already processing, ignoring hotkey')
             return
         
-        # Cancel any previous AI request
-        self.ai_client.cancel()
+        self.cancel_requested = False
         
         # Get selected text
         self.current_selected_text = self.text_handler.get_selected_text_with_retry()
@@ -154,21 +150,41 @@ class TextEditToolApp:
         threading.Thread(target=self._show_popup, daemon=True).start()
     
     def _show_popup(self):
-        """Show the popup window."""
+        """Show the appropriate popup window."""
         logging.debug('Showing popup window')
         
-        self.popup_window = PopupWindow(
-            options=self.options,
-            on_option_selected=self._on_option_selected,
-            on_close=self._on_popup_closed
-        )
-        
-        self.popup_window.show(self.current_selected_text)
+        if self.current_selected_text:
+            # Text selected - show prompt selection popup
+            self.popup = PromptSelectionPopup(
+                options=self.options,
+                on_option_selected=self._on_option_selected,
+                on_close=self._on_popup_closed
+            )
+            self.popup.show(self.current_selected_text)
+        else:
+            # No text selected - show simple input popup
+            self.popup = InputPopup(
+                on_submit=self._on_direct_chat,
+                on_close=self._on_popup_closed
+            )
+            self.popup.show()
     
     def _on_popup_closed(self):
         """Handle popup window close."""
         logging.debug('Popup window closed')
-        self.popup_window = None
+        self.popup = None
+    
+    def _on_direct_chat(self, user_input: str):
+        """Handle direct chat input (no selected text)."""
+        logging.debug(f'Direct chat input: {user_input[:50]}...')
+        
+        self.is_processing = True
+        
+        threading.Thread(
+            target=self._process_direct_chat,
+            args=(user_input,),
+            daemon=True
+        ).start()
     
     def _on_option_selected(self, option_key: str, selected_text: str, custom_input: Optional[str]):
         """
@@ -183,12 +199,54 @@ class TextEditToolApp:
         
         self.is_processing = True
         
-        # Process in background thread
         threading.Thread(
             target=self._process_option,
             args=(option_key, selected_text, custom_input),
             daemon=True
         ).start()
+    
+    def _call_api(self, messages, provider=None, model=None):
+        """Call the AI API directly."""
+        if not provider:
+            provider = self.config.get("default_provider", "google")
+        
+        response, error = call_api_with_retry(
+            provider=provider,
+            messages=messages,
+            model_override=model,
+            config=self.config,
+            ai_params=self.ai_params,
+            key_managers=self.key_managers
+        )
+        
+        if self.cancel_requested:
+            return None, "Request cancelled"
+        
+        return response, error
+    
+    def _process_direct_chat(self, user_input: str):
+        """Process direct chat input."""
+        try:
+            messages = [
+                {"role": "system", "content": CHAT_SYSTEM_INSTRUCTION},
+                {"role": "user", "content": user_input}
+            ]
+            
+            response, error = self._call_api(messages)
+            
+            if error:
+                logging.error(f'Direct chat failed: {error}')
+                self.is_processing = False
+                return
+            
+            if response:
+                # Show response in chat window
+                self._show_chat_window("AI Chat", response, user_input)
+            
+        except Exception as e:
+            logging.error(f'Error in direct chat: {e}')
+        finally:
+            self.is_processing = False
     
     def _process_option(self, option_key: str, selected_text: str, custom_input: Optional[str]):
         """
@@ -205,35 +263,32 @@ class TextEditToolApp:
             # Determine if this should open in a window
             open_in_window = option.get("open_in_window", False)
             
-            # For Custom with no text, always open in window (chat mode)
-            if option_key == "Custom" and not selected_text.strip():
-                open_in_window = True
-            
             # Override with config setting if set to popup
             if self.response_mode == "popup":
                 open_in_window = True
             
             # Build prompt
-            if option_key == "Custom" and not selected_text.strip():
-                # Direct chat mode
-                prompt = custom_input
-                system_instruction = CHAT_SYSTEM_INSTRUCTION
+            prefix = option.get("prefix", "")
+            system_instruction = option.get("instruction", "")
+            
+            if option_key == "Custom" and custom_input:
+                prompt = f"{prefix}Described change: {custom_input}\n\nText: {selected_text}"
             else:
-                prefix = option.get("prefix", "")
-                system_instruction = option.get("instruction", "")
-                
-                if option_key == "Custom" and custom_input:
-                    prompt = f"{prefix}Described change: {custom_input}\n\nText: {selected_text}"
-                else:
-                    prompt = f"{prefix}{selected_text}"
+                prompt = f"{prefix}{selected_text}"
             
             logging.debug(f'Getting AI response for {option_key}')
             
-            # Get AI response
-            response = self.ai_client.get_response(
-                system_instruction=system_instruction,
-                prompt=prompt
-            )
+            messages = [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ]
+            
+            response, error = self._call_api(messages)
+            
+            if error:
+                logging.error(f'Option processing failed: {error}')
+                self.is_processing = False
+                return
             
             if not response:
                 logging.error('No response from AI')
@@ -243,13 +298,12 @@ class TextEditToolApp:
             # Check for error response
             if response.strip() == ERROR_INCOMPATIBLE:
                 logging.warning('Text incompatible with request')
-                # Could show a notification here
                 self.is_processing = False
                 return
             
             # Handle response
             if open_in_window:
-                self._show_response_window(option_key, response, selected_text)
+                self._show_chat_window(f"{option_key} Result", response, selected_text)
             else:
                 self._replace_text(response)
             
@@ -266,58 +320,30 @@ class TextEditToolApp:
         else:
             logging.error('Failed to replace text')
     
-    def _show_response_window(self, title: str, response: str, selected_text: str):
-        """
-        Show the response window.
+    def _show_chat_window(self, title: str, response: str, original_text: str):
+        """Show the response in a chat window."""
+        logging.debug('Showing chat window')
         
-        Args:
-            title: Window title
-            response: AI response
-            selected_text: Original selected text
-        """
-        logging.debug('Showing response window')
+        # Import here to avoid circular dependency
+        from .core import show_chat_gui
+        from ..session_manager import ChatSession
         
-        self.response_window = ResponseWindow(
-            title=f"{title} Result",
-            on_followup=self._on_followup_question,
-            on_close=self._on_response_window_closed
+        # Create a temporary session for this response
+        session = ChatSession(
+            endpoint="textedit",
+            provider=self.config.get("default_provider", "google"),
+            model=self.config.get("google_model") if self.config.get("default_provider") == "google" else None
         )
+        session.title = title
         
-        self.response_window.show(
-            initial_response=response,
-            selected_text=selected_text
-        )
-    
-    def _on_response_window_closed(self):
-        """Handle response window close."""
-        logging.debug('Response window closed')
-        self.response_window = None
-    
-    def _on_followup_question(self, question: str, chat_history: list):
-        """
-        Handle follow-up question from response window.
+        # Add the original context if any
+        if original_text:
+            session.add_message("user", original_text)
         
-        Args:
-            question: The follow-up question
-            chat_history: Current chat history
-        """
-        logging.debug(f'Follow-up question: {question}')
+        session.add_message("assistant", response)
         
-        def callback(response, error):
-            if not self.response_window:
-                return
-            
-            if error:
-                self.response_window.show_error(error)
-            elif response:
-                self.response_window.add_response(response)
-        
-        # Get response with chat history
-        self.ai_client.get_chat_response_async(
-            system_instruction=FOLLOWUP_SYSTEM_INSTRUCTION,
-            messages=chat_history,
-            callback=callback
-        )
+        # Show the chat window
+        show_chat_gui(session, initial_response=response)
     
     def is_running(self) -> bool:
         """Check if TextEditTool is running."""

@@ -169,7 +169,7 @@ port = 5000
 # Default API provider: custom, openrouter, or google
 default_provider = google
 
-# Default show mode: no, gui, or chatgui
+# Show chat window for responses: yes or no
 default_show = no
 
 # Custom API configuration
@@ -268,3 +268,4 @@ extract_data = Extract any structured data (tables, lists, key-value pairs) from
 
 handwriting = Transcribe any handwritten text in this image as accurately as possible.
 '''
+
