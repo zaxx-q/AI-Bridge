@@ -476,8 +476,8 @@ class SessionBrowserWindow:
         tree_frame.columnconfigure(0, weight=1)
         tree_frame.rowconfigure(0, weight=1)
         
-        # Style configuration
-        style = ttk.Style()
+        # Style configuration - must pass master to avoid conflicts with other Tk roots
+        style = ttk.Style(master=self.root)
         style.theme_use('clam')
         
         # Configure treeview colors
@@ -1136,8 +1136,8 @@ class StandaloneSessionBrowserWindow:
         tree_frame.columnconfigure(0, weight=1)
         tree_frame.rowconfigure(0, weight=1)
         
-        # Style configuration
-        style = ttk.Style()
+        # Style configuration - must pass master to avoid conflicts with other Tk roots
+        style = ttk.Style(master=self.root)
         style.theme_use('clam')
         
         # Configure treeview colors

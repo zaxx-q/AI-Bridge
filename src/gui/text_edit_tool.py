@@ -140,18 +140,18 @@ class TextEditToolApp:
         
         self.cancel_requested = False
         
-        # Get selected text
-        self.current_selected_text = self.text_handler.get_selected_text_with_retry()
-        logging.debug(f'Selected text: "{self.current_selected_text[:50]}..."' if self.current_selected_text else 'No text selected')
-        
-        # Show popup in main thread
+        # Show popup immediately in a new thread
         threading.Thread(target=self._show_popup, daemon=True).start()
     
     def _show_popup(self):
         """Show the appropriate popup window."""
         logging.debug('Showing popup window')
         
+        # Get selected text with quick check first, then retry if empty
+        self.current_selected_text = self.text_handler.get_selected_text(sleep_duration=0.15)
+        
         if self.current_selected_text:
+            logging.debug(f'Selected text: "{self.current_selected_text[:50]}..."')
             # Text selected - show prompt selection popup
             self.popup = PromptSelectionPopup(
                 options=self.options,
@@ -160,7 +160,8 @@ class TextEditToolApp:
             )
             self.popup.show(self.current_selected_text)
         else:
-            # No text selected - show simple input popup
+            # No text selected - show simple input popup immediately
+            logging.debug('No text selected, showing input popup')
             self.popup = InputPopup(
                 on_submit=self._on_direct_chat,
                 on_close=self._on_popup_closed
