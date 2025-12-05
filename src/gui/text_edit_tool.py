@@ -13,7 +13,7 @@ from typing import Optional, Dict
 from .hotkey import HotkeyListener
 from .text_handler import TextHandler
 from .popups import InputPopup, PromptSelectionPopup
-from .options import DEFAULT_OPTIONS, CHAT_SYSTEM_INSTRUCTION, FOLLOWUP_SYSTEM_INSTRUCTION, ERROR_INCOMPATIBLE
+from .options import DEFAULT_OPTIONS, CHAT_SYSTEM_INSTRUCTION, FOLLOWUP_SYSTEM_INSTRUCTION
 
 # Import API client directly (no wrapper needed)
 from ..api_client import call_api_with_retry
@@ -52,7 +52,6 @@ class TextEditToolApp:
         # Get TextEditTool-specific config
         self.enabled = config.get("text_edit_tool_enabled", True)
         self.hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
-        self.response_mode = config.get("text_edit_tool_response_mode", "replace")
         
         # Initialize components
         self.hotkey_listener: Optional[HotkeyListener] = None
@@ -110,7 +109,6 @@ class TextEditToolApp:
         self.hotkey_listener.start()
         
         print(f"  ✓ TextEditTool: Hotkey '{self.hotkey}' registered")
-        print(f"  ✓ TextEditTool: Response mode = {self.response_mode}")
     
     def stop(self):
         """Stop the TextEditTool application."""
@@ -186,7 +184,7 @@ class TextEditToolApp:
             daemon=True
         ).start()
     
-    def _on_option_selected(self, option_key: str, selected_text: str, custom_input: Optional[str]):
+    def _on_option_selected(self, option_key: str, selected_text: str, custom_input: Optional[str], response_mode: str = "default"):
         """
         Handle option selection from popup.
         
@@ -194,14 +192,15 @@ class TextEditToolApp:
             option_key: The selected option key
             selected_text: The selected text
             custom_input: Custom input text (for Custom option)
+            response_mode: Response mode ("default", "replace", or "show")
         """
-        logging.debug(f'Option selected: {option_key}')
+        logging.debug(f'Option selected: {option_key}, mode: {response_mode}')
         
         self.is_processing = True
         
         threading.Thread(
             target=self._process_option,
-            args=(option_key, selected_text, custom_input),
+            args=(option_key, selected_text, custom_input, response_mode),
             daemon=True
         ).start()
     
@@ -248,7 +247,7 @@ class TextEditToolApp:
         finally:
             self.is_processing = False
     
-    def _process_option(self, option_key: str, selected_text: str, custom_input: Optional[str]):
+    def _process_option(self, option_key: str, selected_text: str, custom_input: Optional[str], response_mode: str = "default"):
         """
         Process the selected option.
         
@@ -256,16 +255,18 @@ class TextEditToolApp:
             option_key: The selected option key
             selected_text: The selected text
             custom_input: Custom input text
+            response_mode: Response mode ("default", "replace", or "show")
         """
         try:
             option = self.options.get(option_key, {})
             
-            # Determine if this should open in a window
-            open_in_window = option.get("open_in_window", False)
-            
-            # Override with config setting if set to popup
-            if self.response_mode == "popup":
+            # Determine if this should open in a window based on response mode
+            if response_mode == "show":
                 open_in_window = True
+            elif response_mode == "replace":
+                open_in_window = False
+            else:  # "default" - use the prompt's setting
+                open_in_window = option.get("open_in_window", False)
             
             # Build prompt
             prefix = option.get("prefix", "")
@@ -292,12 +293,6 @@ class TextEditToolApp:
             
             if not response:
                 logging.error('No response from AI')
-                self.is_processing = False
-                return
-            
-            # Check for error response
-            if response.strip() == ERROR_INCOMPATIBLE:
-                logging.warning('Text incompatible with request')
                 self.is_processing = False
                 return
             
@@ -360,6 +355,5 @@ class TextEditToolApp:
             "running": self.is_running(),
             "paused": self.is_paused(),
             "hotkey": self.hotkey,
-            "response_mode": self.response_mode,
             "processing": self.is_processing
         }

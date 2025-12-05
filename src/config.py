@@ -27,7 +27,6 @@ DEFAULT_CONFIG = {
     # TextEditTool settings
     "text_edit_tool_enabled": True,
     "text_edit_tool_hotkey": "ctrl+space",
-    "text_edit_tool_response_mode": "replace",  # "replace" or "popup"
 }
 
 # Default endpoint definitions

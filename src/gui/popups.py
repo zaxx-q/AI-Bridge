@@ -191,9 +191,12 @@ class InputPopup(BasePopup):
         self.root.geometry(f"+{x}+{y}")
         self.root.deiconify()
         
-        input_entry.focus_set()
-        
         self.root.bind('<Escape>', lambda e: self._close())
+        
+        # Focus the window
+        self.root.lift()
+        self.root.focus_force()
+        input_entry.focus_set()
         
         self.root.mainloop()
     
@@ -228,6 +231,7 @@ class PromptSelectionPopup(BasePopup):
         self.on_close_callback = on_close
         self.selected_text = ""
         self.input_var: Optional[tk.StringVar] = None
+        self.response_mode_var: Optional[tk.StringVar] = None  # "default", "replace", "show"
     
     def show(self, selected_text: str, x: Optional[int] = None, y: Optional[int] = None):
         """Show the popup window."""
@@ -269,6 +273,36 @@ class PromptSelectionPopup(BasePopup):
             command=self._close
         )
         close_btn.pack(side=tk.RIGHT)
+        
+        # Response mode radio buttons
+        mode_frame = tk.Frame(content_frame, bg=self.bg_color)
+        mode_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        tk.Label(
+            mode_frame,
+            text="Response:",
+            font=("Arial", 9),
+            bg=self.bg_color,
+            fg=self.fg_color
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        
+        self.response_mode_var = tk.StringVar(value="default")
+        
+        for mode_text, mode_value in [("Default", "default"), ("Replace", "replace"), ("Show", "show")]:
+            rb = tk.Radiobutton(
+                mode_frame,
+                text=mode_text,
+                variable=self.response_mode_var,
+                value=mode_value,
+                font=("Arial", 9),
+                bg=self.bg_color,
+                fg=self.fg_color,
+                selectcolor=self.input_bg,
+                activebackground=self.bg_color,
+                activeforeground=self.fg_color,
+                highlightthickness=0
+            )
+            rb.pack(side=tk.LEFT, padx=2)
         
         # Input area
         input_frame = tk.Frame(content_frame, bg=self.bg_color)
@@ -345,9 +379,12 @@ class PromptSelectionPopup(BasePopup):
         self.root.geometry(f"+{x}+{y}")
         self.root.deiconify()
         
-        input_entry.focus_set()
-        
         self.root.bind('<Escape>', lambda e: self._close())
+        
+        # Focus the window
+        self.root.lift()
+        self.root.focus_force()
+        input_entry.focus_set()
         
         self.root.mainloop()
     
@@ -394,8 +431,9 @@ class PromptSelectionPopup(BasePopup):
     def _on_option_click(self, option_key: str):
         """Handle option button click."""
         logging.debug(f'Option selected: {option_key}')
+        response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
         self._close()
-        self.on_option_selected(option_key, self.selected_text, None)
+        self.on_option_selected(option_key, self.selected_text, None, response_mode)
     
     def _on_custom_submit(self):
         """Handle custom input submission."""
@@ -405,8 +443,9 @@ class PromptSelectionPopup(BasePopup):
             return
         
         logging.debug(f'Custom input submitted: {custom_text[:50]}...')
+        response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
         self._close()
-        self.on_option_selected("Custom", self.selected_text, custom_text)
+        self.on_option_selected("Custom", self.selected_text, custom_text, response_mode)
     
     def _close(self):
         super()._close()

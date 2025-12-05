@@ -185,12 +185,10 @@ def setup_text_tags(text_widget: tk.Text, colors: Dict[str, str]):
         spacing1=10)
     
     text_widget.tag_configure("user_message",
-        background=colors["user_bg"],
         lmargin1=10, lmargin2=10, rmargin=10,
         spacing3=5)
     
     text_widget.tag_configure("assistant_message",
-        background=colors["assistant_bg"],
         lmargin1=10, lmargin2=10, rmargin=10,
         spacing3=5)
     

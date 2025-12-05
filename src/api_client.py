@@ -72,6 +72,11 @@ def call_custom_api(key_manager, url, model, messages, ai_params, timeout):
     current_key = key_manager.get_current_key()
     if not current_key:
         return None, "No API key available"
+    
+    # Ensure URL ends with /chat/completions
+    if not url.endswith("/chat/completions"):
+        url = url.rstrip("/") + "/chat/completions"
+    
     headers = {"Authorization": f"Bearer {current_key}", "Content-Type": "application/json"}
     payload = {"model": model, "messages": messages}
     for param, value in ai_params.items():

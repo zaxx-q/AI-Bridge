@@ -56,7 +56,7 @@ def has_open_windows():
 def schedule_gui_task(task_func):
     """Schedule a task to run on the GUI thread"""
     global GUI_ROOT
-    if GUI_ROOT and GUI_RUNNING:
+    if GUI_ROOT and GUI_RUNNING and not GUI_SHUTDOWN_REQUESTED:
         try:
             GUI_ROOT.after(0, task_func)
         except tk.TclError:
@@ -98,12 +98,15 @@ def process_gui_queue():
     """Process queued GUI tasks"""
     global GUI_ROOT
     
-    if not GUI_ROOT:
+    if not GUI_ROOT or GUI_SHUTDOWN_REQUESTED:
         return
     
     try:
         while not GUI_QUEUE.empty():
-            task = GUI_QUEUE.get_nowait()
+            try:
+                task = GUI_QUEUE.get_nowait()
+            except:
+                break
             task_type = task.get("type")
             
             if task_type == "chat":
@@ -114,6 +117,8 @@ def process_gui_queue():
                 create_session_browser_window()
             
             GUI_QUEUE.task_done()
+    except tk.TclError:
+        pass  # GUI was destroyed
     except Exception as e:
         print(f"[GUI Error] Failed to process queue: {e}")
 
@@ -184,14 +189,27 @@ def gui_main_loop():
 
 def ensure_gui_running():
     """Ensure GUI thread is running, start if needed"""
-    global GUI_THREAD, GUI_RUNNING, GUI_SHUTDOWN_REQUESTED
+    global GUI_THREAD, GUI_RUNNING, GUI_SHUTDOWN_REQUESTED, GUI_ROOT
     
     with GUI_LOCK:
-        if GUI_RUNNING and GUI_THREAD and GUI_THREAD.is_alive():
+        # Check if GUI is already running and healthy
+        if GUI_RUNNING and GUI_THREAD and GUI_THREAD.is_alive() and GUI_ROOT:
             return True
         
-        # Start new GUI thread
+        # Reset state before starting new GUI thread
         GUI_SHUTDOWN_REQUESTED = False
+        GUI_RUNNING = False
+        GUI_ROOT = None
+        
+        # Clear any stale items from queue
+        while not GUI_QUEUE.empty():
+            try:
+                GUI_QUEUE.get_nowait()
+                GUI_QUEUE.task_done()
+            except:
+                break
+        
+        # Start new GUI thread
         GUI_THREAD = threading.Thread(target=gui_main_loop, daemon=True)
         GUI_THREAD.start()
         

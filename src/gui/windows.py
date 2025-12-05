@@ -5,7 +5,7 @@ GUI window creation functions - Tkinter implementation
 
 import threading
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk
 from typing import Optional
 
 from ..utils import strip_markdown
@@ -127,7 +127,7 @@ class ChatWindow:
         chat_frame.columnconfigure(0, weight=1)
         chat_frame.rowconfigure(0, weight=1)
         
-        self.chat_text = scrolledtext.ScrolledText(
+        self.chat_text = tk.Text(
             chat_frame,
             wrap=tk.WORD,
             font=("Segoe UI", 11),
@@ -141,6 +141,17 @@ class ChatWindow:
             pady=10
         )
         self.chat_text.grid(row=0, column=0, sticky=tk.NSEW)
+        
+        # Vertical scrollbar
+        self.v_scrollbar = ttk.Scrollbar(chat_frame, orient=tk.VERTICAL, command=self.chat_text.yview)
+        self.v_scrollbar.grid(row=0, column=1, sticky=tk.NS)
+        self.chat_text.configure(yscrollcommand=self.v_scrollbar.set)
+        
+        # Horizontal scrollbar (shown when wrap is off)
+        self.h_scrollbar = ttk.Scrollbar(chat_frame, orient=tk.HORIZONTAL, command=self.chat_text.xview)
+        self.h_scrollbar.grid(row=1, column=0, sticky=tk.EW)
+        self.h_scrollbar.grid_remove()  # Hide initially
+        self.chat_text.configure(xscrollcommand=self.h_scrollbar.set)
         
         # Setup tags
         setup_text_tags(self.chat_text, self.colors)
@@ -299,9 +310,9 @@ class ChatWindow:
                 render_markdown(content, self.chat_text, self.colors, 
                               wrap=self.wrapped, as_role=role_for_bg)
             else:
-                tag = "user_message" if role == "user" else "assistant_message"
+                # Plain text mode - no role-based styling, just normal text
                 self.chat_text.configure(wrap=tk.WORD if self.wrapped else tk.NONE)
-                self.chat_text.insert(tk.END, content, tag)
+                self.chat_text.insert(tk.END, content, "normal")
             
             # Separator
             self.chat_text.insert(tk.END, "\n" + "─" * 50 + "\n", "separator")
@@ -314,6 +325,11 @@ class ChatWindow:
     
     def _toggle_wrap(self):
         self.wrapped = not self.wrapped
+        # Show/hide horizontal scrollbar
+        if self.wrapped:
+            self.h_scrollbar.grid_remove()
+        else:
+            self.h_scrollbar.grid()
         self._update_chat_display()
         self.status_label.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
     
