@@ -201,6 +201,19 @@ def setup_text_tags(text_widget: tk.Text, colors: Dict[str, str]):
     text_widget.tag_configure("separator",
         foreground=colors["border"],
         justify="center")
+    
+    # Thinking/Reasoning display
+    text_widget.tag_configure("thinking_header",
+        font=(base_font, 10, "bold italic"),
+        foreground=colors["accent_yellow"],
+        spacing1=5)
+    
+    text_widget.tag_configure("thinking_content",
+        font=(base_font, 10, "italic"),
+        foreground=colors["blockquote"],
+        lmargin1=15, lmargin2=15,
+        background=colors["code_bg"] if "code_bg" in colors else colors["input_bg"],
+        spacing1=3, spacing3=3)
 
 
 def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str], 

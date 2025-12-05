@@ -9,7 +9,7 @@ import time
 from flask import Flask, request, abort, jsonify
 
 from .config import CONFIG_FILE
-from .api_client import call_api_simple, call_api_chat
+from .api_client import call_api_simple, call_api_chat, fetch_models
 from .session_manager import ChatSession, add_session, get_session, list_sessions
 from .gui.core import show_chat_gui, show_session_browser, get_gui_status, HAVE_GUI
 
@@ -18,6 +18,9 @@ CONFIG = {}
 AI_PARAMS = {}
 ENDPOINTS = {}
 KEY_MANAGERS = {}
+
+# Cached models list
+CACHED_MODELS = None
 
 app = Flask(__name__)
 
@@ -163,6 +166,36 @@ def health():
         "providers": {p: km.get_key_count() for p, km in KEY_MANAGERS.items() if km.has_keys()},
         "endpoints_count": len(ENDPOINTS),
         "sessions_count": len(list_sessions())
+    })
+
+
+@app.route('/models')
+def get_models():
+    """Fetch available models from upstream API"""
+    global CACHED_MODELS
+    
+    # Check for force refresh
+    force_refresh = request.args.get('refresh', 'false').lower() in ('true', '1', 'yes')
+    
+    if not force_refresh and CACHED_MODELS is not None:
+        return jsonify({
+            "object": "list",
+            "data": CACHED_MODELS,
+            "cached": True
+        })
+    
+    models, error = fetch_models(CONFIG, KEY_MANAGERS)
+    
+    if error:
+        return jsonify({"error": error}), 500
+    
+    # Cache the models
+    CACHED_MODELS = models
+    
+    return jsonify({
+        "object": "list",
+        "data": models,
+        "cached": False
     })
 
 

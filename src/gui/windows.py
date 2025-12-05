@@ -31,6 +31,17 @@ class ChatWindow:
         self.last_response = initial_response or ""
         self.is_loading = False
         
+        # Streaming state
+        self.streaming_text = ""
+        self.streaming_thinking = ""
+        self.is_streaming = False
+        self.thinking_collapsed = True
+        self.last_usage = None
+        
+        # Available models cache
+        self.available_models = []
+        self.selected_model = session.model or ""
+        
         # Colors
         self.colors = get_color_scheme()
         
@@ -118,6 +129,30 @@ class ChatWindow:
             command=self._toggle_autoscroll
         )
         self.scroll_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Model dropdown (on right side)
+        tk.Label(btn_frame, width=3, bg=self.colors["bg"]).pack(side=tk.LEFT)
+        tk.Label(
+            btn_frame,
+            text="Model:",
+            font=("Segoe UI", 9),
+            bg=self.colors["bg"],
+            fg=self.colors["fg"]
+        ).pack(side=tk.LEFT)
+        
+        self.model_var = tk.StringVar(value=self.selected_model or "(default)")
+        self.model_dropdown = ttk.Combobox(
+            btn_frame,
+            textvariable=self.model_var,
+            values=["(loading...)"],
+            width=25,
+            state="readonly"
+        )
+        self.model_dropdown.pack(side=tk.LEFT, padx=5)
+        self.model_dropdown.bind("<<ComboboxSelected>>", self._on_model_select)
+        
+        # Load models in background
+        threading.Thread(target=self._load_models, daemon=True).start()
         
         # Chat log area
         chat_frame = tk.Frame(self.root, bg=self.colors["bg"])
@@ -288,6 +323,7 @@ class ChatWindow:
         for i, msg in enumerate(self.session.messages):
             role = msg["role"]
             content = msg["content"]
+            thinking = msg.get("thinking", "")
             
             # Add spacing between messages
             if i > 0:
@@ -298,6 +334,13 @@ class ChatWindow:
                 self.chat_text.insert(tk.END, "You:\n", "user_label")
             else:
                 self.chat_text.insert(tk.END, "Assistant:\n", "assistant_label")
+            
+            # Thinking content (collapsible) - for assistant messages only
+            if role == "assistant" and thinking:
+                thinking_header = "▶ Thinking (click to expand)..." if self.thinking_collapsed else "▼ Thinking:"
+                self.chat_text.insert(tk.END, f"{thinking_header}\n", "thinking_header")
+                if not self.thinking_collapsed:
+                    self.chat_text.insert(tk.END, thinking + "\n\n", "thinking_content")
             
             # Message content
             if self.markdown:
@@ -338,8 +381,44 @@ class ChatWindow:
         self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         self.status_label.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
     
+    def _load_models(self):
+        """Load available models in background"""
+        try:
+            from ..api_client import fetch_models
+            from .. import web_server
+            
+            models, error = fetch_models(web_server.CONFIG, web_server.KEY_MANAGERS)
+            
+            if models and not error:
+                self.available_models = models
+                model_ids = [m['id'] for m in models]
+                
+                # Update dropdown on main thread
+                def update_dropdown():
+                    current = self.session.model or web_server.CONFIG.get(f"{self.session.provider}_model", "")
+                    self.model_dropdown.configure(values=model_ids)
+                    if current and current in model_ids:
+                        self.model_var.set(current)
+                    elif model_ids:
+                        # Show current model or first available
+                        self.model_var.set(current if current else model_ids[0])
+                    else:
+                        self.model_var.set("(no models)")
+                
+                self.root.after(0, update_dropdown)
+        except Exception as e:
+            print(f"[ChatWindow] Error loading models: {e}")
+    
+    def _on_model_select(self, event):
+        """Handle model selection from dropdown"""
+        selected = self.model_var.get()
+        if selected and selected not in ("(loading...)", "(no models)", "(default)"):
+            self.session.model = selected
+            self.selected_model = selected
+            self.status_label.configure(text=f"Model: {selected}")
+    
     def _send(self):
-        """Send a message"""
+        """Send a message with streaming support"""
         if self.is_loading:
             return
         
@@ -356,47 +435,152 @@ class ChatWindow:
         self.input_text.configure(state=tk.DISABLED)
         self.status_label.configure(text="Sending...")
         
+        # Reset streaming state
+        self.streaming_text = ""
+        self.streaming_thinking = ""
+        self.is_streaming = False
+        self.last_usage = None
+        
         def process_message():
-            from ..api_client import call_api_with_retry
+            from ..api_client import call_api_with_retry, call_api_chat_stream
             from .. import web_server
+            from ..terminal import print_usage
             
             self.session.add_message("user", user_input)
             
-            # Update display on main thread
+            # Update display and clear input on main thread
             self.root.after(0, lambda: self._update_chat_display(scroll_to_bottom=True))
             self.root.after(0, lambda: self.input_text.configure(state=tk.NORMAL))
             self.root.after(0, lambda: self.input_text.delete("1.0", tk.END))
             
-            # Get conversation for API
-            messages = self.session.get_conversation_for_api(include_image=True)
+            streaming_enabled = web_server.CONFIG.get("streaming_enabled", True)
             
-            response_text, error = call_api_with_retry(
-                provider=self.session.provider,
-                messages=messages,
-                model_override=self.session.model,
-                config=web_server.CONFIG,
-                ai_params=web_server.AI_PARAMS,
-                key_managers=web_server.KEY_MANAGERS
-            )
+            # Streaming callback for real-time updates
+            def stream_callback(data_type, content):
+                if data_type == "text":
+                    self.streaming_text += content
+                    self.root.after(0, lambda: self._update_streaming_display())
+                elif data_type == "thinking":
+                    self.streaming_thinking += content
+                    self.root.after(0, lambda: self._update_streaming_display())
+                elif data_type == "usage":
+                    self.last_usage = content
+                elif data_type == "error":
+                    self.root.after(0, lambda: self.status_label.configure(
+                        text=f"Error: {content}", fg=self.colors["accent_red"]
+                    ))
+                elif data_type == "done":
+                    pass  # Handled after call completes
+            
+            # Use streaming if enabled and provider supports it
+            if streaming_enabled and self.session.provider == "custom":
+                self.is_streaming = True
+                self.root.after(0, lambda: self.status_label.configure(text="Streaming..."))
+                
+                full_text, reasoning_text, usage_data, error = call_api_chat_stream(
+                    self.session,
+                    web_server.CONFIG,
+                    web_server.AI_PARAMS,
+                    web_server.KEY_MANAGERS,
+                    stream_callback
+                )
+                
+                self.is_streaming = False
+                response_text = full_text
+                self.last_usage = usage_data
+            else:
+                # Non-streaming fallback
+                response_text, error = call_api_with_retry(
+                    provider=self.session.provider,
+                    messages=self.session.get_conversation_for_api(include_image=True),
+                    model_override=self.session.model,
+                    config=web_server.CONFIG,
+                    ai_params=web_server.AI_PARAMS,
+                    key_managers=web_server.KEY_MANAGERS
+                )
+                reasoning_text = ""
             
             def handle_response():
                 if error:
                     self.status_label.configure(text=f"Error: {error}", fg=self.colors["accent_red"])
                     self.session.messages.pop()  # Remove failed user message
                 else:
-                    self.session.add_message("assistant", response_text)
+                    # Store reasoning content alongside the message
+                    msg_content = response_text
+                    self.session.add_message("assistant", msg_content)
+                    if self.streaming_thinking:
+                        # Store thinking in session for later display
+                        if len(self.session.messages) > 0:
+                            self.session.messages[-1]["thinking"] = self.streaming_thinking
+                    
                     self.last_response = response_text
                     self._update_chat_display(scroll_to_bottom=True)
-                    self.status_label.configure(text="✓ Response received", fg=self.colors["accent_green"])
+                    
+                    # Show usage in status
+                    usage_str = ""
+                    if self.last_usage:
+                        usage_str = f" | {self.last_usage.get('total_tokens', 0)} tokens"
+                        # Print to console
+                        print_usage(self.last_usage, "  ")
+                    
+                    self.status_label.configure(
+                        text=f"✓ Response received{usage_str}", 
+                        fg=self.colors["accent_green"]
+                    )
                     add_session(self.session, web_server.CONFIG.get("max_sessions", 50))
                 
                 self.is_loading = False
                 self.send_btn.configure(state=tk.NORMAL)
                 self.input_text.configure(state=tk.NORMAL)
+                
+                # Reset streaming state
+                self.streaming_text = ""
+                self.streaming_thinking = ""
             
             self.root.after(0, handle_response)
         
         threading.Thread(target=process_message, daemon=True).start()
+    
+    def _update_streaming_display(self):
+        """Update display during streaming - append new content"""
+        if not self.is_streaming:
+            return
+        
+        self.chat_text.configure(state=tk.NORMAL)
+        
+        # Find position after last separator
+        try:
+            last_sep_pos = self.chat_text.search("─" * 50, "end", backwards=True)
+            if last_sep_pos:
+                # Delete everything after the separator and add streaming content
+                self.chat_text.delete(last_sep_pos, tk.END)
+        except:
+            pass
+        
+        # Add separator
+        self.chat_text.insert(tk.END, "─" * 50 + "\n", "separator")
+        
+        # Add streaming assistant response
+        self.chat_text.insert(tk.END, "\nAssistant:\n", "assistant_label")
+        
+        # Add thinking section if present (collapsible)
+        if self.streaming_thinking:
+            thinking_header = "▶ Thinking (click to expand)..." if self.thinking_collapsed else "▼ Thinking:"
+            self.chat_text.insert(tk.END, f"{thinking_header}\n", "thinking_header")
+            if not self.thinking_collapsed:
+                self.chat_text.insert(tk.END, self.streaming_thinking + "\n", "thinking_content")
+        
+        # Add content
+        if self.streaming_text:
+            self.chat_text.insert(tk.END, self.streaming_text, "normal")
+        else:
+            self.chat_text.insert(tk.END, "...", "normal")
+        
+        self.chat_text.configure(state=tk.DISABLED)
+        
+        if self.auto_scroll:
+            self.chat_text.see(tk.END)
+
     
     def _get_conversation_text(self) -> str:
         """Build conversation text for clipboard"""
@@ -694,6 +878,17 @@ class StandaloneChatWindow:
         self.last_response = initial_response or ""
         self.is_loading = False
         
+        # Streaming state
+        self.streaming_text = ""
+        self.streaming_thinking = ""
+        self.is_streaming = False
+        self.thinking_collapsed = True
+        self.last_usage = None
+        
+        # Available models cache
+        self.available_models = []
+        self.selected_model = session.model or ""
+        
         # Colors
         self.colors = get_color_scheme()
         
@@ -777,6 +972,30 @@ class StandaloneChatWindow:
             command=self._toggle_autoscroll
         )
         self.scroll_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Model dropdown (on right side)
+        tk.Label(btn_frame, width=3, bg=self.colors["bg"]).pack(side=tk.LEFT)
+        tk.Label(
+            btn_frame,
+            text="Model:",
+            font=("Segoe UI", 9),
+            bg=self.colors["bg"],
+            fg=self.colors["fg"]
+        ).pack(side=tk.LEFT)
+        
+        self.model_var = tk.StringVar(value=self.selected_model or "(default)")
+        self.model_dropdown = ttk.Combobox(
+            btn_frame,
+            textvariable=self.model_var,
+            values=["(loading...)"],
+            width=25,
+            state="readonly"
+        )
+        self.model_dropdown.pack(side=tk.LEFT, padx=5)
+        self.model_dropdown.bind("<<ComboboxSelected>>", self._on_model_select)
+        
+        # Load models in background
+        threading.Thread(target=self._load_models, daemon=True).start()
         
         # Chat log area
         chat_frame = tk.Frame(self.root, bg=self.colors["bg"])
@@ -954,6 +1173,7 @@ class StandaloneChatWindow:
         for i, msg in enumerate(self.session.messages):
             role = msg["role"]
             content = msg["content"]
+            thinking = msg.get("thinking", "")
             
             # Add spacing between messages
             if i > 0:
@@ -964,6 +1184,13 @@ class StandaloneChatWindow:
                 self.chat_text.insert(tk.END, "You:\n", "user_label")
             else:
                 self.chat_text.insert(tk.END, "Assistant:\n", "assistant_label")
+            
+            # Thinking content (collapsible) - for assistant messages only
+            if role == "assistant" and thinking:
+                thinking_header = "▶ Thinking (click to expand)..." if self.thinking_collapsed else "▼ Thinking:"
+                self.chat_text.insert(tk.END, f"{thinking_header}\n", "thinking_header")
+                if not self.thinking_collapsed:
+                    self.chat_text.insert(tk.END, thinking + "\n\n", "thinking_content")
             
             # Message content
             if self.markdown:
@@ -1003,8 +1230,43 @@ class StandaloneChatWindow:
         self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         self.status_label.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
     
+    def _load_models(self):
+        """Load available models in background"""
+        try:
+            from ..api_client import fetch_models
+            from .. import web_server
+            
+            models, error = fetch_models(web_server.CONFIG, web_server.KEY_MANAGERS)
+            
+            if models and not error:
+                self.available_models = models
+                model_ids = [m['id'] for m in models]
+                
+                # Update dropdown on main thread
+                def update_dropdown():
+                    current = self.session.model or web_server.CONFIG.get(f"{self.session.provider}_model", "")
+                    self.model_dropdown.configure(values=model_ids)
+                    if current and current in model_ids:
+                        self.model_var.set(current)
+                    elif model_ids:
+                        self.model_var.set(current if current else model_ids[0])
+                    else:
+                        self.model_var.set("(no models)")
+                
+                self.root.after(0, update_dropdown)
+        except Exception as e:
+            print(f"[StandaloneChatWindow] Error loading models: {e}")
+    
+    def _on_model_select(self, event):
+        """Handle model selection from dropdown"""
+        selected = self.model_var.get()
+        if selected and selected not in ("(loading...)", "(no models)", "(default)"):
+            self.session.model = selected
+            self.selected_model = selected
+            self.status_label.configure(text=f"Model: {selected}")
+    
     def _send(self):
-        """Send a message"""
+        """Send a message with streaming support"""
         if self.is_loading:
             return
         
@@ -1021,28 +1283,68 @@ class StandaloneChatWindow:
         self.input_text.configure(state=tk.DISABLED)
         self.status_label.configure(text="Sending...")
         
+        # Reset streaming state
+        self.streaming_text = ""
+        self.streaming_thinking = ""
+        self.is_streaming = False
+        self.last_usage = None
+        
         def process_message():
-            from ..api_client import call_api_with_retry
+            from ..api_client import call_api_with_retry, call_api_chat_stream
             from .. import web_server
+            from ..terminal import print_usage
             
             self.session.add_message("user", user_input)
             
-            # Update display on main thread
+            # Update display and clear input on main thread
             self.root.after(0, lambda: self._update_chat_display(scroll_to_bottom=True))
             self.root.after(0, lambda: self.input_text.configure(state=tk.NORMAL))
             self.root.after(0, lambda: self.input_text.delete("1.0", tk.END))
             
-            # Get conversation for API
-            messages = self.session.get_conversation_for_api(include_image=True)
+            streaming_enabled = web_server.CONFIG.get("streaming_enabled", True)
             
-            response_text, error = call_api_with_retry(
-                provider=self.session.provider,
-                messages=messages,
-                model_override=self.session.model,
-                config=web_server.CONFIG,
-                ai_params=web_server.AI_PARAMS,
-                key_managers=web_server.KEY_MANAGERS
-            )
+            # Streaming callback for real-time updates
+            def stream_callback(data_type, content):
+                if data_type == "text":
+                    self.streaming_text += content
+                    self.root.after(0, lambda: self._update_streaming_display())
+                elif data_type == "thinking":
+                    self.streaming_thinking += content
+                    self.root.after(0, lambda: self._update_streaming_display())
+                elif data_type == "usage":
+                    self.last_usage = content
+                elif data_type == "error":
+                    self.root.after(0, lambda: self.status_label.configure(
+                        text=f"Error: {content}", fg=self.colors["accent_red"]
+                    ))
+            
+            # Use streaming if enabled and provider supports it
+            if streaming_enabled and self.session.provider == "custom":
+                self.is_streaming = True
+                self.root.after(0, lambda: self.status_label.configure(text="Streaming..."))
+                
+                full_text, reasoning_text, usage_data, error = call_api_chat_stream(
+                    self.session,
+                    web_server.CONFIG,
+                    web_server.AI_PARAMS,
+                    web_server.KEY_MANAGERS,
+                    stream_callback
+                )
+                
+                self.is_streaming = False
+                response_text = full_text
+                self.last_usage = usage_data
+            else:
+                # Non-streaming fallback
+                response_text, error = call_api_with_retry(
+                    provider=self.session.provider,
+                    messages=self.session.get_conversation_for_api(include_image=True),
+                    model_override=self.session.model,
+                    config=web_server.CONFIG,
+                    ai_params=web_server.AI_PARAMS,
+                    key_managers=web_server.KEY_MANAGERS
+                )
+                reasoning_text = ""
             
             def handle_response():
                 if error:
@@ -1050,18 +1352,77 @@ class StandaloneChatWindow:
                     self.session.messages.pop()  # Remove failed user message
                 else:
                     self.session.add_message("assistant", response_text)
+                    if self.streaming_thinking:
+                        if len(self.session.messages) > 0:
+                            self.session.messages[-1]["thinking"] = self.streaming_thinking
+                    
                     self.last_response = response_text
                     self._update_chat_display(scroll_to_bottom=True)
-                    self.status_label.configure(text="✓ Response received", fg=self.colors["accent_green"])
+                    
+                    # Show usage in status
+                    usage_str = ""
+                    if self.last_usage:
+                        usage_str = f" | {self.last_usage.get('total_tokens', 0)} tokens"
+                        # Print to console
+                        print_usage(self.last_usage, "  ")
+                    
+                    self.status_label.configure(
+                        text=f"✓ Response received{usage_str}", 
+                        fg=self.colors["accent_green"]
+                    )
                     add_session(self.session, web_server.CONFIG.get("max_sessions", 50))
                 
                 self.is_loading = False
                 self.send_btn.configure(state=tk.NORMAL)
                 self.input_text.configure(state=tk.NORMAL)
+                
+                # Reset streaming state
+                self.streaming_text = ""
+                self.streaming_thinking = ""
             
             self.root.after(0, handle_response)
         
         threading.Thread(target=process_message, daemon=True).start()
+    
+    def _update_streaming_display(self):
+        """Update display during streaming"""
+        if not self.is_streaming:
+            return
+        
+        self.chat_text.configure(state=tk.NORMAL)
+        
+        # Find and remove streaming content after last separator
+        try:
+            last_sep_pos = self.chat_text.search("─" * 50, "end", backwards=True)
+            if last_sep_pos:
+                self.chat_text.delete(last_sep_pos, tk.END)
+        except:
+            pass
+        
+        # Add separator
+        self.chat_text.insert(tk.END, "─" * 50 + "\n", "separator")
+        
+        # Add streaming assistant response
+        self.chat_text.insert(tk.END, "\nAssistant:\n", "assistant_label")
+        
+        # Add thinking section if present
+        if self.streaming_thinking:
+            thinking_header = "▶ Thinking..." if self.thinking_collapsed else "▼ Thinking:"
+            self.chat_text.insert(tk.END, f"{thinking_header}\n", "thinking_header")
+            if not self.thinking_collapsed:
+                self.chat_text.insert(tk.END, self.streaming_thinking + "\n", "thinking_content")
+        
+        # Add content
+        if self.streaming_text:
+            self.chat_text.insert(tk.END, self.streaming_text, "normal")
+        else:
+            self.chat_text.insert(tk.END, "...", "normal")
+        
+        self.chat_text.configure(state=tk.DISABLED)
+        
+        if self.auto_scroll:
+            self.chat_text.see(tk.END)
+
     
     def _get_conversation_text(self) -> str:
         """Build conversation text for clipboard"""

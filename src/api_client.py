@@ -86,6 +86,206 @@ def call_custom_api(key_manager, url, model, messages, ai_params, timeout):
     return response, None
 
 
+def estimate_tokens(text: str) -> int:
+    """Estimate token count (roughly 4 characters per token)"""
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
+def estimate_message_tokens(messages: list) -> int:
+    """Estimate token count for a list of messages"""
+    total = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total += estimate_tokens(content)
+        elif isinstance(content, list):
+            for item in content:
+                if item.get("type") == "text":
+                    total += estimate_tokens(item.get("text", ""))
+                elif item.get("type") == "image_url":
+                    # Estimate ~85 tokens per image (conservative)
+                    total += 85
+        # Add overhead for role, etc.
+        total += 4
+    return total
+
+
+def call_custom_api_stream(key_manager, url, model, messages, ai_params, timeout, callback, thinking_output="reasoning_content"):
+    """
+    Call custom OpenAI-compatible API with streaming support.
+    
+    Args:
+        key_manager: Key manager for API keys
+        url: API endpoint URL
+        model: Model name
+        messages: List of messages
+        ai_params: AI parameters
+        timeout: Request timeout
+        callback: Function called with (type, content) for each chunk
+                  Types: 'text', 'thinking', 'usage', 'done', 'error'
+        thinking_output: How to handle thinking - 'filter', 'raw', 'reasoning_content'
+    
+    Returns:
+        (full_text, reasoning_text, usage_data, error)
+    """
+    import json
+    
+    current_key = key_manager.get_current_key()
+    if not current_key:
+        return None, None, None, "No API key available"
+    
+    # Ensure URL ends with /chat/completions
+    if not url.endswith("/chat/completions"):
+        url = url.rstrip("/") + "/chat/completions"
+    
+    headers = {"Authorization": f"Bearer {current_key}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": messages, "stream": True}
+    for param, value in ai_params.items():
+        if value is not None:
+            payload[param] = value
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout, stream=True)
+        
+        if response.status_code != 200:
+            error_text = response.text[:500]
+            return None, None, None, f"API error ({response.status_code}): {error_text}"
+        
+        full_text = ""
+        reasoning_text = ""
+        usage_data = None
+        in_thinking = False
+        text_buffer = ""
+        
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            if not line.startswith("data: "):
+                continue
+            
+            data_str = line[6:]  # Remove "data: " prefix
+            
+            if data_str == "[DONE]":
+                # Flush any remaining buffer
+                if text_buffer:
+                    if in_thinking:
+                        if thinking_output != "filter":
+                            reasoning_text += text_buffer
+                            if thinking_output == "raw":
+                                callback("text", text_buffer)
+                            else:
+                                callback("thinking", text_buffer)
+                    else:
+                        full_text += text_buffer
+                        callback("text", text_buffer)
+                callback("done", None)
+                break
+            
+            try:
+                data = json.loads(data_str)
+                choice = data.get("choices", [{}])[0]
+                delta = choice.get("delta", {})
+                
+                # Handle regular content
+                content = delta.get("content", "")
+                if content:
+                    text_buffer += content
+                    
+                    # Process buffer for <think> tags
+                    while True:
+                        if not in_thinking:
+                            # Look for <think> opening tag
+                            think_start = text_buffer.find("<think>")
+                            if think_start == -1:
+                                # No tag, output safe portion (keep last 7 chars as buffer)
+                                if len(text_buffer) > 7:
+                                    safe_text = text_buffer[:-7]
+                                    text_buffer = text_buffer[-7:]
+                                    full_text += safe_text
+                                    callback("text", safe_text)
+                                break
+                            else:
+                                # Found <think>, output text before it
+                                before_think = text_buffer[:think_start]
+                                text_buffer = text_buffer[think_start + 7:]
+                                in_thinking = True
+                                if before_think:
+                                    full_text += before_think
+                                    callback("text", before_think)
+                        else:
+                            # Look for </think> closing tag
+                            think_end = text_buffer.find("</think>")
+                            if think_end == -1:
+                                # No closing tag, output safe portion
+                                if len(text_buffer) > 8:
+                                    safe_text = text_buffer[:-8]
+                                    text_buffer = text_buffer[-8:]
+                                    if thinking_output != "filter":
+                                        reasoning_text += safe_text
+                                        if thinking_output == "raw":
+                                            callback("text", safe_text)
+                                        else:
+                                            callback("thinking", safe_text)
+                                break
+                            else:
+                                # Found </think>, output thinking content
+                                thinking_content = text_buffer[:think_end]
+                                text_buffer = text_buffer[think_end + 8:]
+                                in_thinking = False
+                                if thinking_output != "filter" and thinking_content:
+                                    reasoning_text += thinking_content
+                                    if thinking_output == "raw":
+                                        callback("text", thinking_content)
+                                    else:
+                                        callback("thinking", thinking_content)
+                
+                # Handle reasoning_content (DeepSeek style)
+                reasoning_content = delta.get("reasoning_content", "")
+                if reasoning_content:
+                    if thinking_output != "filter":
+                        reasoning_text += reasoning_content
+                        if thinking_output == "raw":
+                            callback("text", reasoning_content)
+                        else:
+                            callback("thinking", reasoning_content)
+                
+                # Handle usage data
+                if "usage" in data:
+                    usage = data["usage"]
+                    usage_data = {
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0)
+                    }
+                    callback("usage", usage_data)
+                    
+            except json.JSONDecodeError:
+                continue
+        
+        # If no usage data from API, estimate it
+        if not usage_data:
+            input_tokens = estimate_message_tokens(messages)
+            output_tokens = estimate_tokens(full_text + reasoning_text)
+            usage_data = {
+                "prompt_tokens": input_tokens,
+                "completion_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+                "estimated": True
+            }
+            callback("usage", usage_data)
+        
+        return full_text, reasoning_text, usage_data, None
+        
+    except requests.exceptions.Timeout:
+        return None, None, None, f"Request timeout after {timeout}s"
+    except requests.exceptions.RequestException as e:
+        return None, None, None, f"Request failed: {e}"
+    except Exception as e:
+        return None, None, None, f"Unexpected error: {e}"
+
+
 def extract_text_from_response(response_json, provider):
     """Extract text from API response"""
     try:
@@ -255,3 +455,171 @@ def call_api_chat(session, config, ai_params, key_managers):
     """API call for chat session"""
     messages = session.get_conversation_for_api(include_image=True)
     return call_api_with_retry(session.provider, messages, session.model, config, ai_params, key_managers)
+
+
+def call_api_chat_stream(session, config, ai_params, key_managers, callback):
+    """
+    API call for chat session with streaming support.
+    
+    Args:
+        session: Chat session object
+        config: Configuration dictionary
+        ai_params: AI parameters
+        key_managers: Dictionary of key managers
+        callback: Callback function for streaming updates
+                  Called with (type, content) - types: 'text', 'thinking', 'usage', 'done', 'error'
+    
+    Returns:
+        (text, reasoning_text, usage_data, error) tuple
+    """
+    messages = session.get_conversation_for_api(include_image=True)
+    provider = session.provider
+    
+    key_manager = key_managers.get(provider)
+    if not key_manager or not key_manager.has_keys():
+        return None, None, None, f"No API keys configured for provider: {provider}"
+    
+    timeout = config.get("request_timeout", 120)
+    thinking_output = config.get("thinking_output", "reasoning_content")
+    
+    # Determine model
+    if session.model:
+        model = session.model
+    elif provider == "custom":
+        model = config.get("custom_model")
+    elif provider == "openrouter":
+        model = config.get("openrouter_model", "google/gemini-2.5-flash-preview")
+    elif provider == "google":
+        model = config.get("google_model", "gemini-2.0-flash")
+    else:
+        model = None
+    
+    # Currently streaming only supported for custom (OpenAI-compatible) API
+    if provider == "custom":
+        url = config.get("custom_url")
+        if not url or not model:
+            return None, None, None, "Custom API URL or model not configured"
+        
+        return call_custom_api_stream(
+            key_manager, url, model, messages, ai_params, 
+            timeout, callback, thinking_output
+        )
+    else:
+        # For other providers, fall back to non-streaming
+        text, error = call_api_with_retry(provider, messages, session.model, config, ai_params, key_managers)
+        if error:
+            callback("error", error)
+            return None, None, None, error
+        
+        # Emit the full response as a single chunk
+        callback("text", text)
+        
+        # Estimate tokens for non-streaming response
+        usage_data = {
+            "prompt_tokens": estimate_message_tokens(messages),
+            "completion_tokens": estimate_tokens(text),
+            "total_tokens": estimate_message_tokens(messages) + estimate_tokens(text),
+            "estimated": True
+        }
+        callback("usage", usage_data)
+        callback("done", None)
+        
+        return text, "", usage_data, None
+
+
+def fetch_models(config, key_managers):
+    """
+    Fetch available models from the configured API.
+    
+    Args:
+        config: Configuration dictionary
+        key_managers: Dictionary of key managers
+    
+    Returns:
+        (models_list, error) tuple
+        models_list is a list of dicts with 'id' and 'name' keys
+    """
+    provider = config.get("default_provider", "custom")
+    
+    if provider == "custom":
+        url = config.get("custom_url")
+        if not url:
+            return None, "Custom API URL not configured"
+        
+        # Get base URL (remove /chat/completions if present)
+        base_url = url.rstrip("/")
+        if base_url.endswith("/chat/completions"):
+            base_url = base_url[:-17]
+        
+        models_url = base_url + "/models"
+        
+        key_manager = key_managers.get("custom")
+        if not key_manager or not key_manager.has_keys():
+            return None, "No API keys configured for custom provider"
+        
+        current_key = key_manager.get_current_key()
+        if not current_key:
+            return None, "No API key available"
+        
+        headers = {
+            "Authorization": f"Bearer {current_key}",
+            "Content-Type": "application/json"
+        }
+        
+        try:
+            response = requests.get(models_url, headers=headers, timeout=30)
+            
+            if response.status_code != 200:
+                return None, f"Failed to fetch models ({response.status_code}): {response.text[:200]}"
+            
+            data = response.json()
+            
+            # OpenAI format: {"data": [...]}
+            if "data" in data and isinstance(data["data"], list):
+                models = []
+                for model in data["data"]:
+                    model_id = model.get("id", str(model))
+                    models.append({
+                        "id": model_id,
+                        "name": model_id,
+                        "owned_by": model.get("owned_by", "unknown")
+                    })
+                return models, None
+            
+            # Some APIs return array directly
+            if isinstance(data, list):
+                models = []
+                for model in data:
+                    if isinstance(model, str):
+                        models.append({"id": model, "name": model})
+                    else:
+                        model_id = model.get("id", str(model))
+                        models.append({"id": model_id, "name": model_id})
+                return models, None
+            
+            return None, "Unknown models response format"
+            
+        except requests.exceptions.RequestException as e:
+            return None, f"Request failed: {e}"
+        except Exception as e:
+            return None, f"Error fetching models: {e}"
+    
+    else:
+        # For other providers, return empty list or hardcoded models
+        if provider == "openrouter":
+            # Common OpenRouter models
+            return [
+                {"id": "google/gemini-2.5-flash-preview", "name": "Gemini 2.5 Flash"},
+                {"id": "google/gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
+                {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet"},
+                {"id": "openai/gpt-4o", "name": "GPT-4o"},
+            ], None
+        elif provider == "google":
+            return [
+                {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
+                {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash"},
+                {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
+            ], None
+        
+        return [], None
+

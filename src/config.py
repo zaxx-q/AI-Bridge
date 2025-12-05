@@ -24,6 +24,10 @@ DEFAULT_CONFIG = {
     "request_timeout": 120,
     "max_sessions": 50,
     "default_show": "no",
+    # Streaming and thinking settings
+    "streaming_enabled": True,
+    "thinking_enabled": False,
+    "thinking_output": "reasoning_content",  # filter, raw, or reasoning_content
     # TextEditTool settings
     "text_edit_tool_enabled": True,
     "text_edit_tool_hotkey": "ctrl+space",
@@ -154,6 +158,62 @@ def load_config(filepath=CONFIG_FILE):
     return config, ai_params, endpoints, keys
 
 
+def save_config_value(key: str, value, filepath=CONFIG_FILE):
+    """Update a single config value in the config file"""
+    try:
+        if not Path(filepath).exists():
+            return False
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Convert value to string
+        if isinstance(value, bool):
+            value_str = "true" if value else "false"
+        elif value is None:
+            value_str = "none"
+        else:
+            value_str = str(value)
+        
+        # Find and update the key in [config] section
+        in_config_section = False
+        found = False
+        new_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Track section
+            if stripped.startswith('[') and stripped.endswith(']'):
+                in_config_section = stripped.lower() == '[config]'
+            
+            # Update key if in config section
+            if in_config_section and stripped.startswith(f"{key} =") or stripped.startswith(f"{key}="):
+                new_lines.append(f"{key} = {value_str}\n")
+                found = True
+            else:
+                new_lines.append(line)
+        
+        # If not found, add it to [config] section
+        if not found:
+            final_lines = []
+            added = False
+            for line in new_lines:
+                final_lines.append(line)
+                if not added and line.strip().lower() == '[config]':
+                    final_lines.append(f"{key} = {value_str}\n")
+                    added = True
+            new_lines = final_lines
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+        
+        return True
+    except Exception as e:
+        print(f"[Error] Failed to save config: {e}")
+        return False
+
+
 def generate_example_config():
     """Generate example configuration file content"""
     return '''# ============================================================
@@ -193,6 +253,21 @@ max_sessions = 50
 # temperature = 0.7
 # max_tokens = 4096
 # top_p = 1.0
+
+# ============================================================
+# STREAMING AND THINKING SETTINGS
+# ============================================================
+# Enable streaming responses (default: true)
+streaming_enabled = true
+
+# Enable extended thinking/reasoning mode (default: false)
+thinking_enabled = false
+
+# How to handle thinking output: filter, raw, or reasoning_content
+# - filter: Hide thinking content
+# - raw: Include thinking in main response
+# - reasoning_content: Separate field (for collapsible display)
+thinking_output = reasoning_content
 
 # ============================================================
 # TEXT EDIT TOOL - Hotkey-triggered text processing with AI
@@ -267,4 +342,5 @@ extract_data = Extract any structured data (tables, lists, key-value pairs) from
 
 handwriting = Transcribe any handwritten text in this image as accurately as possible.
 '''
+
 
