@@ -152,9 +152,9 @@ def main():
     # NOTE: GUI is NOT started at startup - it will be started on-demand
     # when a GUI window is requested (via ?show=gui, ?show=chatgui, or pressing 'O')
     if HAVE_GUI:
-        print("✓ GUI available (will start on-demand when needed)")
+        print("✓ GUI available (Tkinter, will start on-demand when needed)")
     else:
-        print("✗ GUI not available (Dear PyGui not installed)")
+        print("✗ GUI not available")
     
     # Initialize TextEditTool
     initialize_text_edit_tool(config, ai_params)

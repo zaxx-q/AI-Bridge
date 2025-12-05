@@ -1,22 +1,89 @@
 #!/usr/bin/env python3
 """
-GUI utility functions for clipboard and markdown rendering
+GUI utility functions for clipboard and markdown rendering - Tkinter implementation
 """
 
 import re
 import sys
+import tkinter as tk
+from tkinter import font as tkfont
+from typing import Optional, Dict
 
 try:
-    import dearpygui.dearpygui as dpg
-    HAVE_GUI = True
+    import darkdetect
+    HAVE_DARKDETECT = True
 except ImportError:
-    HAVE_GUI = False
-    dpg = None
+    HAVE_DARKDETECT = False
 
 
-def copy_to_clipboard(text):
+def is_dark_mode() -> bool:
+    """Check if system is in dark mode."""
+    if HAVE_DARKDETECT:
+        try:
+            return darkdetect.isDark()
+        except Exception:
+            pass
+    return False
+
+
+def get_color_scheme() -> Dict[str, str]:
+    """Get color scheme based on dark/light mode."""
+    if is_dark_mode():
+        return {
+            "bg": "#1e1e2e",
+            "fg": "#cdd6f4",
+            "text_bg": "#313244",
+            "input_bg": "#45475a",
+            "border": "#585b70",
+            "accent": "#89b4fa",
+            "accent_green": "#a6e3a1",
+            "accent_yellow": "#f9e2af",
+            "accent_red": "#f38ba8",
+            "user_bg": "#1e3a5f",
+            "user_accent": "#89b4fa",
+            "assistant_bg": "#1e3e2e",
+            "assistant_accent": "#a6e3a1",
+            "code_bg": "#11111b",
+            "header1": "#f9e2af",
+            "header2": "#89b4fa",
+            "header3": "#94e2d5",
+            "bullet": "#f5c2e7",
+            "blockquote": "#6c7086",
+        }
+    else:
+        return {
+            "bg": "#eff1f5",
+            "fg": "#4c4f69",
+            "text_bg": "#ffffff",
+            "input_bg": "#ffffff",
+            "border": "#ccd0da",
+            "accent": "#1e66f5",
+            "accent_green": "#40a02b",
+            "accent_yellow": "#df8e1d",
+            "accent_red": "#d20f39",
+            "user_bg": "#dce0e8",
+            "user_accent": "#1e66f5",
+            "assistant_bg": "#e6f3e6",
+            "assistant_accent": "#40a02b",
+            "code_bg": "#e6e9ef",
+            "header1": "#df8e1d",
+            "header2": "#1e66f5",
+            "header3": "#179299",
+            "bullet": "#ea76cb",
+            "blockquote": "#8c8fa1",
+        }
+
+
+def copy_to_clipboard(text: str, root: Optional[tk.Tk] = None) -> bool:
     """Cross-platform clipboard copy"""
     try:
+        if root:
+            root.clipboard_clear()
+            root.clipboard_append(text)
+            root.update()  # Required for clipboard to persist
+            return True
+        
+        # Fallback to subprocess method
         if sys.platform == 'win32':
             import subprocess
             process = subprocess.Popen(['clip'], stdin=subprocess.PIPE)
@@ -39,93 +106,296 @@ def copy_to_clipboard(text):
         return False
 
 
-def render_markdown(text, parent, wrap_width=-1, fonts=None):
-    """Render markdown text to DPG items"""
-    if not HAVE_GUI:
-        return
+def setup_text_tags(text_widget: tk.Text, colors: Dict[str, str]):
+    """Configure text tags for markdown styling"""
     
-    fonts = fonts or {}
+    # Get available fonts
+    try:
+        mono_font = "Consolas" if sys.platform == 'win32' else "DejaVu Sans Mono"
+        base_font = "Segoe UI" if sys.platform == 'win32' else "DejaVu Sans"
+    except:
+        mono_font = "TkFixedFont"
+        base_font = "TkDefaultFont"
+    
+    # Headers
+    text_widget.tag_configure("h1", 
+        font=(base_font, 18, "bold"), 
+        foreground=colors["header1"],
+        spacing1=10, spacing3=5)
+    
+    text_widget.tag_configure("h2", 
+        font=(base_font, 16, "bold"), 
+        foreground=colors["header2"],
+        spacing1=8, spacing3=4)
+    
+    text_widget.tag_configure("h3", 
+        font=(base_font, 14, "bold"), 
+        foreground=colors["header3"],
+        spacing1=6, spacing3=3)
+    
+    text_widget.tag_configure("h4", 
+        font=(base_font, 12, "bold"), 
+        foreground=colors["fg"],
+        spacing1=4, spacing3=2)
+    
+    # Inline formatting
+    text_widget.tag_configure("bold", font=(base_font, 11, "bold"))
+    text_widget.tag_configure("italic", font=(base_font, 11, "italic"))
+    text_widget.tag_configure("bold_italic", font=(base_font, 11, "bold italic"))
+    
+    # Code
+    text_widget.tag_configure("code", 
+        font=(mono_font, 10), 
+        background=colors["code_bg"],
+        foreground=colors["accent"])
+    
+    text_widget.tag_configure("codeblock", 
+        font=(mono_font, 10), 
+        background=colors["code_bg"],
+        lmargin1=15, lmargin2=15, rmargin=10,
+        spacing1=5, spacing3=5)
+    
+    # Lists
+    text_widget.tag_configure("bullet", 
+        lmargin1=20, lmargin2=35,
+        foreground=colors["fg"])
+    
+    text_widget.tag_configure("bullet_marker",
+        foreground=colors["bullet"])
+    
+    text_widget.tag_configure("numbered",
+        lmargin1=20, lmargin2=35,
+        foreground=colors["fg"])
+    
+    # Blockquote
+    text_widget.tag_configure("blockquote",
+        lmargin1=20, lmargin2=25,
+        foreground=colors["blockquote"],
+        font=(base_font, 11, "italic"))
+    
+    # Role labels for chat
+    text_widget.tag_configure("user_label",
+        font=(base_font, 11, "bold"),
+        foreground=colors["user_accent"],
+        spacing1=10)
+    
+    text_widget.tag_configure("assistant_label",
+        font=(base_font, 11, "bold"),
+        foreground=colors["assistant_accent"],
+        spacing1=10)
+    
+    text_widget.tag_configure("user_message",
+        background=colors["user_bg"],
+        lmargin1=10, lmargin2=10, rmargin=10,
+        spacing3=5)
+    
+    text_widget.tag_configure("assistant_message",
+        background=colors["assistant_bg"],
+        lmargin1=10, lmargin2=10, rmargin=10,
+        spacing3=5)
+    
+    # Normal text
+    text_widget.tag_configure("normal",
+        font=(base_font, 11),
+        foreground=colors["fg"])
+    
+    # Separator
+    text_widget.tag_configure("separator",
+        foreground=colors["border"],
+        justify="center")
+
+
+def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str], 
+                   wrap: bool = True, as_role: Optional[str] = None):
+    """
+    Render markdown text to a Tkinter Text widget with formatting.
+    
+    Args:
+        text: The markdown text to render
+        text_widget: The Tkinter Text widget to render into
+        colors: Color scheme dictionary
+        wrap: Whether to enable word wrapping
+        as_role: Optional role ('user' or 'assistant') for message styling
+    """
+    # Setup tags if not already done
+    setup_text_tags(text_widget, colors)
+    
+    # Configure wrap mode
+    text_widget.configure(wrap=tk.WORD if wrap else tk.NONE)
+    
     lines = text.split('\n')
     in_code_block = False
     code_block_lines = []
-    code_lang = ""
     
-    # Helper to flush code block
-    def flush_code_block():
-        nonlocal code_block_lines, code_lang
-        if code_block_lines:
-            code_text = '\n'.join(code_block_lines)
-            # Estimate height: lines * 18 pixels + padding
-            height = max(60, len(code_block_lines) * 18 + 20)
-            dpg.add_input_text(default_value=code_text, multiline=True, readonly=True, 
-                              width=-1, height=height, parent=parent)
-            code_block_lines = []
-            code_lang = ""
-
-    for line in lines:
-        stripped_line = line.strip()
+    # Apply role-based background if specified
+    role_tag = None
+    if as_role == "user":
+        role_tag = "user_message"
+    elif as_role == "assistant":
+        role_tag = "assistant_message"
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
         
-        # Code Block Detection
-        if stripped_line.startswith('```'):
+        # Code block handling
+        if stripped.startswith('```'):
             if in_code_block:
-                # End of code block
-                flush_code_block()
+                # End code block - render accumulated lines
+                if code_block_lines:
+                    code_text = '\n'.join(code_block_lines)
+                    tags = ("codeblock",) if not role_tag else ("codeblock", role_tag)
+                    text_widget.insert(tk.END, code_text + '\n', tags)
+                code_block_lines = []
                 in_code_block = False
             else:
-                # Start of code block
+                # Start code block
                 in_code_block = True
-                code_lang = stripped_line[3:].strip()
             continue
-            
+        
         if in_code_block:
             code_block_lines.append(line)
             continue
-            
+        
+        # Add newline between lines (except first)
+        if text_widget.index(tk.END) != "1.0" and i > 0:
+            text_widget.insert(tk.END, '\n')
+        
+        # Empty line
+        if not stripped:
+            text_widget.insert(tk.END, '\n')
+            continue
+        
         # Headers
-        if stripped_line.startswith('#'):
-            level = len(stripped_line.split(' ')[0])
-            content = stripped_line.lstrip('#').strip()
-            if level == 1:
-                item = dpg.add_text(content, parent=parent, wrap=wrap_width, color=(255, 200, 100))
-                if fonts.get("header1"): dpg.bind_item_font(item, fonts.get("header1"))
-            elif level == 2:
-                item = dpg.add_text(content, parent=parent, wrap=wrap_width, color=(200, 200, 255))
-                if fonts.get("header2"): dpg.bind_item_font(item, fonts.get("header2"))
-            else:
-                item = dpg.add_text(content, parent=parent, wrap=wrap_width, color=(180, 220, 255))
-                if fonts.get("bold"): dpg.bind_item_font(item, fonts.get("bold"))
-            continue
+        if stripped.startswith('#'):
+            level = 0
+            for char in stripped:
+                if char == '#':
+                    level += 1
+                else:
+                    break
             
-        # Bullet Points
-        if stripped_line.startswith('- ') or stripped_line.startswith('* '):
-            content = stripped_line[2:].strip()
-            # Clean up bold markers for cleaner bullet display
-            content = content.replace('**', '').replace('__', '')
-            dpg.add_text(content, parent=parent, wrap=wrap_width, bullet=True)
+            if level <= 6 and len(stripped) > level and stripped[level] == ' ':
+                content = stripped[level+1:]
+                tag = f"h{min(level, 4)}"
+                tags = (tag,) if not role_tag else (tag, role_tag)
+                text_widget.insert(tk.END, content, tags)
+                continue
+        
+        # Blockquote
+        if stripped.startswith('>'):
+            content = stripped[1:].strip()
+            tags = ("blockquote",) if not role_tag else ("blockquote", role_tag)
+            text_widget.insert(tk.END, "│ " + content, tags)
             continue
-            
-        # Bold Line (whole line)
-        if stripped_line.startswith('**') and stripped_line.endswith('**') and len(stripped_line) > 4:
-            content = stripped_line[2:-2]
-            item = dpg.add_text(content, parent=parent, wrap=wrap_width)
-            if fonts.get("bold"): dpg.bind_item_font(item, fonts.get("bold"))
+        
+        # Bullet points
+        if stripped.startswith('- ') or stripped.startswith('* '):
+            content = stripped[2:]
+            # Insert bullet marker
+            tags = ("bullet_marker",) if not role_tag else ("bullet_marker", role_tag)
+            text_widget.insert(tk.END, "  • ", tags)
+            # Insert content with inline formatting
+            _render_inline(content, text_widget, colors, role_tag)
             continue
-            
-        # Italic Line (whole line)
-        if (stripped_line.startswith('*') and stripped_line.endswith('*') and len(stripped_line) > 2) or \
-           (stripped_line.startswith('_') and stripped_line.endswith('_') and len(stripped_line) > 2):
-            content = stripped_line[1:-1]
-            item = dpg.add_text(content, parent=parent, wrap=wrap_width)
-            if fonts.get("italic"): dpg.bind_item_font(item, fonts.get("italic"))
+        
+        # Numbered list
+        match = re.match(r'^(\d+)\.\s+(.+)$', stripped)
+        if match:
+            num, content = match.groups()
+            tags = ("numbered",) if not role_tag else ("numbered", role_tag)
+            text_widget.insert(tk.END, f"  {num}. ", tags)
+            _render_inline(content, text_widget, colors, role_tag)
             continue
-
-        # Check if empty line (spacer)
-        if not stripped_line:
-            dpg.add_spacer(height=5, parent=parent)
+        
+        # Horizontal rule
+        if re.match(r'^[-*_]{3,}$', stripped):
+            tags = ("separator",) if not role_tag else ("separator", role_tag)
+            text_widget.insert(tk.END, "─" * 40, tags)
             continue
-            
-        dpg.add_text(line, parent=parent, wrap=wrap_width)
-
+        
+        # Regular paragraph with inline formatting
+        _render_inline(line, text_widget, colors, role_tag)
+    
     # Flush any remaining code block
-    if in_code_block:
-        flush_code_block()
+    if in_code_block and code_block_lines:
+        code_text = '\n'.join(code_block_lines)
+        tags = ("codeblock",) if not role_tag else ("codeblock", role_tag)
+        text_widget.insert(tk.END, code_text + '\n', tags)
+
+
+def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str], 
+                   role_tag: Optional[str] = None):
+    """Render inline markdown formatting (bold, italic, code)"""
+    
+    # Pattern for inline elements
+    # Order matters: check bold+italic first, then bold, then italic, then code
+    patterns = [
+        (r'\*\*\*(.+?)\*\*\*', 'bold_italic'),  # ***text***
+        (r'___(.+?)___', 'bold_italic'),         # ___text___
+        (r'\*\*(.+?)\*\*', 'bold'),              # **text**
+        (r'__(.+?)__', 'bold'),                  # __text__
+        (r'\*(.+?)\*', 'italic'),                # *text*
+        (r'_(.+?)_', 'italic'),                  # _text_ (word boundary aware)
+        (r'`([^`]+)`', 'code'),                  # `code`
+    ]
+    
+    # Build a combined pattern to find all matches in order
+    combined = r'(\*\*\*.+?\*\*\*|___.+?___|' \
+               r'\*\*.+?\*\*|__.+?__|' \
+               r'\*[^\*]+\*|(?<![a-zA-Z])_[^_]+_(?![a-zA-Z])|' \
+               r'`[^`]+`)'
+    
+    pos = 0
+    for match in re.finditer(combined, text):
+        # Insert any text before this match
+        if match.start() > pos:
+            plain_text = text[pos:match.start()]
+            tags = ("normal",) if not role_tag else ("normal", role_tag)
+            text_widget.insert(tk.END, plain_text, tags)
+        
+        matched_text = match.group(0)
+        content = None
+        tag = "normal"
+        
+        # Determine which pattern matched
+        if matched_text.startswith('***') and matched_text.endswith('***'):
+            content = matched_text[3:-3]
+            tag = "bold_italic"
+        elif matched_text.startswith('___') and matched_text.endswith('___'):
+            content = matched_text[3:-3]
+            tag = "bold_italic"
+        elif matched_text.startswith('**') and matched_text.endswith('**'):
+            content = matched_text[2:-2]
+            tag = "bold"
+        elif matched_text.startswith('__') and matched_text.endswith('__'):
+            content = matched_text[2:-2]
+            tag = "bold"
+        elif matched_text.startswith('`') and matched_text.endswith('`'):
+            content = matched_text[1:-1]
+            tag = "code"
+        elif matched_text.startswith('*') and matched_text.endswith('*'):
+            content = matched_text[1:-1]
+            tag = "italic"
+        elif matched_text.startswith('_') and matched_text.endswith('_'):
+            content = matched_text[1:-1]
+            tag = "italic"
+        
+        if content:
+            tags = (tag,) if not role_tag else (tag, role_tag)
+            text_widget.insert(tk.END, content, tags)
+        
+        pos = match.end()
+    
+    # Insert any remaining text
+    if pos < len(text):
+        remaining = text[pos:]
+        tags = ("normal",) if not role_tag else ("normal", role_tag)
+        text_widget.insert(tk.END, remaining, tags)
+
+
+def render_plain_text(text: str, text_widget: tk.Text, wrap: bool = True):
+    """Render plain text (markdown stripped) to a Text widget"""
+    from ..utils import strip_markdown
+    plain = strip_markdown(text)
+    text_widget.configure(wrap=tk.WORD if wrap else tk.NONE)
+    text_widget.insert(tk.END, plain)

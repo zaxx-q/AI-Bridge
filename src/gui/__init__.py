@@ -1,1 +1,1 @@
-# GUI package for Dear PyGui interface
+# GUI package for Tkinter interface

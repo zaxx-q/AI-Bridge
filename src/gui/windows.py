@@ -1,444 +1,864 @@
 #!/usr/bin/env python3
 """
-GUI window creation functions
+GUI window creation functions - Tkinter implementation
 """
 
 import threading
-
-try:
-    import dearpygui.dearpygui as dpg
-    HAVE_GUI = True
-except ImportError:
-    HAVE_GUI = False
-    dpg = None
+import tkinter as tk
+from tkinter import ttk, scrolledtext
+from typing import Optional
 
 from ..utils import strip_markdown
 from ..session_manager import add_session, get_session, list_sessions, delete_session, save_sessions
 from .core import (
-    get_next_window_id, register_window, unregister_window,
-    FONTS
+    get_next_window_id, register_window, unregister_window, GUI_ROOT
 )
-from .utils import copy_to_clipboard, render_markdown
+from .utils import copy_to_clipboard, render_markdown, get_color_scheme, setup_text_tags
 
 
-def create_result_window(text, endpoint=None, title=None):
-    """Create a result display window"""
-    if not HAVE_GUI:
-        return
+class ResultWindow:
+    """Result display window for AI responses"""
     
-    window_id = get_next_window_id()
-    window_tag = f"result_window_{window_id}"
-    content_group_tag = f"result_content_{window_id}"
-    status_tag = f"result_status_{window_id}"
-    wrap_btn_tag = f"wrap_btn_{window_id}"
-    mode_btn_tag = f"mode_btn_{window_id}"
-    scroll_area_tag = f"scroll_area_{window_id}"
-    
-    title = title or f"Response - /{endpoint}" if endpoint else "AI Response"
-    
-    # State for toggles
-    state = {
-        'wrapped': True,
-        'mode': 'rich',  # 'rich' (markdown) or 'text' (selectable)
-        'original_text': text
-    }
-    
-    def get_display_text():
-        """Get text based on current display mode"""
-        if state['mode'] == 'rich':
-            return state['original_text']
-        else:
-            return strip_markdown(state['original_text'])
-    
-    def update_display():
-        """Update the text display"""
-        # Clear existing content
-        dpg.delete_item(content_group_tag, children_only=True)
+    def __init__(self, text: str, endpoint: Optional[str] = None, title: Optional[str] = None):
+        self.original_text = text
+        self.endpoint = endpoint
+        self.title = title or (f"Response - /{endpoint}" if endpoint else "AI Response")
         
-        # Update buttons
-        dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
-        dpg.configure_item(mode_btn_tag, label=f"Mode: {'Rich' if state['mode'] == 'rich' else 'Text'}")
+        self.window_id = get_next_window_id()
+        self.window_tag = f"result_window_{self.window_id}"
         
-        # Configure parent scrollbar
-        if state['wrapped']:
-            dpg.configure_item(scroll_area_tag, horizontal_scrollbar=False)
-        else:
-            dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
-            
-        # Add content based on mode
-        if state['mode'] == 'text':
-            # Use InputText for selection (monochrome)
-            width = -1 if state['wrapped'] else 3000
-            dpg.add_input_text(default_value=get_display_text(), parent=content_group_tag, 
-                              multiline=True, readonly=True, width=width, height=-1)
-        else:
-            # Use Text for rich display (colored potential, clean wrapping)
-            wrap_width = 0 if state['wrapped'] else -1
-            render_markdown(state['original_text'], parent=content_group_tag, wrap_width=wrap_width, fonts=FONTS)
-    
-    def toggle_wrap():
-        state['wrapped'] = not state['wrapped']
-        update_display()
-        dpg.set_value(status_tag, f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
-    
-    def toggle_mode():
-        state['mode'] = 'text' if state['mode'] == 'rich' else 'rich'
-        update_display()
-        dpg.set_value(status_tag, f"Mode: {state['mode'].title()}")
-    
-    def copy_callback():
-        if copy_to_clipboard(get_display_text()):
-            dpg.set_value(status_tag, "✓ Copied to clipboard!")
-        else:
-            dpg.set_value(status_tag, "✗ Failed to copy")
-    
-    def close_callback():
-        unregister_window(window_tag)
-        dpg.delete_item(window_tag)
-    
-    register_window(window_tag)
-    
-    with dpg.window(label=title, tag=window_tag, width=700, height=500, 
-                    pos=[100 + (window_id % 5) * 30, 100 + (window_id % 5) * 30],
-                    on_close=close_callback):
+        # State
+        self.wrapped = True
+        self.mode = 'rich'  # 'rich' or 'text'
         
-        if endpoint:
-            dpg.add_text(f"Endpoint: /{endpoint}")
-            dpg.add_separator()
+        # Colors
+        self.colors = get_color_scheme()
         
-        # Toggle buttons row
-        with dpg.group(horizontal=True):
-            dpg.add_text("Response:", color=(150, 200, 255))
-            dpg.add_spacer(width=20)
-            dpg.add_button(label="Wrap: ON", tag=wrap_btn_tag, callback=toggle_wrap, width=100)
-            dpg.add_button(label="Mode: Rich", tag=mode_btn_tag, callback=toggle_mode, width=100)
-        
-        # Scrollable area for text
-        with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-60, horizontal_scrollbar=False):
-            dpg.add_group(tag=content_group_tag)
-            
-        # Initial display
-        update_display()
-        
-        dpg.add_separator()
-        
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Copy to Clipboard", callback=copy_callback)
-            dpg.add_button(label="Close", callback=close_callback)
-            dpg.add_text("", tag=status_tag, color=(100, 255, 100))
-
-
-def create_chat_window(session, initial_response=None):
-    """Create a chat window for interactive conversation"""
-    if not HAVE_GUI:
-        return
+        # Create window
+        self._create_window()
     
-    window_id = get_next_window_id()
-    window_tag = f"chat_window_{window_id}"
-    chat_log_group = f"chat_log_{window_id}"
-    input_tag = f"chat_input_{window_id}"
-    status_tag = f"chat_status_{window_id}"
-    send_btn_tag = f"send_btn_{window_id}"
-    wrap_btn_tag = f"wrap_btn_{window_id}"
-    md_btn_tag = f"md_btn_{window_id}"
-    select_btn_tag = f"select_btn_{window_id}"
-    auto_scroll_btn_tag = f"auto_scroll_btn_{window_id}"
-    scroll_area_tag = f"scroll_area_{window_id}"
-    
-    # State for toggles
-    state = {
-        'wrapped': True,
-        'markdown': True,
-        'selectable': False,
-        'auto_scroll': True,
-        'last_response': initial_response or ""
-    }
-    
-    def get_conversation_text():
-        """Build conversation text based on current display mode (for clipboard)"""
-        parts = []
-        for msg in session.messages:
-            role = "You" if msg["role"] == "user" else "Assistant"
-            content = msg['content']
-            if not state['markdown']:
-                content = strip_markdown(content)
-            parts.append(f"[{role}]\n{content}\n")
-        return "\n".join(parts)
-    
-    def update_chat_display(scroll_to_bottom=False):
-        # Clear existing messages
-        dpg.delete_item(chat_log_group, children_only=True)
-        
-        # Update buttons
-        dpg.configure_item(wrap_btn_tag, label=f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
-        dpg.configure_item(md_btn_tag, label=f"{'Markdown' if state['markdown'] else 'Plain Text'}")
-        dpg.configure_item(select_btn_tag, label=f"Select: {'ON' if state['selectable'] else 'OFF'}")
-        dpg.configure_item(auto_scroll_btn_tag, label="Autoscroll")
-        
-        # Handle wrapping
-        wrap_width = 0 if state['wrapped'] else -1
-        
-        if state['wrapped']:
-            dpg.configure_item(scroll_area_tag, horizontal_scrollbar=False)
-        else:
-            dpg.configure_item(scroll_area_tag, horizontal_scrollbar=True)
-            
-        if state['selectable']:
-            # Selectable mode: One big text box (monochrome)
-            width = -1 if state['wrapped'] else 3000
-            dpg.add_input_text(default_value=get_conversation_text(), parent=chat_log_group, 
-                              multiline=True, readonly=True, width=width, height=-1)
-        else:
-            # Rich mode: Colored text blocks
-            for i, msg in enumerate(session.messages):
-                role = msg["role"]
-                content = msg["content"]
-                if not state['markdown']:
-                    content = strip_markdown(content)
-                
-                if role == "user":
-                    dpg.add_text("You:", color=(100, 200, 255), parent=chat_log_group)
-                else:
-                    dpg.add_text("Assistant:", color=(150, 255, 150), parent=chat_log_group)
-                
-                if state['markdown']:
-                    render_markdown(content, parent=chat_log_group, wrap_width=wrap_width, fonts=FONTS)
-                else:
-                    dpg.add_text(content, parent=chat_log_group, wrap=wrap_width, bullet=True)
-                    
-                dpg.add_separator(parent=chat_log_group)
-        
-        # Auto-scroll to bottom if enabled
-        if scroll_to_bottom and state['auto_scroll']:
-            dpg.set_y_scroll(scroll_area_tag, -1.0)
-    
-    def toggle_wrap():
-        state['wrapped'] = not state['wrapped']
-        update_chat_display()
-        dpg.set_value(status_tag, f"Wrap: {'ON' if state['wrapped'] else 'OFF'}")
-    
-    def toggle_markdown():
-        state['markdown'] = not state['markdown']
-        update_chat_display()
-        dpg.set_value(status_tag, f"Mode: {'Markdown' if state['markdown'] else 'Plain Text'}")
-        
-    def toggle_selectable():
-        state['selectable'] = not state['selectable']
-        update_chat_display()
-        dpg.set_value(status_tag, f"Selectable: {'ON' if state['selectable'] else 'OFF'}")
-    
-    def toggle_auto_scroll():
-        state['auto_scroll'] = not state['auto_scroll']
-        dpg.set_value(status_tag, f"Autoscroll: {'ON' if state['auto_scroll'] else 'OFF'}")
-    
-    def send_callback(sender=None, app_data=None):
-        user_input = dpg.get_value(input_tag).strip()
-        if not user_input:
-            dpg.set_value(status_tag, "Please enter a message")
+    def _create_window(self):
+        """Create the result window"""
+        if not GUI_ROOT:
             return
         
-        # Disable input during processing
-        dpg.configure_item(send_btn_tag, enabled=False)
-        dpg.set_value(status_tag, "Sending...")
+        self.root = tk.Toplevel(GUI_ROOT)
+        self.root.title(self.title)
+        self.root.geometry("700x500")
+        self.root.configure(bg=self.colors["bg"])
+        self.root.minsize(400, 300)
+        
+        # Position window
+        offset = (self.window_id % 5) * 30
+        self.root.geometry(f"+{100 + offset}+{100 + offset}")
+        
+        # Configure grid
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(2, weight=1)
+        
+        # Endpoint info
+        if self.endpoint:
+            endpoint_label = tk.Label(
+                self.root,
+                text=f"Endpoint: /{self.endpoint}",
+                font=("Segoe UI", 10),
+                bg=self.colors["bg"],
+                fg=self.colors["blockquote"]
+            )
+            endpoint_label.grid(row=0, column=0, sticky=tk.W, padx=15, pady=(10, 5))
+        
+        # Toggle buttons row
+        btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        btn_frame.grid(row=1, column=0, sticky=tk.EW, padx=15, pady=5)
+        
+        tk.Label(
+            btn_frame,
+            text="Response:",
+            font=("Segoe UI", 10, "bold"),
+            bg=self.colors["bg"],
+            fg=self.colors["accent"]
+        ).pack(side=tk.LEFT)
+        
+        tk.Label(btn_frame, width=2, bg=self.colors["bg"]).pack(side=tk.LEFT)
+        
+        self.wrap_btn = tk.Button(
+            btn_frame,
+            text="Wrap: ON",
+            font=("Segoe UI", 9),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=10,
+            command=self._toggle_wrap
+        )
+        self.wrap_btn.pack(side=tk.LEFT, padx=2)
+        
+        self.mode_btn = tk.Button(
+            btn_frame,
+            text="Mode: Rich",
+            font=("Segoe UI", 9),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=10,
+            command=self._toggle_mode
+        )
+        self.mode_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Text area
+        text_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        text_frame.grid(row=2, column=0, sticky=tk.NSEW, padx=15, pady=5)
+        text_frame.columnconfigure(0, weight=1)
+        text_frame.rowconfigure(0, weight=1)
+        
+        self.text_widget = scrolledtext.ScrolledText(
+            text_frame,
+            wrap=tk.WORD,
+            font=("Segoe UI", 11),
+            bg=self.colors["text_bg"],
+            fg=self.colors["fg"],
+            insertbackground=self.colors["fg"],
+            relief=tk.FLAT,
+            highlightbackground=self.colors["border"],
+            highlightthickness=1,
+            padx=10,
+            pady=10
+        )
+        self.text_widget.grid(row=0, column=0, sticky=tk.NSEW)
+        
+        # Setup tags
+        setup_text_tags(self.text_widget, self.colors)
+        
+        # Bottom bar
+        bottom_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        bottom_frame.grid(row=3, column=0, sticky=tk.EW, padx=15, pady=(5, 15))
+        
+        tk.Button(
+            bottom_frame,
+            text="Copy to Clipboard",
+            font=("Segoe UI", 10),
+            bg=self.colors["accent"],
+            fg="#ffffff",
+            activebackground=self.colors["accent_green"],
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._copy
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            bottom_frame,
+            text="Close",
+            font=("Segoe UI", 10),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._close
+        ).pack(side=tk.LEFT, padx=2)
+        
+        self.status_label = tk.Label(
+            bottom_frame,
+            text="",
+            font=("Segoe UI", 10),
+            bg=self.colors["bg"],
+            fg=self.colors["accent_green"]
+        )
+        self.status_label.pack(side=tk.LEFT, padx=10)
+        
+        # Register and bind
+        register_window(self.window_tag)
+        self.root.protocol("WM_DELETE_WINDOW", self._close)
+        
+        # Initial display
+        self._update_display()
+    
+    def _update_display(self):
+        """Update the text display"""
+        self.text_widget.configure(state=tk.NORMAL)
+        self.text_widget.delete("1.0", tk.END)
+        
+        self.wrap_btn.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
+        self.mode_btn.configure(text=f"Mode: {'Rich' if self.mode == 'rich' else 'Text'}")
+        
+        if self.mode == 'rich':
+            render_markdown(self.original_text, self.text_widget, self.colors, wrap=self.wrapped)
+        else:
+            plain_text = strip_markdown(self.original_text)
+            self.text_widget.configure(wrap=tk.WORD if self.wrapped else tk.NONE)
+            self.text_widget.insert(tk.END, plain_text)
+        
+        self.text_widget.configure(state=tk.DISABLED)
+    
+    def _toggle_wrap(self):
+        self.wrapped = not self.wrapped
+        self._update_display()
+        self.status_label.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
+    
+    def _toggle_mode(self):
+        self.mode = 'text' if self.mode == 'rich' else 'rich'
+        self._update_display()
+        self.status_label.configure(text=f"Mode: {self.mode.title()}")
+    
+    def _copy(self):
+        text = self.original_text if self.mode == 'rich' else strip_markdown(self.original_text)
+        if copy_to_clipboard(text, self.root):
+            self.status_label.configure(text="✓ Copied to clipboard!")
+        else:
+            self.status_label.configure(text="✗ Failed to copy")
+    
+    def _close(self):
+        unregister_window(self.window_tag)
+        self.root.destroy()
+
+
+class ChatWindow:
+    """Chat window for interactive conversation"""
+    
+    def __init__(self, session, initial_response: Optional[str] = None):
+        self.session = session
+        self.initial_response = initial_response
+        
+        self.window_id = get_next_window_id()
+        self.window_tag = f"chat_window_{self.window_id}"
+        
+        # State
+        self.wrapped = True
+        self.markdown = True
+        self.selectable = False  # Note: Tkinter text is always selectable
+        self.auto_scroll = True
+        self.last_response = initial_response or ""
+        self.is_loading = False
+        
+        # Colors
+        self.colors = get_color_scheme()
+        
+        # Create window
+        self._create_window()
+    
+    def _create_window(self):
+        """Create the chat window"""
+        if not GUI_ROOT:
+            return
+        
+        self.root = tk.Toplevel(GUI_ROOT)
+        self.root.title(f"Chat - {self.session.title or self.session.session_id}")
+        self.root.geometry("750x600")
+        self.root.configure(bg=self.colors["bg"])
+        self.root.minsize(500, 400)
+        
+        # Position window
+        offset = (self.window_id % 5) * 30
+        self.root.geometry(f"+{80 + offset}+{80 + offset}")
+        
+        # Configure grid
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(2, weight=1)
+        
+        # Session info
+        info_text = f"Session: {self.session.session_id} | Endpoint: /{self.session.endpoint} | Provider: {self.session.provider}"
+        tk.Label(
+            self.root,
+            text=info_text,
+            font=("Segoe UI", 9),
+            bg=self.colors["bg"],
+            fg=self.colors["blockquote"]
+        ).grid(row=0, column=0, sticky=tk.W, padx=15, pady=(10, 5))
+        
+        # Toggle buttons row
+        btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        btn_frame.grid(row=1, column=0, sticky=tk.EW, padx=15, pady=5)
+        
+        tk.Label(
+            btn_frame,
+            text="Conversation:",
+            font=("Segoe UI", 10, "bold"),
+            bg=self.colors["bg"],
+            fg=self.colors["accent"]
+        ).pack(side=tk.LEFT)
+        
+        tk.Label(btn_frame, width=2, bg=self.colors["bg"]).pack(side=tk.LEFT)
+        
+        self.wrap_btn = tk.Button(
+            btn_frame,
+            text="Wrap: ON",
+            font=("Segoe UI", 9),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=8,
+            command=self._toggle_wrap
+        )
+        self.wrap_btn.pack(side=tk.LEFT, padx=2)
+        
+        self.md_btn = tk.Button(
+            btn_frame,
+            text="Markdown",
+            font=("Segoe UI", 9),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=8,
+            command=self._toggle_markdown
+        )
+        self.md_btn.pack(side=tk.LEFT, padx=2)
+        
+        self.scroll_btn = tk.Button(
+            btn_frame,
+            text="Autoscroll: ON",
+            font=("Segoe UI", 9),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=8,
+            command=self._toggle_autoscroll
+        )
+        self.scroll_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Chat log area
+        chat_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        chat_frame.grid(row=2, column=0, sticky=tk.NSEW, padx=15, pady=5)
+        chat_frame.columnconfigure(0, weight=1)
+        chat_frame.rowconfigure(0, weight=1)
+        
+        self.chat_text = scrolledtext.ScrolledText(
+            chat_frame,
+            wrap=tk.WORD,
+            font=("Segoe UI", 11),
+            bg=self.colors["text_bg"],
+            fg=self.colors["fg"],
+            insertbackground=self.colors["fg"],
+            relief=tk.FLAT,
+            highlightbackground=self.colors["border"],
+            highlightthickness=1,
+            padx=10,
+            pady=10
+        )
+        self.chat_text.grid(row=0, column=0, sticky=tk.NSEW)
+        
+        # Setup tags
+        setup_text_tags(self.chat_text, self.colors)
+        
+        # Input section
+        input_label = tk.Label(
+            self.root,
+            text="Your message:",
+            font=("Segoe UI", 10, "bold"),
+            bg=self.colors["bg"],
+            fg=self.colors["accent"]
+        )
+        input_label.grid(row=3, column=0, sticky=tk.W, padx=15, pady=(10, 5))
+        
+        input_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        input_frame.grid(row=4, column=0, sticky=tk.EW, padx=15, pady=5)
+        input_frame.columnconfigure(0, weight=1)
+        
+        self.input_text = tk.Text(
+            input_frame,
+            height=3,
+            font=("Segoe UI", 11),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            insertbackground=self.colors["fg"],
+            relief=tk.FLAT,
+            highlightbackground=self.colors["border"],
+            highlightthickness=1,
+            padx=8,
+            pady=8,
+            wrap=tk.WORD
+        )
+        self.input_text.grid(row=0, column=0, sticky=tk.EW)
+        self.input_text.insert("1.0", "Type your follow-up message here... (Ctrl+Enter to send)")
+        self.input_text.configure(fg='gray')
+        
+        # Placeholder behavior
+        def on_focus_in(event):
+            if self.input_text.get("1.0", tk.END).strip() == "Type your follow-up message here... (Ctrl+Enter to send)":
+                self.input_text.delete("1.0", tk.END)
+                self.input_text.configure(fg=self.colors["fg"])
+        
+        def on_focus_out(event):
+            if not self.input_text.get("1.0", tk.END).strip():
+                self.input_text.insert("1.0", "Type your follow-up message here... (Ctrl+Enter to send)")
+                self.input_text.configure(fg='gray')
+        
+        self.input_text.bind('<FocusIn>', on_focus_in)
+        self.input_text.bind('<FocusOut>', on_focus_out)
+        self.input_text.bind('<Control-Return>', lambda e: self._send())
+        
+        # Button row
+        btn_row = tk.Frame(self.root, bg=self.colors["bg"])
+        btn_row.grid(row=5, column=0, sticky=tk.EW, padx=15, pady=(5, 15))
+        
+        self.send_btn = tk.Button(
+            btn_row,
+            text="Send",
+            font=("Segoe UI", 10),
+            bg=self.colors["accent_green"],
+            fg="#ffffff",
+            activebackground="#45a049",
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._send
+        )
+        self.send_btn.pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            btn_row,
+            text="Copy All",
+            font=("Segoe UI", 10),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._copy_all
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            btn_row,
+            text="Copy Last",
+            font=("Segoe UI", 10),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._copy_last
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            btn_row,
+            text="Close",
+            font=("Segoe UI", 10),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._close
+        ).pack(side=tk.LEFT, padx=2)
+        
+        self.status_label = tk.Label(
+            btn_row,
+            text="",
+            font=("Segoe UI", 10),
+            bg=self.colors["bg"],
+            fg=self.colors["accent_green"]
+        )
+        self.status_label.pack(side=tk.LEFT, padx=10)
+        
+        # Register and bind
+        register_window(self.window_tag)
+        self.root.protocol("WM_DELETE_WINDOW", self._close)
+        
+        # Initial display
+        self._update_chat_display()
+    
+    def _update_chat_display(self, scroll_to_bottom: bool = False):
+        """Update the chat display"""
+        self.chat_text.configure(state=tk.NORMAL)
+        self.chat_text.delete("1.0", tk.END)
+        
+        # Update button labels
+        self.wrap_btn.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
+        self.md_btn.configure(text="Markdown" if self.markdown else "Plain Text")
+        self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
+        
+        # Render messages
+        for i, msg in enumerate(self.session.messages):
+            role = msg["role"]
+            content = msg["content"]
+            
+            if not self.markdown:
+                content = strip_markdown(content)
+            
+            # Add spacing between messages
+            if i > 0:
+                self.chat_text.insert(tk.END, "\n")
+            
+            # Role label
+            if role == "user":
+                self.chat_text.insert(tk.END, "You:\n", "user_label")
+            else:
+                self.chat_text.insert(tk.END, "Assistant:\n", "assistant_label")
+            
+            # Message content
+            if self.markdown:
+                role_for_bg = "user" if role == "user" else "assistant"
+                render_markdown(content, self.chat_text, self.colors, 
+                              wrap=self.wrapped, as_role=role_for_bg)
+            else:
+                tag = "user_message" if role == "user" else "assistant_message"
+                self.chat_text.configure(wrap=tk.WORD if self.wrapped else tk.NONE)
+                self.chat_text.insert(tk.END, content, tag)
+            
+            # Separator
+            self.chat_text.insert(tk.END, "\n" + "─" * 50 + "\n", "separator")
+        
+        self.chat_text.configure(state=tk.DISABLED)
+        
+        # Auto-scroll to bottom
+        if scroll_to_bottom and self.auto_scroll:
+            self.chat_text.see(tk.END)
+    
+    def _toggle_wrap(self):
+        self.wrapped = not self.wrapped
+        self._update_chat_display()
+        self.status_label.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
+    
+    def _toggle_markdown(self):
+        self.markdown = not self.markdown
+        self._update_chat_display()
+        self.status_label.configure(text=f"Mode: {'Markdown' if self.markdown else 'Plain Text'}")
+    
+    def _toggle_autoscroll(self):
+        self.auto_scroll = not self.auto_scroll
+        self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
+        self.status_label.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
+    
+    def _send(self):
+        """Send a message"""
+        if self.is_loading:
+            return
+        
+        user_input = self.input_text.get("1.0", tk.END).strip()
+        placeholder = "Type your follow-up message here... (Ctrl+Enter to send)"
+        
+        if not user_input or user_input == placeholder:
+            self.status_label.configure(text="Please enter a message")
+            return
+        
+        # Disable input
+        self.is_loading = True
+        self.send_btn.configure(state=tk.DISABLED)
+        self.input_text.configure(state=tk.DISABLED)
+        self.status_label.configure(text="Sending...")
         
         def process_message():
             from ..api_client import call_api_chat
             from .. import web_server
             
-            session.add_message("user", user_input)
-            update_chat_display()
-            dpg.set_value(input_tag, "")
+            self.session.add_message("user", user_input)
+            
+            # Update display on main thread
+            self.root.after(0, lambda: self._update_chat_display(scroll_to_bottom=True))
+            self.root.after(0, lambda: self.input_text.configure(state=tk.NORMAL))
+            self.root.after(0, lambda: self.input_text.delete("1.0", tk.END))
             
             response_text, error = call_api_chat(
-                session,
+                self.session,
                 web_server.CONFIG,
                 web_server.AI_PARAMS,
                 web_server.KEY_MANAGERS
             )
             
-            if error:
-                dpg.set_value(status_tag, f"Error: {error}")
-                session.messages.pop()  # Remove failed user message
-            else:
-                session.add_message("assistant", response_text)
-                state['last_response'] = response_text
-                update_chat_display(scroll_to_bottom=True)
-                dpg.set_value(status_tag, "✓ Response received")
-                add_session(session, web_server.CONFIG.get("max_sessions", 50))
+            def handle_response():
+                if error:
+                    self.status_label.configure(text=f"Error: {error}", fg=self.colors["accent_red"])
+                    self.session.messages.pop()  # Remove failed user message
+                else:
+                    self.session.add_message("assistant", response_text)
+                    self.last_response = response_text
+                    self._update_chat_display(scroll_to_bottom=True)
+                    self.status_label.configure(text="✓ Response received", fg=self.colors["accent_green"])
+                    add_session(self.session, web_server.CONFIG.get("max_sessions", 50))
+                
+                self.is_loading = False
+                self.send_btn.configure(state=tk.NORMAL)
+                self.input_text.configure(state=tk.NORMAL)
             
-            dpg.configure_item(send_btn_tag, enabled=True)
+            self.root.after(0, handle_response)
         
         threading.Thread(target=process_message, daemon=True).start()
     
-    def copy_all_callback():
-        all_text = get_conversation_text()
-        if copy_to_clipboard(all_text):
-            dpg.set_value(status_tag, "✓ Copied all!")
-        else:
-            dpg.set_value(status_tag, "✗ Failed to copy")
+    def _get_conversation_text(self) -> str:
+        """Build conversation text for clipboard"""
+        parts = []
+        for msg in self.session.messages:
+            role = "You" if msg["role"] == "user" else "Assistant"
+            content = msg['content']
+            if not self.markdown:
+                content = strip_markdown(content)
+            parts.append(f"[{role}]\n{content}\n")
+        return "\n".join(parts)
     
-    def copy_last_callback():
-        text = state['last_response']
-        if not state['markdown']:
+    def _copy_all(self):
+        text = self._get_conversation_text()
+        if copy_to_clipboard(text, self.root):
+            self.status_label.configure(text="✓ Copied all!", fg=self.colors["accent_green"])
+        else:
+            self.status_label.configure(text="✗ Failed to copy", fg=self.colors["accent_red"])
+    
+    def _copy_last(self):
+        text = self.last_response
+        if not self.markdown:
             text = strip_markdown(text)
-        if copy_to_clipboard(text):
-            dpg.set_value(status_tag, "✓ Copied last response!")
+        if copy_to_clipboard(text, self.root):
+            self.status_label.configure(text="✓ Copied last response!", fg=self.colors["accent_green"])
         else:
-            dpg.set_value(status_tag, "✗ Failed to copy")
+            self.status_label.configure(text="✗ Failed to copy", fg=self.colors["accent_red"])
     
-    def close_callback():
-        unregister_window(window_tag)
-        dpg.delete_item(window_tag)
+    def _close(self):
+        unregister_window(self.window_tag)
+        self.root.destroy()
+
+
+class SessionBrowserWindow:
+    """Session browser window for managing chat sessions"""
     
-    register_window(window_tag)
-    
-    title = f"Chat - {session.title or session.session_id}"
-    
-    with dpg.window(label=title, tag=window_tag, width=750, height=600,
-                    pos=[80 + (window_id % 5) * 30, 80 + (window_id % 5) * 30],
-                    on_close=close_callback):
+    def __init__(self):
+        self.window_id = get_next_window_id()
+        self.window_tag = f"browser_window_{self.window_id}"
         
-        dpg.add_text(f"Session: {session.session_id} | Endpoint: /{session.endpoint} | Provider: {session.provider}",
-                    color=(150, 150, 200))
-        dpg.add_separator()
+        self.selected_session_id = None
+        self.colors = get_color_scheme()
         
-        # Toggle buttons row
-        with dpg.group(horizontal=True):
-            dpg.add_text("Conversation:", color=(150, 200, 255))
-            dpg.add_spacer(width=20)
-            dpg.add_button(label="Wrap: ON", tag=wrap_btn_tag, callback=toggle_wrap, width=100)
-            dpg.add_button(label="Markdown", tag=md_btn_tag, callback=toggle_markdown, width=100)
-            dpg.add_button(label="Select: OFF", tag=select_btn_tag, callback=toggle_selectable, width=110)
-            dpg.add_button(label="Autoscroll", tag=auto_scroll_btn_tag, callback=toggle_auto_scroll, width=130)
+        self._create_window()
+    
+    def _create_window(self):
+        """Create the session browser window"""
+        if not GUI_ROOT:
+            return
         
-        # Scrollable area for chat log
-        with dpg.child_window(tag=scroll_area_tag, border=False, width=-1, height=-150, horizontal_scrollbar=False):
-            dpg.add_group(tag=chat_log_group)
+        self.root = tk.Toplevel(GUI_ROOT)
+        self.root.title("Session Browser")
+        self.root.geometry("850x500")
+        self.root.configure(bg=self.colors["bg"])
+        self.root.minsize(600, 300)
+        
+        # Position window
+        offset = (self.window_id % 3) * 30
+        self.root.geometry(f"+{50 + offset}+{50 + offset}")
+        
+        # Configure grid
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=1)
+        
+        # Title
+        tk.Label(
+            self.root,
+            text="Saved Chat Sessions",
+            font=("Segoe UI", 14, "bold"),
+            bg=self.colors["bg"],
+            fg=self.colors["accent"]
+        ).grid(row=0, column=0, sticky=tk.W, padx=15, pady=(15, 10))
+        
+        # Treeview frame
+        tree_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        tree_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=15, pady=5)
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
+        
+        # Style configuration
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # Configure treeview colors
+        style.configure("Treeview",
+            background=self.colors["text_bg"],
+            foreground=self.colors["fg"],
+            fieldbackground=self.colors["text_bg"],
+            rowheight=28,
+            font=("Segoe UI", 10)
+        )
+        style.configure("Treeview.Heading",
+            background=self.colors["input_bg"],
+            foreground=self.colors["fg"],
+            font=("Segoe UI", 10, "bold")
+        )
+        style.map("Treeview",
+            background=[("selected", self.colors["accent"])],
+            foreground=[("selected", "#ffffff")]
+        )
+        
+        # Create treeview
+        columns = ("ID", "Title", "Endpoint", "Provider", "Messages", "Updated")
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
+        
+        # Configure columns
+        self.tree.heading("ID", text="ID")
+        self.tree.heading("Title", text="Title")
+        self.tree.heading("Endpoint", text="Endpoint")
+        self.tree.heading("Provider", text="Provider")
+        self.tree.heading("Messages", text="Msgs")
+        self.tree.heading("Updated", text="Updated")
+        
+        self.tree.column("ID", width=70, anchor=tk.W)
+        self.tree.column("Title", width=250, anchor=tk.W)
+        self.tree.column("Endpoint", width=80, anchor=tk.W)
+        self.tree.column("Provider", width=80, anchor=tk.W)
+        self.tree.column("Messages", width=50, anchor=tk.CENTER)
+        self.tree.column("Updated", width=130, anchor=tk.W)
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.tree.grid(row=0, column=0, sticky=tk.NSEW)
+        scrollbar.grid(row=0, column=1, sticky=tk.NS)
+        
+        # Bind selection
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.tree.bind("<Double-1>", lambda e: self._open_session())
+        
+        # Button row
+        btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        btn_frame.grid(row=2, column=0, sticky=tk.EW, padx=15, pady=(10, 15))
+        
+        tk.Button(
+            btn_frame,
+            text="Open Chat",
+            font=("Segoe UI", 10),
+            bg=self.colors["accent"],
+            fg="#ffffff",
+            activebackground=self.colors["accent_green"],
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._open_session
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            btn_frame,
+            text="Delete",
+            font=("Segoe UI", 10),
+            bg=self.colors["accent_red"],
+            fg="#ffffff",
+            activebackground="#c0392b",
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._delete_session
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            btn_frame,
+            text="Refresh",
+            font=("Segoe UI", 10),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._refresh
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            btn_frame,
+            text="Close",
+            font=("Segoe UI", 10),
+            bg=self.colors["input_bg"],
+            fg=self.colors["fg"],
+            activebackground=self.colors["border"],
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._close
+        ).pack(side=tk.LEFT, padx=2)
+        
+        self.status_label = tk.Label(
+            btn_frame,
+            text="Click on a session to select it",
+            font=("Segoe UI", 10),
+            bg=self.colors["bg"],
+            fg=self.colors["blockquote"]
+        )
+        self.status_label.pack(side=tk.LEFT, padx=15)
+        
+        # Register and bind
+        register_window(self.window_tag)
+        self.root.protocol("WM_DELETE_WINDOW", self._close)
+        
+        # Load sessions
+        self._refresh()
+    
+    def _refresh(self):
+        """Refresh the session list"""
+        # Clear existing items
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        sessions = list_sessions()
+        
+        for s in sessions:
+            updated = s['updated'][:16].replace('T', ' ') if s['updated'] else ''
+            title = s['title'][:35] + ('...' if len(s['title']) > 35 else '')
             
-        # Initial display
-        update_chat_display()
+            self.tree.insert("", tk.END, iid=s['id'], values=(
+                s['id'],
+                title,
+                s['endpoint'],
+                s['provider'],
+                s['messages'],
+                updated
+            ))
         
-        dpg.add_separator()
-        dpg.add_text("Your message:", color=(150, 200, 255))
+        self.status_label.configure(text=f"{len(sessions)} session(s) found")
+    
+    def _on_select(self, event):
+        """Handle selection"""
+        selection = self.tree.selection()
+        if selection:
+            self.selected_session_id = selection[0]
+            self.status_label.configure(text=f"Selected: {self.selected_session_id}")
+    
+    def _open_session(self):
+        """Open selected session in a chat window"""
+        if not self.selected_session_id:
+            self.status_label.configure(text="No session selected")
+            return
         
-        # Key handler for Ctrl+Enter
-        with dpg.handler_registry():
-            dpg.add_key_release_handler(dpg.mvKey_Return, callback=lambda: send_callback() if (dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)) else None)
+        session = get_session(self.selected_session_id)
+        if session:
+            ChatWindow(session)
+            self.status_label.configure(text=f"Opened session {self.selected_session_id}")
+        else:
+            self.status_label.configure(text="Session not found")
+    
+    def _delete_session(self):
+        """Delete selected session"""
+        if not self.selected_session_id:
+            self.status_label.configure(text="No session selected")
+            return
         
-        dpg.add_input_text(tag=input_tag, multiline=True, width=-1, height=60, 
-                          hint="Type your follow-up message here... (Ctrl+Enter to send)")
-        
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Send", tag=send_btn_tag, callback=send_callback)
-            dpg.add_button(label="Copy All", callback=copy_all_callback)
-            dpg.add_button(label="Copy Last", callback=copy_last_callback)
-            dpg.add_button(label="Close", callback=close_callback)
-        
-        dpg.add_text("", tag=status_tag, color=(100, 255, 100))
+        sid = self.selected_session_id
+        if delete_session(sid):
+            save_sessions()
+            self.selected_session_id = None
+            self._refresh()
+            self.status_label.configure(text=f"Deleted session {sid}")
+        else:
+            self.status_label.configure(text="Failed to delete session")
+    
+    def _close(self):
+        unregister_window(self.window_tag)
+        self.root.destroy()
+
+
+# Factory functions to maintain compatibility with core.py
+def create_result_window(text: str, endpoint: Optional[str] = None, title: Optional[str] = None):
+    """Create a result display window"""
+    ResultWindow(text, endpoint, title)
+
+
+def create_chat_window(session, initial_response: Optional[str] = None):
+    """Create a chat window for interactive conversation"""
+    ChatWindow(session, initial_response)
 
 
 def create_session_browser_window():
     """Create a session browser window"""
-    if not HAVE_GUI:
-        return
-    
-    window_id = get_next_window_id()
-    window_tag = f"browser_window_{window_id}"
-    table_tag = f"session_table_{window_id}"
-    status_tag = f"browser_status_{window_id}"
-    
-    sessions = list_sessions()
-    selected_session = {'id': None}
-    
-    def refresh_table():
-        nonlocal sessions
-        sessions = list_sessions()
-        
-        # Clear existing rows
-        for child in dpg.get_item_children(table_tag, 1):
-            dpg.delete_item(child)
-        
-        # Add rows
-        for s in sessions:
-            sid = s['id']
-            with dpg.table_row(parent=table_tag):
-                def make_callback(session_id):
-                    return lambda *args: select_session(session_id)
-                dpg.add_selectable(label=sid, callback=make_callback(sid))
-                dpg.add_text(s['title'][:35] + ('...' if len(s['title']) > 35 else ''))
-                dpg.add_text(s['endpoint'])
-                dpg.add_text(s['provider'])
-                dpg.add_text(str(s['messages']))
-                updated = s['updated'][:16].replace('T', ' ') if s['updated'] else ''
-                dpg.add_text(updated)
-    
-    def select_session(session_id):
-        selected_session['id'] = session_id
-        dpg.set_value(status_tag, f"Selected: {session_id}")
-    
-    def open_callback():
-        if selected_session['id']:
-            session = get_session(selected_session['id'])
-            if session:
-                create_chat_window(session)
-                dpg.set_value(status_tag, f"Opened session {selected_session['id']}")
-        else:
-            dpg.set_value(status_tag, "No session selected")
-    
-    def delete_callback():
-        if selected_session['id']:
-            sid = selected_session['id']
-            if delete_session(sid):
-                save_sessions()
-                selected_session['id'] = None
-                refresh_table()
-                dpg.set_value(status_tag, f"Deleted session {sid}")
-        else:
-            dpg.set_value(status_tag, "No session selected")
-    
-    def close_callback():
-        unregister_window(window_tag)
-        dpg.delete_item(window_tag)
-    
-    register_window(window_tag)
-    
-    with dpg.window(label="Session Browser", tag=window_tag, width=850, height=500,
-                    pos=[50 + (window_id % 3) * 30, 50 + (window_id % 3) * 30],
-                    on_close=close_callback):
-        
-        dpg.add_text("Saved Chat Sessions", color=(200, 200, 255))
-        dpg.add_separator()
-        
-        with dpg.table(tag=table_tag, header_row=True, borders_innerH=True, 
-                       borders_outerH=True, borders_innerV=True, borders_outerV=True,
-                       scrollY=True, height=-60):
-            
-            dpg.add_table_column(label="ID", width_fixed=True, init_width_or_weight=70)
-            dpg.add_table_column(label="Title", width_stretch=True)
-            dpg.add_table_column(label="Endpoint", width_fixed=True, init_width_or_weight=80)
-            dpg.add_table_column(label="Provider", width_fixed=True, init_width_or_weight=80)
-            dpg.add_table_column(label="Msgs", width_fixed=True, init_width_or_weight=50)
-            dpg.add_table_column(label="Updated", width_fixed=True, init_width_or_weight=130)
-            
-            for s in sessions:
-                sid = s['id']
-                with dpg.table_row():
-                    def make_callback(session_id):
-                        return lambda *args: select_session(session_id)
-                    dpg.add_selectable(label=sid, callback=make_callback(sid))
-                    dpg.add_text(s['title'][:35] + ('...' if len(s['title']) > 35 else ''))
-                    dpg.add_text(s['endpoint'])
-                    dpg.add_text(s['provider'])
-                    dpg.add_text(str(s['messages']))
-                    updated = s['updated'][:16].replace('T', ' ') if s['updated'] else ''
-                    dpg.add_text(updated)
-        
-        dpg.add_separator()
-        
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Open Chat", callback=open_callback)
-            dpg.add_button(label="Delete", callback=delete_callback)
-            dpg.add_button(label="Refresh", callback=refresh_table)
-            dpg.add_button(label="Close", callback=close_callback)
-        
-        dpg.add_text("Click on a session ID to select it", tag=status_tag, color=(150, 150, 150))
+    SessionBrowserWindow()
