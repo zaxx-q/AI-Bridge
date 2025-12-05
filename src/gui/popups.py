@@ -286,7 +286,8 @@ class PromptSelectionPopup(BasePopup):
             fg=self.fg_color
         ).pack(side=tk.LEFT, padx=(0, 8))
         
-        self.response_mode_var = tk.StringVar(value="default")
+        # Bind StringVar to THIS popup's root, not any existing Tk instance
+        self.response_mode_var = tk.StringVar(master=self.root, value="default")
         
         for mode_text, mode_value in [("Default", "default"), ("Replace", "replace"), ("Show", "show")]:
             rb = tk.Radiobutton(
@@ -300,7 +301,8 @@ class PromptSelectionPopup(BasePopup):
                 selectcolor=self.input_bg,
                 activebackground=self.bg_color,
                 activeforeground=self.fg_color,
-                highlightthickness=0
+                highlightthickness=0,
+                indicatoron=True
             )
             rb.pack(side=tk.LEFT, padx=2)
         
