@@ -205,8 +205,16 @@ class TextEditToolApp:
             daemon=True
         ).start()
     
-    def _call_api(self, messages, provider=None, model=None):
-        """Call the AI API with streaming support when enabled."""
+    def _call_api(self, messages, provider=None, model=None, on_chunk=None):
+        """
+        Call the AI API with streaming support when enabled.
+        
+        Args:
+            messages: API messages
+            provider: Optional provider override
+            model: Optional model override
+            on_chunk: Optional callback for each text chunk (for real-time typing)
+        """
         if not provider:
             provider = self.config.get("default_provider", "google")
         
@@ -234,15 +242,20 @@ class TextEditToolApp:
                 nonlocal full_text, error
                 if data_type == "text":
                     full_text += content
-                    # Print streaming to console
-                    print(content, end="", flush=True)
+                    # Call chunk callback for real-time processing
+                    if on_chunk:
+                        on_chunk(content)
+                    else:
+                        # Print streaming to console
+                        print(content, end="", flush=True)
                 elif data_type == "error":
                     error = content
             
             text, reasoning, usage, err = call_api_chat_stream(
                 session, self.config, self.ai_params, self.key_managers, stream_callback
             )
-            print()  # Newline after streaming
+            if not on_chunk:
+                print()  # Newline after streaming
             
             if self.cancel_requested:
                 return None, "Request cancelled"
@@ -264,6 +277,13 @@ class TextEditToolApp:
             
             return response, error
     
+    def _type_text(self, text: str):
+        """Type text incrementally using keyboard"""
+        try:
+            self.text_handler.keyboard.type(text)
+        except Exception as e:
+            logging.error(f"Error typing text: {e}")
+    
     def _process_direct_chat(self, user_input: str):
         """Process direct chat input."""
         try:
@@ -276,28 +296,39 @@ class TextEditToolApp:
             default_show = self.config.get("default_show", "no")
             show_gui = str(default_show).lower() in ("yes", "true", "1")
             
-            print(f"\n{'─'*60}")
-            print(f"[AI Response] (streaming={self.config.get('streaming_enabled', True)})...")
-            
-            response, error = self._call_api(messages)
-            
-            if error:
-                logging.error(f'Direct chat failed: {error}')
-                print(f"  [Error] {error}")
-                self.is_processing = False
-                return
-            
-            if response:
-                if show_gui:
-                    # Show response in chat window
+            if show_gui:
+                # For GUI mode, stream to console then show window
+                print(f"\n{'─'*60}")
+                print(f"[AI Response]...")
+                
+                response, error = self._call_api(messages)
+                
+                if error:
+                    logging.error(f'Direct chat failed: {error}')
+                    print(f"  [Error] {error}")
+                    self.is_processing = False
+                    return
+                
+                if response:
                     self._show_chat_window("AI Chat", response, user_input)
-                else:
-                    # Replace mode: put response into clipboard and paste it
-                    self._replace_text(response)
-                    print(f"{'─'*60}")
-                    print("✓ Response replaced into active field")
-            
-            print(f"{'─'*60}\n")
+                print(f"{'─'*60}\n")
+            else:
+                # Replace mode: type response in real-time
+                print(f"[AI Response] Typing to active field...")
+                
+                def type_chunk(chunk):
+                    """Type each chunk as it arrives"""
+                    self._type_text(chunk)
+                
+                response, error = self._call_api(messages, on_chunk=type_chunk)
+                
+                if error:
+                    logging.error(f'Direct chat failed: {error}')
+                    print(f"  [Error] {error}")
+                    self.is_processing = False
+                    return
+                
+                print(f"\n✓ Response typed ({len(response) if response else 0} chars)")
             
         except Exception as e:
             logging.error(f'Error in direct chat: {e}')

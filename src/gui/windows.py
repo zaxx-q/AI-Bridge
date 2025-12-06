@@ -413,6 +413,7 @@ class ChatWindow:
         """Handle model selection from dropdown"""
         from ..config import save_config_value
         from .. import web_server
+        from ..session_manager import save_sessions
         
         selected = self.model_var.get()
         if selected and selected not in ("(loading...)", "(no models)", "(default)"):
@@ -427,6 +428,9 @@ class ChatWindow:
                 self.status_label.configure(text=f"✓ Model: {selected}")
             else:
                 self.status_label.configure(text=f"Model: {selected} (not saved)")
+            
+            # Also save session so updated model reflects in session browser
+            save_sessions()
     
     def _send(self):
         """Send a message with streaming support"""
@@ -1272,8 +1276,10 @@ class StandaloneChatWindow:
         """Handle model selection from dropdown"""
         from ..config import save_config_value
         from .. import web_server
+        from ..session_manager import save_sessions
         
-        selected = self.model_var.get()
+        # Use dropdown.get() directly to avoid StringVar threading issues
+        selected = self.model_dropdown.get()
         if selected and selected not in ("(loading...)", "(no models)", "(default)"):
             self.session.model = selected
             self.selected_model = selected
@@ -1286,6 +1292,9 @@ class StandaloneChatWindow:
                 self.status_label.configure(text=f"✓ Model: {selected}")
             else:
                 self.status_label.configure(text=f"Model: {selected} (not saved)")
+            
+            # Also save session so updated model reflects in session browser
+            save_sessions()
     
     def _send(self):
         """Send a message with streaming support"""
