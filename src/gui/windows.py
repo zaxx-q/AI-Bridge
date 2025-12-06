@@ -106,7 +106,7 @@ class ChatWindow:
         
         self.md_btn = tk.Button(
             btn_frame,
-            text="Rich Text",
+            text="Markdown",
             font=("Segoe UI", 9),
             bg=self.colors["input_bg"],
             fg=self.colors["fg"],
@@ -316,7 +316,7 @@ class ChatWindow:
         
         # Update button labels
         self.wrap_btn.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
-        self.md_btn.configure(text="Rich Text" if self.markdown else "Raw Text")
+        self.md_btn.configure(text="Markdown" if self.markdown else "Raw Text")
         self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         
         # Render messages
@@ -374,7 +374,7 @@ class ChatWindow:
     def _toggle_markdown(self):
         self.markdown = not self.markdown
         self._update_chat_display()
-        self.status_label.configure(text=f"Mode: {'Rich Text' if self.markdown else 'Raw Text'}")
+        self.status_label.configure(text=f"Mode: {'Markdown' if self.markdown else 'Raw Text'}")
     
     def _toggle_autoscroll(self):
         self.auto_scroll = not self.auto_scroll
@@ -960,7 +960,7 @@ class StandaloneChatWindow:
         
         self.md_btn = tk.Button(
             btn_frame,
-            text="Rich Text",
+            text="Markdown",
             font=("Segoe UI", 9),
             bg=self.colors["input_bg"],
             fg=self.colors["fg"],
@@ -1177,7 +1177,7 @@ class StandaloneChatWindow:
         
         # Update button labels
         self.wrap_btn.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
-        self.md_btn.configure(text="Rich Text" if self.markdown else "Raw Text")
+        self.md_btn.configure(text="Markdown" if self.markdown else "Raw Text")
         self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         
         # Render messages
@@ -1234,7 +1234,7 @@ class StandaloneChatWindow:
     def _toggle_markdown(self):
         self.markdown = not self.markdown
         self._update_chat_display()
-        self.status_label.configure(text=f"Mode: {'Rich Text' if self.markdown else 'Raw Text'}")
+        self.status_label.configure(text=f"Mode: {'Markdown' if self.markdown else 'Raw Text'}")
     
     def _toggle_autoscroll(self):
         self.auto_scroll = not self.auto_scroll

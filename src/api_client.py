@@ -59,7 +59,17 @@ def call_google_api(key_manager, model, messages, ai_params, timeout):
                             parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
         contents.append({"role": role, "parts": parts})
     
-    payload = {"contents": contents, "generationConfig": {}}
+    payload = {
+        "contents": contents, 
+        "generationConfig": {},
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF"},
+            {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "OFF"}
+        ]
+    }
     for param, value in ai_params.items():
         if value is not None:
             payload["generationConfig"][param] = value
