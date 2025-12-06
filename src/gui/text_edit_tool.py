@@ -232,16 +232,28 @@ class TextEditToolApp:
                 {"role": "user", "content": user_input}
             ]
             
+            # Check default_show setting
+            default_show = self.config.get("default_show", "no")
+            show_gui = str(default_show).lower() in ("yes", "true", "1")
+            
             response, error = self._call_api(messages)
             
             if error:
                 logging.error(f'Direct chat failed: {error}')
+                print(f"  [Error] {error}")
                 self.is_processing = False
                 return
             
             if response:
-                # Show response in chat window
-                self._show_chat_window("AI Chat", response, user_input)
+                if show_gui:
+                    # Show response in chat window
+                    self._show_chat_window("AI Chat", response, user_input)
+                else:
+                    # Stream/print response to console
+                    print(f"\n{'─'*60}")
+                    print(f"[AI Response]")
+                    print(response)
+                    print(f"{'─'*60}\n")
             
         except Exception as e:
             logging.error(f'Error in direct chat: {e}')

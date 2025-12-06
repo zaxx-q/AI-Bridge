@@ -106,10 +106,8 @@ def terminal_session_manager():
                     print(f"  [Error] {error}")
                 elif models:
                     print(f"\n  Available models ({len(models)}):")
-                    for i, m in enumerate(models[:15]):
+                    for i, m in enumerate(models):
                         print(f"    [{i+1}] {m['id']}")
-                    if len(models) > 15:
-                        print(f"    ... and {len(models) - 15} more")
                     
                     print("\n  Enter model number or full name (or 'q' to cancel): ", end='', flush=True)
                     try:

@@ -411,11 +411,22 @@ class ChatWindow:
     
     def _on_model_select(self, event):
         """Handle model selection from dropdown"""
+        from ..config import save_config_value
+        from .. import web_server
+        
         selected = self.model_var.get()
         if selected and selected not in ("(loading...)", "(no models)", "(default)"):
             self.session.model = selected
             self.selected_model = selected
-            self.status_label.configure(text=f"Model: {selected}")
+            
+            # Persist to config.ini for the correct provider
+            provider = self.session.provider
+            config_key = f"{provider}_model"
+            if save_config_value(config_key, selected):
+                web_server.CONFIG[config_key] = selected
+                self.status_label.configure(text=f"✓ Model: {selected}")
+            else:
+                self.status_label.configure(text=f"Model: {selected} (not saved)")
     
     def _send(self):
         """Send a message with streaming support"""
@@ -1259,11 +1270,22 @@ class StandaloneChatWindow:
     
     def _on_model_select(self, event):
         """Handle model selection from dropdown"""
+        from ..config import save_config_value
+        from .. import web_server
+        
         selected = self.model_var.get()
         if selected and selected not in ("(loading...)", "(no models)", "(default)"):
             self.session.model = selected
             self.selected_model = selected
-            self.status_label.configure(text=f"Model: {selected}")
+            
+            # Persist to config.ini for the correct provider
+            provider = self.session.provider
+            config_key = f"{provider}_model"
+            if save_config_value(config_key, selected):
+                web_server.CONFIG[config_key] = selected
+                self.status_label.configure(text=f"✓ Model: {selected}")
+            else:
+                self.status_label.configure(text=f"Model: {selected} (not saved)")
     
     def _send(self):
         """Send a message with streaming support"""

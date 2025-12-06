@@ -460,6 +460,7 @@ def call_api_chat(session, config, ai_params, key_managers):
 def call_api_chat_stream(session, config, ai_params, key_managers, callback):
     """
     API call for chat session with streaming support.
+    Supports: custom, google (via OpenAI-compat), openrouter
     
     Args:
         session: Chat session object
@@ -481,6 +482,7 @@ def call_api_chat_stream(session, config, ai_params, key_managers, callback):
     
     timeout = config.get("request_timeout", 120)
     thinking_output = config.get("thinking_output", "reasoning_content")
+    thinking_enabled = config.get("thinking_enabled", False)
     
     # Determine model
     if session.model:
@@ -494,18 +496,46 @@ def call_api_chat_stream(session, config, ai_params, key_managers, callback):
     else:
         model = None
     
-    # Currently streaming only supported for custom (OpenAI-compatible) API
+    # Build OpenAI-compatible streaming request
     if provider == "custom":
         url = config.get("custom_url")
         if not url or not model:
             return None, None, None, "Custom API URL or model not configured"
         
+        # Ensure URL ends with /chat/completions
+        if not url.endswith("/chat/completions"):
+            url = url.rstrip("/") + "/chat/completions"
+        
         return call_custom_api_stream(
             key_manager, url, model, messages, ai_params, 
             timeout, callback, thinking_output
         )
+    
+    elif provider == "google":
+        # Use Google's OpenAI-compatible endpoint for streaming
+        url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        
+        # Build extra params for thinking if enabled
+        extra_ai_params = dict(ai_params)
+        if thinking_enabled:
+            extra_ai_params["reasoning_effort"] = "medium"
+        
+        return call_custom_api_stream(
+            key_manager, url, model, messages, extra_ai_params,
+            timeout, callback, thinking_output
+        )
+    
+    elif provider == "openrouter":
+        # OpenRouter uses standard OpenAI format
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        
+        return call_custom_api_stream(
+            key_manager, url, model, messages, ai_params,
+            timeout, callback, thinking_output
+        )
+    
     else:
-        # For other providers, fall back to non-streaming
+        # Fallback to non-streaming
         text, error = call_api_with_retry(provider, messages, session.model, config, ai_params, key_managers)
         if error:
             callback("error", error)
@@ -527,19 +557,20 @@ def call_api_chat_stream(session, config, ai_params, key_managers, callback):
         return text, "", usage_data, None
 
 
-def fetch_models(config, key_managers):
+def fetch_models(config, key_managers, provider_override=None):
     """
     Fetch available models from the configured API.
     
     Args:
         config: Configuration dictionary
         key_managers: Dictionary of key managers
+        provider_override: Optional provider to fetch from (defaults to default_provider)
     
     Returns:
         (models_list, error) tuple
         models_list is a list of dicts with 'id' and 'name' keys
     """
-    provider = config.get("default_provider", "custom")
+    provider = provider_override or config.get("default_provider", "custom")
     
     if provider == "custom":
         url = config.get("custom_url")
@@ -573,53 +604,117 @@ def fetch_models(config, key_managers):
                 return None, f"Failed to fetch models ({response.status_code}): {response.text[:200]}"
             
             data = response.json()
-            
-            # OpenAI format: {"data": [...]}
-            if "data" in data and isinstance(data["data"], list):
-                models = []
-                for model in data["data"]:
-                    model_id = model.get("id", str(model))
-                    models.append({
-                        "id": model_id,
-                        "name": model_id,
-                        "owned_by": model.get("owned_by", "unknown")
-                    })
-                return models, None
-            
-            # Some APIs return array directly
-            if isinstance(data, list):
-                models = []
-                for model in data:
-                    if isinstance(model, str):
-                        models.append({"id": model, "name": model})
-                    else:
-                        model_id = model.get("id", str(model))
-                        models.append({"id": model_id, "name": model_id})
-                return models, None
-            
-            return None, "Unknown models response format"
+            return _parse_models_response(data)
             
         except requests.exceptions.RequestException as e:
             return None, f"Request failed: {e}"
         except Exception as e:
             return None, f"Error fetching models: {e}"
     
-    else:
-        # For other providers, return empty list or hardcoded models
-        if provider == "openrouter":
-            # Common OpenRouter models
-            return [
-                {"id": "google/gemini-2.5-flash-preview", "name": "Gemini 2.5 Flash"},
-                {"id": "google/gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
-                {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet"},
-                {"id": "openai/gpt-4o", "name": "GPT-4o"},
-            ], None
-        elif provider == "google":
-            return [
-                {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
-                {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash"},
-                {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
-            ], None
+    elif provider == "google":
+        # Fetch from Google AI API
+        key_manager = key_managers.get("google")
+        if not key_manager or not key_manager.has_keys():
+            return None, "No API keys configured for Google provider"
         
-        return [], None
+        current_key = key_manager.get_current_key()
+        if not current_key:
+            return None, "No API key available"
+        
+        # Google models endpoint
+        models_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={current_key}"
+        
+        try:
+            response = requests.get(models_url, timeout=30)
+            
+            if response.status_code != 200:
+                return None, f"Failed to fetch Google models ({response.status_code}): {response.text[:200]}"
+            
+            data = response.json()
+            
+            # Google format: {"models": [...]}
+            if "models" in data and isinstance(data["models"], list):
+                models = []
+                for model in data["models"]:
+                    model_name = model.get("name", "")
+                    # Extract model ID from "models/gemini-2.0-flash" format
+                    model_id = model_name.replace("models/", "") if model_name.startswith("models/") else model_name
+                    display_name = model.get("displayName", model_id)
+                    
+                    # Filter to only include generateContent-capable models
+                    supported_methods = model.get("supportedGenerationMethods", [])
+                    if "generateContent" in supported_methods:
+                        models.append({
+                            "id": model_id,
+                            "name": display_name
+                        })
+                return models, None
+            
+            return None, "Unknown Google models response format"
+            
+        except requests.exceptions.RequestException as e:
+            return None, f"Request failed: {e}"
+        except Exception as e:
+            return None, f"Error fetching Google models: {e}"
+    
+    elif provider == "openrouter":
+        # Fetch from OpenRouter API
+        key_manager = key_managers.get("openrouter")
+        if not key_manager or not key_manager.has_keys():
+            return None, "No API keys configured for OpenRouter provider"
+        
+        current_key = key_manager.get_current_key()
+        if not current_key:
+            return None, "No API key available"
+        
+        models_url = "https://openrouter.ai/api/v1/models"
+        headers = {
+            "Authorization": f"Bearer {current_key}",
+            "Content-Type": "application/json"
+        }
+        
+        try:
+            response = requests.get(models_url, headers=headers, timeout=30)
+            
+            if response.status_code != 200:
+                return None, f"Failed to fetch OpenRouter models ({response.status_code}): {response.text[:200]}"
+            
+            data = response.json()
+            return _parse_models_response(data)
+            
+        except requests.exceptions.RequestException as e:
+            return None, f"Request failed: {e}"
+        except Exception as e:
+            return None, f"Error fetching OpenRouter models: {e}"
+    
+    return [], None
+
+
+def _parse_models_response(data):
+    """Parse models response in OpenAI format"""
+    # OpenAI format: {"data": [...]}
+    if "data" in data and isinstance(data["data"], list):
+        models = []
+        for model in data["data"]:
+            model_id = model.get("id", str(model))
+            models.append({
+                "id": model_id,
+                "name": model_id,
+                "owned_by": model.get("owned_by", "unknown")
+            })
+        return models, None
+    
+    # Some APIs return array directly
+    if isinstance(data, list):
+        models = []
+        for model in data:
+            if isinstance(model, str):
+                models.append({"id": model, "name": model})
+            else:
+                model_id = model.get("id", str(model))
+                models.append({"id": model_id, "name": model_id})
+        return models, None
+    
+    return None, "Unknown models response format"
+
 
