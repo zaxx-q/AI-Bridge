@@ -120,6 +120,9 @@ While the server is running, press these keys:
 - `D` - Delete a session
 - `C` - Clear all sessions
 - `G` - Show GUI status
+- `M` - Model management (list available models)
+- `T` - Toggle thinking/reasoning mode
+- `R` - Toggle streaming mode
 - `H` - Help
 
 ### API Routes
@@ -129,6 +132,7 @@ While the server is running, press these keys:
 - `GET /sessions` - List all sessions
 - `GET /sessions/<id>` - Get session details
 - `GET /gui/browser` - Open session browser GUI
+- `GET /models` - List available models (dynamically fetched from API)
 
 ## Configuration
 
@@ -136,11 +140,13 @@ Edit `config.ini` to customize:
 
 - Server host and port
 - Default provider (google, openrouter, custom)
-- API models
+- API models (dynamically selectable via GUI dropdown)
 - Retry settings
 - AI parameters (temperature, max_tokens, etc.)
 - Custom endpoints
 - TextEditTool settings (hotkey, response mode)
+- **Streaming**: `streaming_enabled = true/false`
+- **Thinking/Reasoning**: `thinking_enabled = true/false`, `thinking_output = reasoning_content`
 
 ## Features
 
@@ -153,11 +159,29 @@ Edit `config.ini` to customize:
 - Configurable endpoints
 - Provider/model override via query params or headers
 
+✅ **Streaming Support:**
+- Real-time SSE streaming for all providers (Google, OpenRouter, Custom)
+- Streaming to chat window with live updates
+- Streaming to active text field (replace mode) with rate-limited typing
+- Toggle via terminal `[R]` or config `streaming_enabled`
+
+✅ **Model Selection:**
+- Dynamic model fetching from APIs (Google, OpenRouter, Custom)
+- GUI dropdown for model selection in chat windows
+- Model changes persist to config.ini and chat_sessions.json
+- Terminal `[M]` command to list all available models
+
+✅ **Thinking/Reasoning Mode:**
+- Support for `reasoning_content` in API responses
+- Collapsible thinking display in chat windows
+- Toggle via terminal `[T]` or config `thinking_enabled`
+
 ✅ **TextEditTool:**
 - Global hotkey activation (Ctrl+Space by default)
 - Text selection-based prompts
 - AI chat without selection
 - Replace or popup response modes
+- Streaming to active field (default_show=no)
 - Customizable prompts
 - Dark/light mode support
 

@@ -335,11 +335,29 @@ class TextEditToolApp:
                 if streaming_enabled:
                     print(f"[AI Response] Streaming to active field...")
                     
+                    # Buffer to accumulate chunks before typing (helps with Unicode)
+                    chunk_buffer = []
+                    buffer_size = 0
+                    MIN_BUFFER_CHARS = 20  # Accumulate at least 20 chars before typing
+                    
                     def type_chunk(chunk):
-                        """Type each chunk as it arrives (rate-limited, no clipboard)"""
-                        self._type_text_chunk(chunk)
+                        """Buffer chunks and type when buffer is large enough"""
+                        nonlocal chunk_buffer, buffer_size
+                        chunk_buffer.append(chunk)
+                        buffer_size += len(chunk)
+                        
+                        # Type when buffer reaches minimum size
+                        if buffer_size >= MIN_BUFFER_CHARS:
+                            text_to_type = ''.join(chunk_buffer)
+                            chunk_buffer.clear()
+                            buffer_size = 0
+                            self._type_text_chunk(text_to_type)
                     
                     response, error = self._call_api(messages, on_chunk=type_chunk)
+                    
+                    # Type any remaining buffered text
+                    if chunk_buffer:
+                        self._type_text_chunk(''.join(chunk_buffer))
                 else:
                     print(f"[AI Response] Getting response...")
                     response, error = self._call_api(messages)

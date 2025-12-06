@@ -169,6 +169,9 @@ def call_custom_api_stream(key_manager, url, model, messages, ai_params, timeout
         in_thinking = False
         text_buffer = ""
         
+        # Explicitly set UTF-8 encoding for proper Unicode handling
+        response.encoding = 'utf-8'
+        
         for line in response.iter_lines(decode_unicode=True):
             if not line:
                 continue
