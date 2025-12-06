@@ -277,12 +277,28 @@ class TextEditToolApp:
             
             return response, error
     
-    def _type_text(self, text: str):
-        """Type text incrementally using keyboard"""
+    def _type_text_chunk(self, text: str):
+        """
+        Insert text chunk using keyboard typing with rate limiting.
+        Avoids clipboard to prevent filling clipboard managers.
+        Uses a small delay between characters for stability.
+        """
+        import time
+        from pynput import keyboard as pykeyboard
+        
         try:
-            self.text_handler.keyboard.type(text)
+            keyboard = pykeyboard.Controller()
+            
+            # Type each character with a small delay for stability
+            for char in text:
+                keyboard.type(char)
+                time.sleep(0.005)  # 5ms delay per character
+            
+            # Small delay after chunk for application responsiveness
+            time.sleep(0.01)
+            
         except Exception as e:
-            logging.error(f"Error typing text: {e}")
+            logging.error(f"Error typing text chunk: {e}")
     
     def _process_direct_chat(self, user_input: str):
         """Process direct chat input."""
@@ -313,14 +329,25 @@ class TextEditToolApp:
                     self._show_chat_window("AI Chat", response, user_input)
                 print(f"{'─'*60}\n")
             else:
-                # Replace mode: type response in real-time
-                print(f"[AI Response] Typing to active field...")
+                # Replace mode: type response to active field
+                streaming_enabled = self.config.get("streaming_enabled", True)
                 
-                def type_chunk(chunk):
-                    """Type each chunk as it arrives"""
-                    self._type_text(chunk)
-                
-                response, error = self._call_api(messages, on_chunk=type_chunk)
+                if streaming_enabled:
+                    print(f"[AI Response] Streaming to active field...")
+                    
+                    def type_chunk(chunk):
+                        """Type each chunk as it arrives (rate-limited, no clipboard)"""
+                        self._type_text_chunk(chunk)
+                    
+                    response, error = self._call_api(messages, on_chunk=type_chunk)
+                else:
+                    print(f"[AI Response] Getting response...")
+                    response, error = self._call_api(messages)
+                    
+                    # Type the full response when non-streaming
+                    if response and not error:
+                        print(f"[Typing to active field...]")
+                        self._type_text_chunk(response)
                 
                 if error:
                     logging.error(f'Direct chat failed: {error}')
@@ -328,7 +355,10 @@ class TextEditToolApp:
                     self.is_processing = False
                     return
                 
-                print(f"\n✓ Response typed ({len(response) if response else 0} chars)")
+                if streaming_enabled:
+                    print(f"\n✓ Response streamed ({len(response) if response else 0} chars)")
+                else:
+                    print(f"\n✓ Response typed ({len(response) if response else 0} chars)")
             
         except Exception as e:
             logging.error(f'Error in direct chat: {e}')
