@@ -483,8 +483,8 @@ class ChatWindow:
                 elif data_type == "done":
                     pass  # Handled after call completes
             
-            # Use streaming if enabled and provider supports it
-            if streaming_enabled and self.session.provider == "custom":
+            # Use streaming if enabled (all providers now support streaming via OpenAI-compat)
+            if streaming_enabled and self.session.provider in ("custom", "google", "openrouter"):
                 self.is_streaming = True
                 self.root.after(0, lambda: self.status_label.configure(text="Streaming..."))
                 
@@ -1340,8 +1340,8 @@ class StandaloneChatWindow:
                         text=f"Error: {content}", fg=self.colors["accent_red"]
                     ))
             
-            # Use streaming if enabled and provider supports it
-            if streaming_enabled and self.session.provider == "custom":
+            # Use streaming if enabled (all providers now support streaming via OpenAI-compat)
+            if streaming_enabled and self.session.provider in ("custom", "google", "openrouter"):
                 self.is_streaming = True
                 self.root.after(0, lambda: self.status_label.configure(text="Streaming..."))
                 

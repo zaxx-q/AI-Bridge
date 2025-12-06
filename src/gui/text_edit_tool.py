@@ -206,23 +206,63 @@ class TextEditToolApp:
         ).start()
     
     def _call_api(self, messages, provider=None, model=None):
-        """Call the AI API directly."""
+        """Call the AI API with streaming support when enabled."""
         if not provider:
             provider = self.config.get("default_provider", "google")
         
-        response, error = call_api_with_retry(
-            provider=provider,
-            messages=messages,
-            model_override=model,
-            config=self.config,
-            ai_params=self.ai_params,
-            key_managers=self.key_managers
-        )
+        streaming_enabled = self.config.get("streaming_enabled", True)
         
-        if self.cancel_requested:
-            return None, "Request cancelled"
-        
-        return response, error
+        if streaming_enabled:
+            # Use streaming API
+            from ..api_client import call_api_chat_stream
+            from ..session_manager import ChatSession
+            
+            # Create a temporary session
+            session = ChatSession(
+                endpoint="textedit",
+                provider=provider,
+                model=model or self.config.get(f"{provider}_model")
+            )
+            # Add messages directly - we'll use the internal format
+            for msg in messages:
+                session.messages.append({"role": msg["role"], "content": msg["content"]})
+            
+            full_text = ""
+            error = None
+            
+            def stream_callback(data_type, content):
+                nonlocal full_text, error
+                if data_type == "text":
+                    full_text += content
+                    # Print streaming to console
+                    print(content, end="", flush=True)
+                elif data_type == "error":
+                    error = content
+            
+            text, reasoning, usage, err = call_api_chat_stream(
+                session, self.config, self.ai_params, self.key_managers, stream_callback
+            )
+            print()  # Newline after streaming
+            
+            if self.cancel_requested:
+                return None, "Request cancelled"
+            
+            return text, err
+        else:
+            # Non-streaming fallback
+            response, error = call_api_with_retry(
+                provider=provider,
+                messages=messages,
+                model_override=model,
+                config=self.config,
+                ai_params=self.ai_params,
+                key_managers=self.key_managers
+            )
+            
+            if self.cancel_requested:
+                return None, "Request cancelled"
+            
+            return response, error
     
     def _process_direct_chat(self, user_input: str):
         """Process direct chat input."""
@@ -235,6 +275,9 @@ class TextEditToolApp:
             # Check default_show setting
             default_show = self.config.get("default_show", "no")
             show_gui = str(default_show).lower() in ("yes", "true", "1")
+            
+            print(f"\n{'─'*60}")
+            print(f"[AI Response] (streaming={self.config.get('streaming_enabled', True)})...")
             
             response, error = self._call_api(messages)
             
@@ -249,11 +292,12 @@ class TextEditToolApp:
                     # Show response in chat window
                     self._show_chat_window("AI Chat", response, user_input)
                 else:
-                    # Stream/print response to console
-                    print(f"\n{'─'*60}")
-                    print(f"[AI Response]")
-                    print(response)
-                    print(f"{'─'*60}\n")
+                    # Replace mode: put response into clipboard and paste it
+                    self._replace_text(response)
+                    print(f"{'─'*60}")
+                    print("✓ Response replaced into active field")
+            
+            print(f"{'─'*60}\n")
             
         except Exception as e:
             logging.error(f'Error in direct chat: {e}')

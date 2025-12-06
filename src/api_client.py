@@ -516,8 +516,13 @@ def call_api_chat_stream(session, config, ai_params, key_managers, callback):
         if not url.endswith("/chat/completions"):
             url = url.rstrip("/") + "/chat/completions"
         
+        # Build extra params for thinking if enabled
+        extra_ai_params = dict(ai_params)
+        if thinking_enabled:
+            extra_ai_params["reasoning_effort"] = "medium"
+        
         return call_custom_api_stream(
-            key_manager, url, model, messages, ai_params, 
+            key_manager, url, model, messages, extra_ai_params, 
             timeout, callback, thinking_output
         )
     
