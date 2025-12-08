@@ -107,12 +107,31 @@ While the server is running, you can use these keyboard commands in the terminal
 4.  **Without selection**: Pressing the hotkey opens a quick input bar for asking the AI a question directly.
 
 ### ShareX Integration
-Configure ShareX to send images to these endpoints (POST request with image file):
-*   `http://localhost:5000/ocr`
-*   `http://localhost:5000/describe`
-*   `http://localhost:5000/code`
 
-Add `?show=yes` to the URL to force the result to open in a chat window instead of just returning text.
+To set up ShareX as an OCR/image processing tool:
+
+1.  **Create Custom Uploader**: Go to `Custom uploader settings → New`.
+2.  **Configure Request**:
+    *   **Name**: `OCR` (or any name)
+    *   **Destination type**: `Image uploader`
+    *   **Method**: `POST`
+    *   **Request URL**: `http://127.0.0.1:5000/ocr` (or `/describe`, `/code`, etc.)
+    *   **Body**: `Form data (multipart/form-data)`
+    *   **File form name**: `image` (Required)
+3.  **Configure Response**: Set the **URL** field to `{response}`.
+4.  **Create Workflow/Hotkey**:
+    *   Go to `Hotkey settings → Add...`
+    *   Task: `Capture region` (or any other capture methods)
+    *   Hotkey: Set to any
+    *   Click the **Gear icon** (Task settings) for this hotkey:
+        *   **Override after capture tasks**: Check `Upload image to host`.
+        *   **Override after upload tasks**: Check `Copy URL to clipboard`.
+        *   **Override destinations**: Check `Image uploader` → Select `Custom image uploader`.
+        *   **Override default custom uploader**: Check and select your `OCR` custom uploader.
+
+**Usage**: Press your hotkey, select a region, and the extracted text will be copied to your clipboard automatically. You can also activate by right clicking tray → Workflows → Select workflow
+
+> 💡 **Tip**: Add `?show=yes` to the URL to open results in a chat window for follow-up questions.
 
 ## Configuration Options
 
@@ -123,6 +142,29 @@ The `config.ini` file allows extensive customization:
 *   **Streaming**: Enable/disable `streaming_enabled`.
 *   **Thinking**: Enable `thinking_enabled` to see the AI's reasoning process (for supported models).
 *   **TextEditTool**: Customize the `text_edit_tool_hotkey` and `text_edit_tool_response_mode`.
+
+## Known Issues & Limitations
+
+As this project is in active development, please be aware:
+- Some edge cases in TextEditTool text replacement may not work perfectly across all applications
+- GUI windows may occasionally have threading-related issues on some systems
+- Not all AI models support thinking/reasoning mode
+- Error handling is still being improved
+
+## Contributing
+
+Contributions are welcome! If you encounter bugs or have feature suggestions:
+1. Check existing issues on GitHub
+2. Open a new issue with detailed information
+3. Pull requests for bug fixes are appreciated
+
+## Roadmap
+
+- [ ] Improve error handling and user feedback
+- [ ] Add more TextEditTool preset options
+- [ ] Support for additional AI providers
+- [ ] Better session management UI
+- [ ] Comprehensive testing suite
 
 ## License
 
