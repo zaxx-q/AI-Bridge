@@ -15,6 +15,8 @@ DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 5000,
     "default_provider": "google",
+    # Custom URL: If it contains "google" or "googleapis.com",
+    # Google-specific behavior is automatically applied
     "custom_url": None,
     "custom_model": None,
     "openrouter_model": "google/gemini-2.5-flash-preview",
@@ -241,6 +243,12 @@ default_show = no
 # Custom API configuration
 # custom_url = https://api.openai.com/v1/chat/completions
 # custom_model = gpt-4o
+#
+# NOTE: If custom_url contains "google" or "googleapis.com", the system will
+# automatically apply Google-specific settings (safety_settings, thinking_config).
+# Example for Google's OpenAI-compatible endpoint:
+# custom_url = https://generativelanguage.googleapis.com/v1beta/openai
+# custom_model = gemini-2.0-flash-thinking-exp
 
 # OpenRouter model (see https://openrouter.ai/models for options)
 openrouter_model = google/gemini-2.5-flash-preview

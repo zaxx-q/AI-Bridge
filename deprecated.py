@@ -1139,13 +1139,15 @@ def create_chat_window(session, initial_response=None):
     status_tag = f"chat_status_{window_id}"
     send_btn_tag = f"send_btn_{window_id}"
     wrap_btn_tag = f"wrap_btn_{window_id}"
-    mode_btn_tag = f"mode_btn_{window_id}"
+    md_btn_tag = f"md_btn_{window_id}"
+    select_btn_tag = f"select_btn_{window_id}"
     scroll_area_tag = f"scroll_area_{window_id}"
     
     # State for toggles
     state = {
         'wrapped': True,
-        'mode': 'rich',  # 'rich' (markdown) or 'text' (selectable)
+        'markdown': True,
+        'selectable': False,
         'last_response': initial_response or ""
     }
     
