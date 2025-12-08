@@ -457,9 +457,8 @@ class ChatWindow:
         self.last_usage = None
         
         def process_message():
-            from ..api_client import call_api_with_retry, call_api_chat_stream
             from .. import web_server
-            from ..terminal import print_usage
+            from ..request_pipeline import RequestPipeline, RequestContext, RequestOrigin, StreamCallback
             
             self.session.add_message("user", user_input)
             
@@ -470,76 +469,98 @@ class ChatWindow:
             
             streaming_enabled = web_server.CONFIG.get("streaming_enabled", True)
             
-            # Streaming callback for real-time updates
-            def stream_callback(data_type, content):
-                if data_type == "text":
-                    self.streaming_text += content
-                    self.root.after(0, lambda: self._update_streaming_display())
-                elif data_type == "thinking":
-                    self.streaming_thinking += content
-                    self.root.after(0, lambda: self._update_streaming_display())
-                elif data_type == "usage":
-                    self.last_usage = content
-                elif data_type == "error":
-                    self.root.after(0, lambda: self.status_label.configure(
-                        text=f"Error: {content}", fg=self.colors["accent_red"]
-                    ))
-                elif data_type == "done":
-                    pass  # Handled after call completes
+            # Setup context and callbacks
+            ctx = RequestContext(
+                origin=RequestOrigin.CHAT_WINDOW,
+                provider=self.session.provider,
+                model=self.session.model or "",
+                streaming=streaming_enabled,
+                thinking_enabled=web_server.CONFIG.get("thinking_enabled", False),
+                session_id=self.session.session_id
+            )
             
-            # Use streaming if enabled (all providers now support streaming via OpenAI-compat)
-            if streaming_enabled and self.session.provider in ("custom", "google", "openrouter"):
-                self.is_streaming = True
-                self.root.after(0, lambda: self.status_label.configure(text="Streaming..."))
+            # Callbacks for UI updates
+            def on_text(content):
+                self.streaming_text += content
+                self.root.after(0, lambda: self._update_streaming_display())
                 
-                full_text, reasoning_text, usage_data, error = call_api_chat_stream(
+            def on_thinking(content):
+                self.streaming_thinking += content
+                self.root.after(0, lambda: self._update_streaming_display())
+                
+            def on_usage(content):
+                self.last_usage = content
+                
+            def on_error(content):
+                self.root.after(0, lambda: self.status_label.configure(
+                    text=f"Error: {content}", fg=self.colors["accent_red"]
+                ))
+            
+            callbacks = StreamCallback(
+                on_text=on_text,
+                on_thinking=on_thinking,
+                on_usage=on_usage,
+                on_error=on_error
+            )
+            
+            # Execute request
+            self.is_streaming = True
+            self.root.after(0, lambda: self.status_label.configure(text="Streaming..." if streaming_enabled else "Processing..."))
+            
+            if streaming_enabled and self.session.provider in ("custom", "google", "openrouter"):
+                ctx = RequestPipeline.execute_streaming(
+                    ctx,
                     self.session,
                     web_server.CONFIG,
                     web_server.AI_PARAMS,
                     web_server.KEY_MANAGERS,
-                    stream_callback
+                    callbacks
+                )
+            else:
+                self.is_streaming = False
+                # For non-streaming, we construct messages manually
+                messages = self.session.get_conversation_for_api(include_image=True)
+                ctx = RequestPipeline.execute_simple(
+                    ctx,
+                    messages,
+                    web_server.CONFIG,
+                    web_server.AI_PARAMS,
+                    web_server.KEY_MANAGERS
                 )
                 
-                self.is_streaming = False
-                response_text = full_text
-                self.last_usage = usage_data
-            else:
-                # Non-streaming fallback
-                response_text, error = call_api_with_retry(
-                    provider=self.session.provider,
-                    messages=self.session.get_conversation_for_api(include_image=True),
-                    model_override=self.session.model,
-                    config=web_server.CONFIG,
-                    ai_params=web_server.AI_PARAMS,
-                    key_managers=web_server.KEY_MANAGERS
-                )
-                reasoning_text = ""
+            self.is_streaming = False
+            self.last_usage = {
+                "prompt_tokens": ctx.input_tokens,
+                "completion_tokens": ctx.output_tokens,
+                "total_tokens": ctx.total_tokens,
+                "estimated": ctx.estimated
+            }
             
             def handle_response():
-                if error:
-                    self.status_label.configure(text=f"Error: {error}", fg=self.colors["accent_red"])
+                if ctx.error:
+                    self.status_label.configure(text=f"Error: {ctx.error}", fg=self.colors["accent_red"])
                     self.session.messages.pop()  # Remove failed user message
                 else:
                     # Store reasoning content alongside the message
-                    msg_content = response_text
+                    msg_content = ctx.response_text
                     self.session.add_message("assistant", msg_content)
-                    if self.streaming_thinking:
-                        # Store thinking in session for later display
-                        if len(self.session.messages) > 0:
-                            self.session.messages[-1]["thinking"] = self.streaming_thinking
                     
-                    self.last_response = response_text
+                    # Store thinking if available (from streaming or potentially non-streaming if supported)
+                    thinking_content = self.streaming_thinking or ctx.reasoning_text
+                    if thinking_content:
+                        if len(self.session.messages) > 0:
+                            self.session.messages[-1]["thinking"] = thinking_content
+                    
+                    self.last_response = ctx.response_text
                     self._update_chat_display(scroll_to_bottom=True)
                     
                     # Show usage in status
                     usage_str = ""
                     if self.last_usage:
                         usage_str = f" | {self.last_usage.get('total_tokens', 0)} tokens"
-                        # Print to console
-                        print_usage(self.last_usage, "  ")
                     
                     self.status_label.configure(
-                        text=f"✓ Response received{usage_str}", 
+                        text=f"✓ Response received{usage_str}",
                         fg=self.colors["accent_green"]
                     )
                     add_session(self.session, web_server.CONFIG.get("max_sessions", 50))
@@ -1321,9 +1342,8 @@ class StandaloneChatWindow:
         self.last_usage = None
         
         def process_message():
-            from ..api_client import call_api_with_retry, call_api_chat_stream
             from .. import web_server
-            from ..terminal import print_usage
+            from ..request_pipeline import RequestPipeline, RequestContext, RequestOrigin, StreamCallback
             
             self.session.add_message("user", user_input)
             
@@ -1334,71 +1354,98 @@ class StandaloneChatWindow:
             
             streaming_enabled = web_server.CONFIG.get("streaming_enabled", True)
             
-            # Streaming callback for real-time updates
-            def stream_callback(data_type, content):
-                if data_type == "text":
-                    self.streaming_text += content
-                    self.root.after(0, lambda: self._update_streaming_display())
-                elif data_type == "thinking":
-                    self.streaming_thinking += content
-                    self.root.after(0, lambda: self._update_streaming_display())
-                elif data_type == "usage":
-                    self.last_usage = content
-                elif data_type == "error":
-                    self.root.after(0, lambda: self.status_label.configure(
-                        text=f"Error: {content}", fg=self.colors["accent_red"]
-                    ))
+            # Setup context and callbacks
+            ctx = RequestContext(
+                origin=RequestOrigin.CHAT_WINDOW,
+                provider=self.session.provider,
+                model=self.session.model or "",
+                streaming=streaming_enabled,
+                thinking_enabled=web_server.CONFIG.get("thinking_enabled", False),
+                session_id=self.session.session_id
+            )
             
-            # Use streaming if enabled (all providers now support streaming via OpenAI-compat)
-            if streaming_enabled and self.session.provider in ("custom", "google", "openrouter"):
-                self.is_streaming = True
-                self.root.after(0, lambda: self.status_label.configure(text="Streaming..."))
+            # Callbacks for UI updates
+            def on_text(content):
+                self.streaming_text += content
+                self.root.after(0, lambda: self._update_streaming_display())
                 
-                full_text, reasoning_text, usage_data, error = call_api_chat_stream(
+            def on_thinking(content):
+                self.streaming_thinking += content
+                self.root.after(0, lambda: self._update_streaming_display())
+                
+            def on_usage(content):
+                self.last_usage = content
+                
+            def on_error(content):
+                self.root.after(0, lambda: self.status_label.configure(
+                    text=f"Error: {content}", fg=self.colors["accent_red"]
+                ))
+            
+            callbacks = StreamCallback(
+                on_text=on_text,
+                on_thinking=on_thinking,
+                on_usage=on_usage,
+                on_error=on_error
+            )
+            
+            # Execute request
+            self.is_streaming = True
+            self.root.after(0, lambda: self.status_label.configure(text="Streaming..." if streaming_enabled else "Processing..."))
+            
+            if streaming_enabled and self.session.provider in ("custom", "google", "openrouter"):
+                ctx = RequestPipeline.execute_streaming(
+                    ctx,
                     self.session,
                     web_server.CONFIG,
                     web_server.AI_PARAMS,
                     web_server.KEY_MANAGERS,
-                    stream_callback
+                    callbacks
                 )
-                
-                self.is_streaming = False
-                response_text = full_text
-                self.last_usage = usage_data
             else:
-                # Non-streaming fallback
-                response_text, error = call_api_with_retry(
-                    provider=self.session.provider,
-                    messages=self.session.get_conversation_for_api(include_image=True),
-                    model_override=self.session.model,
-                    config=web_server.CONFIG,
-                    ai_params=web_server.AI_PARAMS,
-                    key_managers=web_server.KEY_MANAGERS
+                self.is_streaming = False
+                # For non-streaming, we construct messages manually
+                messages = self.session.get_conversation_for_api(include_image=True)
+                ctx = RequestPipeline.execute_simple(
+                    ctx,
+                    messages,
+                    web_server.CONFIG,
+                    web_server.AI_PARAMS,
+                    web_server.KEY_MANAGERS
                 )
-                reasoning_text = ""
+            
+            self.is_streaming = False
+            self.last_usage = {
+                "prompt_tokens": ctx.input_tokens,
+                "completion_tokens": ctx.output_tokens,
+                "total_tokens": ctx.total_tokens,
+                "estimated": ctx.estimated
+            }
             
             def handle_response():
-                if error:
-                    self.status_label.configure(text=f"Error: {error}", fg=self.colors["accent_red"])
+                if ctx.error:
+                    self.status_label.configure(text=f"Error: {ctx.error}", fg=self.colors["accent_red"])
                     self.session.messages.pop()  # Remove failed user message
                 else:
-                    self.session.add_message("assistant", response_text)
-                    if self.streaming_thinking:
-                        if len(self.session.messages) > 0:
-                            self.session.messages[-1]["thinking"] = self.streaming_thinking
+                    # Store reasoning content alongside the message
+                    msg_content = ctx.response_text
+                    self.session.add_message("assistant", msg_content)
                     
-                    self.last_response = response_text
+                    # Store thinking if available (from streaming or potentially non-streaming if supported)
+                    thinking_content = self.streaming_thinking or ctx.reasoning_text
+                    if thinking_content:
+                        if len(self.session.messages) > 0:
+                            self.session.messages[-1]["thinking"] = thinking_content
+                    
+                    self.last_response = ctx.response_text
                     self._update_chat_display(scroll_to_bottom=True)
                     
                     # Show usage in status
                     usage_str = ""
                     if self.last_usage:
                         usage_str = f" | {self.last_usage.get('total_tokens', 0)} tokens"
-                        # Print to console
-                        print_usage(self.last_usage, "  ")
                     
                     self.status_label.configure(
-                        text=f"✓ Response received{usage_str}", 
+                        text=f"✓ Response received{usage_str}",
                         fg=self.colors["accent_green"]
                     )
                     add_session(self.session, web_server.CONFIG.get("max_sessions", 50))

@@ -205,7 +205,7 @@ class TextEditToolApp:
             daemon=True
         ).start()
     
-    def _call_api(self, messages, provider=None, model=None, on_chunk=None):
+    def _call_api(self, messages, provider=None, model=None, on_chunk=None, origin_override=None):
         """
         Call the AI API with streaming support when enabled.
         
@@ -214,68 +214,83 @@ class TextEditToolApp:
             provider: Optional provider override
             model: Optional model override
             on_chunk: Optional callback for each text chunk (for real-time typing)
+            origin_override: Optional RequestOrigin override
         """
+        from ..request_pipeline import RequestPipeline, RequestContext, RequestOrigin, StreamCallback
+        from ..session_manager import ChatSession
+        
         if not provider:
             provider = self.config.get("default_provider", "google")
         
         streaming_enabled = self.config.get("streaming_enabled", True)
         
+        # Determine origin
+        origin = origin_override or RequestOrigin.POPUP_INPUT
+        
+        # Setup context
+        ctx = RequestContext(
+            origin=origin,
+            provider=provider,
+            model=model or self.config.get(f"{provider}_model"),
+            streaming=streaming_enabled,
+            thinking_enabled=self.config.get("thinking_enabled", False)
+        )
+        
         if streaming_enabled:
-            # Use streaming API
-            from ..api_client import call_api_chat_stream
-            from ..session_manager import ChatSession
-            
             # Create a temporary session
             session = ChatSession(
                 endpoint="textedit",
                 provider=provider,
-                model=model or self.config.get(f"{provider}_model")
+                model=ctx.model
             )
-            # Add messages directly - we'll use the internal format
+            # Add messages directly
             for msg in messages:
                 session.messages.append({"role": msg["role"], "content": msg["content"]})
             
-            full_text = ""
-            error = None
+            # Setup callbacks
+            def on_text(content):
+                if on_chunk:
+                    on_chunk(content)
+                else:
+                    # Print streaming to console only if no handler
+                    print(content, end="", flush=True)
             
-            def stream_callback(data_type, content):
-                nonlocal full_text, error
-                if data_type == "text":
-                    full_text += content
-                    # Call chunk callback for real-time processing
-                    if on_chunk:
-                        on_chunk(content)
-                    else:
-                        # Print streaming to console
-                        print(content, end="", flush=True)
-                elif data_type == "error":
-                    error = content
+            def on_done():
+                if not on_chunk:
+                    print()  # Newline after streaming
             
-            text, reasoning, usage, err = call_api_chat_stream(
-                session, self.config, self.ai_params, self.key_managers, stream_callback
+            callbacks = StreamCallback(
+                on_text=on_text,
+                on_done=on_done
             )
-            if not on_chunk:
-                print()  # Newline after streaming
+            
+            ctx = RequestPipeline.execute_streaming(
+                ctx,
+                session,
+                self.config,
+                self.ai_params,
+                self.key_managers,
+                callbacks
+            )
             
             if self.cancel_requested:
                 return None, "Request cancelled"
             
-            return text, err
+            return ctx.response_text, ctx.error
         else:
-            # Non-streaming fallback
-            response, error = call_api_with_retry(
-                provider=provider,
-                messages=messages,
-                model_override=model,
-                config=self.config,
-                ai_params=self.ai_params,
-                key_managers=self.key_managers
+            # Non-streaming
+            ctx = RequestPipeline.execute_simple(
+                ctx,
+                messages,
+                self.config,
+                self.ai_params,
+                self.key_managers
             )
             
             if self.cancel_requested:
                 return None, "Request cancelled"
             
-            return response, error
+            return ctx.response_text, ctx.error
     
     def _type_text_chunk(self, text: str):
         """
@@ -317,7 +332,8 @@ class TextEditToolApp:
                 print(f"\n{'─'*60}")
                 print(f"[AI Response]...")
                 
-                response, error = self._call_api(messages)
+                from ..request_pipeline import RequestOrigin
+                response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_INPUT)
                 
                 if error:
                     logging.error(f'Direct chat failed: {error}')
@@ -353,14 +369,16 @@ class TextEditToolApp:
                             buffer_size = 0
                             self._type_text_chunk(text_to_type)
                     
-                    response, error = self._call_api(messages, on_chunk=type_chunk)
+                    from ..request_pipeline import RequestOrigin
+                    response, error = self._call_api(messages, on_chunk=type_chunk, origin_override=RequestOrigin.POPUP_INPUT)
                     
                     # Type any remaining buffered text
                     if chunk_buffer:
                         self._type_text_chunk(''.join(chunk_buffer))
                 else:
                     print(f"[AI Response] Getting response...")
-                    response, error = self._call_api(messages)
+                    from ..request_pipeline import RequestOrigin
+                    response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_INPUT)
                     
                     # Type the full response when non-streaming
                     if response and not error:
@@ -420,7 +438,8 @@ class TextEditToolApp:
                 {"role": "user", "content": prompt}
             ]
             
-            response, error = self._call_api(messages)
+            from ..request_pipeline import RequestOrigin
+            response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
             
             if error:
                 logging.error(f'Option processing failed: {error}')

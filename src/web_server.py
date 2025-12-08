@@ -88,28 +88,43 @@ def create_endpoint_handler(endpoint_name, prompt_template):
         else:
             show_gui = str(show_param).lower() in ('yes', 'true', '1')
         
-        # Enhanced request logging
-        print(f"\n{'='*60}")
-        print(f"[{endpoint_name.upper()}] New request")
-        print(f"  Provider: {provider}")
-        print(f"  Model: {effective_model}{' (override)' if model_override else ' (default)'}")
-        print(f"  Image: {len(image_bytes) / 1024:.1f} KB ({mime_type})")
-        print(f"  Show GUI: {show_gui}")
-        print(f"  Prompt: {prompt[:80]}{'...' if len(prompt) > 80 else ''}")
+        # Use unified pipeline
+        from .request_pipeline import RequestPipeline, RequestContext, RequestOrigin
         
-        result, error = call_api_simple(
-            provider, prompt, base64_image, mime_type, model_override,
-            CONFIG, AI_PARAMS, KEY_MANAGERS
+        # Determine origin based on endpoint name
+        try:
+            origin_name = f"ENDPOINT_{endpoint_name.upper()}"
+            origin = getattr(RequestOrigin, origin_name, RequestOrigin.ENDPOINT_OCR)
+        except:
+            origin = RequestOrigin.ENDPOINT_OCR
+            
+        ctx = RequestContext(
+            origin=origin,
+            provider=provider,
+            model=effective_model,
+            streaming=False,
+            thinking_enabled=False
         )
-        elapsed = time.time() - start_time
+        
+        # Prepare messages for simple API call
+        data_url = f"data:{mime_type};base64,{base64_image}"
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": prompt}
+            ]
+        }]
+        
+        # Execute via pipeline
+        ctx = RequestPipeline.execute_simple(ctx, messages, CONFIG, AI_PARAMS, KEY_MANAGERS)
+        
+        result = ctx.response_text
+        error = ctx.error
+        elapsed = ctx.elapsed_time
         
         if error:
-            print(f"  [FAILED] {error} ({elapsed:.1f}s)")
-            print(f"{'='*60}\n")
             return jsonify({"error": error, "elapsed": elapsed}), 500
-        
-        print(f"  [SUCCESS] {len(result)} chars ({elapsed:.1f}s)")
-        print(f"{'='*60}\n")
         
         # Show chat window if requested
         if show_gui and HAVE_GUI:
