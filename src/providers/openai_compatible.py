@@ -104,10 +104,17 @@ class OpenAICompatibleProvider(BaseProvider):
     
     def _get_headers(self, api_key: str) -> Dict[str, str]:
         """Get request headers"""
-        return {
+        headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        
+        # OpenRouter requires HTTP-Referer header
+        if self.endpoint_type == self.ENDPOINT_OPENROUTER:
+            headers["HTTP-Referer"] = "http://localhost"
+            headers["X-Title"] = "AI Bridge"
+            
+        return headers
     
     def _build_request_body(
         self,
