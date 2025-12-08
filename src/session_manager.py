@@ -5,7 +5,6 @@ Chat session management with persistence
 
 import json
 import threading
-import uuid
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
@@ -16,15 +15,27 @@ from .config import SESSIONS_FILE
 CHAT_SESSIONS = OrderedDict()
 SESSION_LOCK = threading.Lock()
 
+# Persistent session counter for sequential IDs
+SESSION_COUNTER = 0
+
+
+def get_next_session_id():
+    """Get next sequential session ID"""
+    global SESSION_COUNTER
+    SESSION_COUNTER += 1
+    return SESSION_COUNTER
+
 
 class ChatSession:
     """Represents a chat session with history"""
     
-    def __init__(self, session_id=None, endpoint=None, provider=None, model=None, image_base64=None, mime_type=None):
-        self.session_id = session_id or str(uuid.uuid4())[:8]
+    def __init__(self, session_id=None, endpoint=None, image_base64=None, mime_type=None):
+        # Use provided ID or generate sequential one
+        if session_id is None:
+            self.session_id = get_next_session_id()
+        else:
+            self.session_id = session_id
         self.endpoint = endpoint or "chat"
-        self.provider = provider or "google"
-        self.model = model  # Optional model override
         self.created_at = datetime.now().isoformat()
         self.updated_at = self.created_at
         self.image_base64 = image_base64
@@ -63,8 +74,6 @@ class ChatSession:
         return {
             "session_id": self.session_id,
             "endpoint": self.endpoint,
-            "provider": self.provider,
-            "model": self.model,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "title": self.title,
@@ -76,11 +85,18 @@ class ChatSession:
     @classmethod
     def from_dict(cls, data):
         """Create session from dictionary"""
-        session = cls()
-        session.session_id = data.get("session_id", str(uuid.uuid4())[:8])
+        # Get session_id - convert old UUID format to int if needed
+        raw_id = data.get("session_id")
+        if isinstance(raw_id, int):
+            session_id = raw_id
+        elif isinstance(raw_id, str):
+            # Old UUID format - will get a new ID during migration
+            session_id = None
+        else:
+            session_id = None
+        
+        session = cls(session_id=session_id)
         session.endpoint = data.get("endpoint", "chat")
-        session.provider = data.get("provider", "google")
-        session.model = data.get("model")
         session.created_at = data.get("created_at", datetime.now().isoformat())
         session.updated_at = data.get("updated_at", session.created_at)
         session.title = data.get("title")
@@ -91,10 +107,14 @@ class ChatSession:
 
 
 def save_sessions():
-    """Save all sessions to file"""
+    """Save all sessions to file with persistent counter"""
+    global SESSION_COUNTER
     with SESSION_LOCK:
         try:
-            data = {sid: session.to_dict() for sid, session in CHAT_SESSIONS.items()}
+            data = {
+                "_counter": SESSION_COUNTER,
+                "sessions": {str(sid): session.to_dict() for sid, session in CHAT_SESSIONS.items()}
+            }
             with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
@@ -103,15 +123,32 @@ def save_sessions():
 
 def load_sessions():
     """Load sessions from file"""
-    global CHAT_SESSIONS
+    global CHAT_SESSIONS, SESSION_COUNTER
     try:
         if Path(SESSIONS_FILE).exists():
             with open(SESSIONS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+            
+            # Handle new format with _counter and sessions
+            if "_counter" in data:
+                SESSION_COUNTER = data.get("_counter", 0)
+                sessions_data = data.get("sessions", {})
+            else:
+                # Old format - data is directly sessions dict
+                sessions_data = data
+                # Set counter to max session ID found
+                SESSION_COUNTER = 0
+            
             with SESSION_LOCK:
-                for sid, session_data in data.items():
-                    CHAT_SESSIONS[sid] = ChatSession.from_dict(session_data)
-            print(f"  ✓ Loaded {len(CHAT_SESSIONS)} saved session(s)")
+                for sid, session_data in sessions_data.items():
+                    session = ChatSession.from_dict(session_data)
+                    # Use session's ID (which may have been assigned during from_dict)
+                    CHAT_SESSIONS[session.session_id] = session
+                    # Track highest ID for counter
+                    if isinstance(session.session_id, int) and session.session_id > SESSION_COUNTER:
+                        SESSION_COUNTER = session.session_id
+            
+            print(f"  ✓ Loaded {len(CHAT_SESSIONS)} saved session(s) (counter: {SESSION_COUNTER})")
     except Exception as e:
         print(f"[Warning] Failed to load sessions: {e}")
 
@@ -141,7 +178,6 @@ def list_sessions():
                 "id": sid,
                 "title": session.title or "(No title)",
                 "endpoint": session.endpoint,
-                "provider": session.provider,
                 "messages": len(session.messages),
                 "updated": session.updated_at,
                 "created": session.created_at

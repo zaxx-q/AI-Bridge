@@ -237,11 +237,9 @@ class TextEditToolApp:
         )
         
         if streaming_enabled:
-            # Create a temporary session
+            # Create a temporary session (uses current config, not stored provider/model)
             session = ChatSession(
-                endpoint="textedit",
-                provider=provider,
-                model=ctx.model
+                endpoint="textedit"
             )
             # Add messages directly
             for msg in messages:
@@ -478,11 +476,9 @@ class TextEditToolApp:
         from .core import show_chat_gui
         from ..session_manager import ChatSession
         
-        # Create a temporary session for this response
+        # Create a temporary session for this response (uses current config)
         session = ChatSession(
-            endpoint="textedit",
-            provider=self.config.get("default_provider", "google"),
-            model=self.config.get("google_model") if self.config.get("default_provider") == "google" else None
+            endpoint="textedit"
         )
         session.title = title
         

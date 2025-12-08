@@ -431,21 +431,29 @@ def call_api_simple(provider, prompt, image_base64, mime_type, model_override, c
     return call_api_with_retry(provider, messages, model_override, config, ai_params, key_managers)
 
 
-def call_api_chat(session, config, ai_params, key_managers):
-    """API call for chat session"""
+def call_api_chat(session, config, ai_params, key_managers, provider_override=None, model_override=None):
+    """
+    API call for chat session.
+    Uses current config settings for provider/model, not session-stored values.
+    """
     messages = session.get_conversation_for_api(include_image=True)
-    return call_api_with_retry(session.provider, messages, session.model, config, ai_params, key_managers)
+    provider = provider_override or config.get("default_provider", "google")
+    model = model_override or config.get(f"{provider}_model")
+    return call_api_with_retry(provider, messages, model, config, ai_params, key_managers)
 
 
-def call_api_chat_stream(session, config, ai_params, key_managers, callback):
+def call_api_chat_stream(session, config, ai_params, key_managers, callback, provider_override=None, model_override=None):
     """
     API call for chat session with streaming support.
+    Uses current config settings for provider/model, not session-stored values.
     
     REFACTORED: Now uses unified streaming with provider classes.
     """
     messages = session.get_conversation_for_api(include_image=True)
-    provider = session.provider
-    model = session.model
+    
+    # Use provided overrides or get from current config
+    provider = provider_override or config.get("default_provider", "google")
+    model = model_override
     
     # Determine model if not set
     if not model:

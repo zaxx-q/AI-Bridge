@@ -130,8 +130,6 @@ def create_endpoint_handler(endpoint_name, prompt_template):
         if show_gui and HAVE_GUI:
             session = ChatSession(
                 endpoint=endpoint_name,
-                provider=provider,
-                model=model_override,
                 image_base64=base64_image,
                 mime_type=mime_type
             )

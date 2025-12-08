@@ -18,9 +18,10 @@ def terminal_session_manager():
     print("\n" + "─"*60)
     print("TERMINAL COMMANDS (press key anytime):")
     print("  [L] List sessions       [O] Open session browser (GUI)")
-    print("  [S] Show session        [D] Delete session")
+    print("  [V] View session        [D] Delete session")
     print("  [C] Clear all sessions  [H] Help")
     print("  [G] Toggle GUI status   [M] Manage models")
+    print("  [P] Change provider     [S] Status")
     print("  [T] Toggle thinking     [R] Toggle streaming")
     print("─"*60 + "\n")
     
@@ -136,6 +137,105 @@ def terminal_session_manager():
                     print("  No models available")
                 print(f"{'─'*60}\n")
             
+            elif key == 'p':
+                # Provider management
+                from . import web_server
+                from .config import save_config_value
+                
+                print(f"\n{'─'*60}")
+                print("PROVIDER MANAGEMENT")
+                print(f"{'─'*60}")
+                current_provider = web_server.CONFIG.get("default_provider", "google")
+                print(f"  Current provider: {current_provider}")
+                
+                # List available providers
+                available = []
+                for p, km in web_server.KEY_MANAGERS.items():
+                    key_count = km.get_key_count()
+                    status = f"({key_count} key{'s' if key_count != 1 else ''})" if key_count > 0 else "(no keys)"
+                    available.append((p, key_count))
+                    marker = " ◄" if p == current_provider else ""
+                    print(f"    [{len(available)}] {p} {status}{marker}")
+                
+                print("\n  Enter provider number or name (or 'q' to cancel): ", end='', flush=True)
+                try:
+                    choice = input().strip()
+                    if choice.lower() != 'q' and choice:
+                        # Try to parse as number
+                        try:
+                            idx = int(choice) - 1
+                            if 0 <= idx < len(available):
+                                new_provider = available[idx][0]
+                            else:
+                                new_provider = choice.lower()
+                        except ValueError:
+                            new_provider = choice.lower()
+                        
+                        # Validate provider
+                        if new_provider in web_server.KEY_MANAGERS:
+                            if save_config_value("default_provider", new_provider):
+                                web_server.CONFIG["default_provider"] = new_provider
+                                model = web_server.CONFIG.get(f"{new_provider}_model", "not set")
+                                print(f"  ✓ Provider set to: {new_provider}")
+                                print(f"    Current model: {model}")
+                            else:
+                                print(f"  ✗ Failed to save to config")
+                        else:
+                            print(f"  ✗ Unknown provider: {new_provider}")
+                except:
+                    pass
+                print(f"{'─'*60}\n")
+            
+            elif key == 's':
+                # Status command
+                from . import web_server
+                
+                print(f"\n{'─'*60}")
+                print("CURRENT STATUS")
+                print(f"{'─'*60}")
+                
+                # Provider/Model
+                provider = web_server.CONFIG.get("default_provider", "google")
+                model = web_server.CONFIG.get(f"{provider}_model", "not set")
+                print(f"  Provider:  {provider}")
+                print(f"  Model:     {model}")
+                
+                # Streaming/Thinking
+                streaming = web_server.CONFIG.get("streaming_enabled", True)
+                thinking = web_server.CONFIG.get("thinking_enabled", False)
+                print(f"\n  Streaming: {'ON' if streaming else 'OFF'}")
+                print(f"  Thinking:  {'ON' if thinking else 'OFF'}")
+                
+                if thinking:
+                    thinking_output = web_server.CONFIG.get("thinking_output", "reasoning_content")
+                    print(f"    Output: {thinking_output}")
+                    if provider == "google":
+                        budget = web_server.CONFIG.get("thinking_budget", -1)
+                        level = web_server.CONFIG.get("thinking_level", "high")
+                        print(f"    Budget: {budget} | Level: {level}")
+                    else:
+                        effort = web_server.CONFIG.get("reasoning_effort", "high")
+                        print(f"    Effort: {effort}")
+                
+                # Server
+                host = web_server.CONFIG.get("host", "127.0.0.1")
+                port = web_server.CONFIG.get("port", 5000)
+                print(f"\n  Server:    http://{host}:{port}")
+                
+                # Sessions
+                sessions = list_sessions()
+                print(f"  Sessions:  {len(sessions)} saved")
+                
+                # API Keys
+                print(f"\n  API Keys:")
+                for p, km in web_server.KEY_MANAGERS.items():
+                    count = km.get_key_count()
+                    if count > 0:
+                        marker = " ◄" if p == provider else ""
+                        print(f"    {p}: {count} key{'s' if count != 1 else ''}{marker}")
+                
+                print(f"{'─'*60}\n")
+            
             elif key == 't':
                 # Toggle thinking mode
                 from . import web_server
@@ -169,7 +269,7 @@ def terminal_session_manager():
                 else:
                     print("\n✗ Failed to toggle streaming mode\n")
             
-            elif key == 's':
+            elif key == 'v':
                 print("\nEnter session ID: ", end='', flush=True)
                 try:
                     session_id = input().strip()
@@ -178,7 +278,7 @@ def terminal_session_manager():
                         print(f"\n{'─'*60}")
                         print(f"SESSION: {session.session_id}")
                         print(f"Title: {session.title}")
-                        print(f"Endpoint: {session.endpoint} | Provider: {session.provider}")
+                        print(f"Endpoint: {session.endpoint}")
                         print(f"Created: {session.created_at}")
                         print(f"{'─'*60}")
                         for msg in session.messages:
@@ -227,11 +327,13 @@ def terminal_session_manager():
                 print("TERMINAL COMMANDS:")
                 print("  [L] List sessions       - Show recent saved sessions")
                 print("  [O] Open browser        - Open session browser GUI")
-                print("  [S] Show session        - Display a session by ID")
+                print("  [V] View session        - Display a session by ID")
                 print("  [D] Delete session      - Delete a session by ID")
                 print("  [C] Clear all           - Delete all sessions")
                 print("  [G] GUI status          - Show GUI state information")
                 print("  [M] Manage models       - List/set models from API")
+                print("  [P] Change provider     - Switch API provider")
+                print("  [S] Status              - Show current configuration")
                 print("  [T] Toggle thinking     - Enable/disable thinking mode")
                 print("  [R] Toggle streaming    - Enable/disable streaming")
                 print("  [H] Help                - Show this help")

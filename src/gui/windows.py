@@ -40,7 +40,10 @@ class ChatWindow:
         
         # Available models cache
         self.available_models = []
-        self.selected_model = session.model or ""
+        # Get model from config rather than session
+        from .. import web_server
+        provider = web_server.CONFIG.get("default_provider", "google")
+        self.selected_model = web_server.CONFIG.get(f"{provider}_model", "")
         
         # Colors
         self.colors = get_color_scheme()
@@ -67,8 +70,10 @@ class ChatWindow:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(2, weight=1)
         
-        # Session info
-        info_text = f"Session: {self.session.session_id} | Endpoint: /{self.session.endpoint} | Provider: {self.session.provider}"
+        # Session info (provider now comes from current config, not session)
+        from .. import web_server
+        current_provider = web_server.CONFIG.get("default_provider", "google")
+        info_text = f"Session: {self.session.session_id} | Endpoint: /{self.session.endpoint} | Provider: {current_provider}"
         tk.Label(
             self.root,
             text=info_text,
@@ -395,7 +400,8 @@ class ChatWindow:
                 
                 # Update dropdown on main thread
                 def update_dropdown():
-                    current = self.session.model or web_server.CONFIG.get(f"{self.session.provider}_model", "")
+                    provider = web_server.CONFIG.get("default_provider", "google")
+                    current = web_server.CONFIG.get(f"{provider}_model", "")
                     self.model_dropdown.configure(values=model_ids)
                     if current and current in model_ids:
                         self.model_var.set(current)
@@ -413,24 +419,19 @@ class ChatWindow:
         """Handle model selection from dropdown"""
         from ..config import save_config_value
         from .. import web_server
-        from ..session_manager import save_sessions
         
         selected = self.model_var.get()
         if selected and selected not in ("(loading...)", "(no models)", "(default)"):
-            self.session.model = selected
             self.selected_model = selected
             
-            # Persist to config.ini for the correct provider
-            provider = self.session.provider
+            # Persist to config.ini for the current provider
+            provider = web_server.CONFIG.get("default_provider", "google")
             config_key = f"{provider}_model"
             if save_config_value(config_key, selected):
                 web_server.CONFIG[config_key] = selected
                 self.status_label.configure(text=f"✓ Model: {selected}")
             else:
                 self.status_label.configure(text=f"Model: {selected} (not saved)")
-            
-            # Also save session so updated model reflects in session browser
-            save_sessions()
     
     def _send(self):
         """Send a message with streaming support"""
@@ -469,14 +470,18 @@ class ChatWindow:
             
             streaming_enabled = web_server.CONFIG.get("streaming_enabled", True)
             
+            # Get current provider and model from config (not session)
+            current_provider = web_server.CONFIG.get("default_provider", "google")
+            current_model = self.selected_model or web_server.CONFIG.get(f"{current_provider}_model", "")
+            
             # Setup context and callbacks
             ctx = RequestContext(
                 origin=RequestOrigin.CHAT_WINDOW,
-                provider=self.session.provider,
-                model=self.session.model or "",
+                provider=current_provider,
+                model=current_model,
                 streaming=streaming_enabled,
                 thinking_enabled=web_server.CONFIG.get("thinking_enabled", False),
-                session_id=self.session.session_id
+                session_id=str(self.session.session_id)
             )
             
             # Callbacks for UI updates
@@ -507,7 +512,7 @@ class ChatWindow:
             self.is_streaming = True
             self.root.after(0, lambda: self.status_label.configure(text="Streaming..." if streaming_enabled else "Processing..."))
             
-            if streaming_enabled and self.session.provider in ("custom", "google", "openrouter"):
+            if streaming_enabled and current_provider in ("custom", "google", "openrouter"):
                 ctx = RequestPipeline.execute_streaming(
                     ctx,
                     self.session,
@@ -660,6 +665,10 @@ class SessionBrowserWindow:
         self.selected_session_id = None
         self.colors = get_color_scheme()
         
+        # Sorting state
+        self.sort_column = "Updated"
+        self.sort_descending = True  # Default: newest first
+        
         self._create_window()
     
     def _create_window(self):
@@ -718,24 +727,20 @@ class SessionBrowserWindow:
             foreground=[("selected", "#ffffff")]
         )
         
-        # Create treeview
-        columns = ("ID", "Title", "Endpoint", "Provider", "Messages", "Updated")
+        # Create treeview (removed Provider column - sessions use current config)
+        columns = ("ID", "Title", "Endpoint", "Messages", "Updated")
         self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
         
-        # Configure columns
-        self.tree.heading("ID", text="ID")
-        self.tree.heading("Title", text="Title")
-        self.tree.heading("Endpoint", text="Endpoint")
-        self.tree.heading("Provider", text="Provider")
-        self.tree.heading("Messages", text="Msgs")
-        self.tree.heading("Updated", text="Updated")
+        # Configure columns with click-to-sort handlers
+        for col in columns:
+            self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
         
-        self.tree.column("ID", width=70, anchor=tk.W)
-        self.tree.column("Title", width=250, anchor=tk.W)
-        self.tree.column("Endpoint", width=80, anchor=tk.W)
-        self.tree.column("Provider", width=80, anchor=tk.W)
-        self.tree.column("Messages", width=50, anchor=tk.CENTER)
-        self.tree.column("Updated", width=130, anchor=tk.W)
+        # Set column widths (redistributed after removing Provider)
+        self.tree.column("ID", width=60, anchor=tk.W)
+        self.tree.column("Title", width=320, anchor=tk.W)
+        self.tree.column("Endpoint", width=90, anchor=tk.W)
+        self.tree.column("Messages", width=60, anchor=tk.CENTER)
+        self.tree.column("Updated", width=150, anchor=tk.W)
         
         # Scrollbar
         scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -820,6 +825,17 @@ class SessionBrowserWindow:
         # Load sessions
         self._refresh()
     
+    def _sort_by_column(self, column):
+        """Sort treeview by clicked column"""
+        # Toggle direction if clicking same column
+        if self.sort_column == column:
+            self.sort_descending = not self.sort_descending
+        else:
+            self.sort_column = column
+            self.sort_descending = True  # New column defaults to descending
+        
+        self._refresh()
+    
     def _refresh(self):
         """Refresh the session list"""
         # Clear existing items
@@ -827,6 +843,26 @@ class SessionBrowserWindow:
             self.tree.delete(item)
         
         sessions = list_sessions()
+        
+        # Sort based on current settings
+        reverse = self.sort_descending
+        if self.sort_column == "ID":
+            sessions.sort(key=lambda s: s['id'] if isinstance(s['id'], int) else 0, reverse=reverse)
+        elif self.sort_column == "Title":
+            sessions.sort(key=lambda s: (s['title'] or '').lower(), reverse=reverse)
+        elif self.sort_column == "Endpoint":
+            sessions.sort(key=lambda s: s['endpoint'], reverse=reverse)
+        elif self.sort_column == "Messages":
+            sessions.sort(key=lambda s: s['messages'], reverse=reverse)
+        elif self.sort_column == "Updated":
+            sessions.sort(key=lambda s: s['updated'] or '', reverse=reverse)
+        
+        # Update column headers to show sort indicator
+        for col in ("ID", "Title", "Endpoint", "Messages", "Updated"):
+            indicator = ""
+            if col == self.sort_column:
+                indicator = " ▼" if self.sort_descending else " ▲"
+            self.tree.heading(col, text=col + indicator, command=lambda c=col: self._sort_by_column(c))
         
         for s in sessions:
             updated = s['updated'][:16].replace('T', ' ') if s['updated'] else ''
@@ -836,7 +872,6 @@ class SessionBrowserWindow:
                 s['id'],
                 title,
                 s['endpoint'],
-                s['provider'],
                 s['messages'],
                 updated
             ))
@@ -923,7 +958,10 @@ class StandaloneChatWindow:
         
         # Available models cache
         self.available_models = []
-        self.selected_model = session.model or ""
+        # Get model from config rather than session
+        from .. import web_server
+        provider = web_server.CONFIG.get("default_provider", "google")
+        self.selected_model = web_server.CONFIG.get(f"{provider}_model", "")
         
         # Colors
         self.colors = get_color_scheme()
@@ -946,8 +984,10 @@ class StandaloneChatWindow:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(2, weight=1)
         
-        # Session info
-        info_text = f"Session: {self.session.session_id} | Endpoint: /{self.session.endpoint} | Provider: {self.session.provider}"
+        # Session info (provider now comes from current config, not session)
+        from .. import web_server
+        current_provider = web_server.CONFIG.get("default_provider", "google")
+        info_text = f"Session: {self.session.session_id} | Endpoint: /{self.session.endpoint} | Provider: {current_provider}"
         tk.Label(
             self.root,
             text=info_text,
@@ -1280,7 +1320,8 @@ class StandaloneChatWindow:
                 
                 # Update dropdown on main thread
                 def update_dropdown():
-                    current = self.session.model or web_server.CONFIG.get(f"{self.session.provider}_model", "")
+                    provider = web_server.CONFIG.get("default_provider", "google")
+                    current = web_server.CONFIG.get(f"{provider}_model", "")
                     self.model_dropdown.configure(values=model_ids)
                     if current and current in model_ids:
                         self.model_var.set(current)
@@ -1297,25 +1338,20 @@ class StandaloneChatWindow:
         """Handle model selection from dropdown"""
         from ..config import save_config_value
         from .. import web_server
-        from ..session_manager import save_sessions
         
         # Use dropdown.get() directly to avoid StringVar threading issues
         selected = self.model_dropdown.get()
         if selected and selected not in ("(loading...)", "(no models)", "(default)"):
-            self.session.model = selected
             self.selected_model = selected
             
-            # Persist to config.ini for the correct provider
-            provider = self.session.provider
+            # Persist to config.ini for the current provider
+            provider = web_server.CONFIG.get("default_provider", "google")
             config_key = f"{provider}_model"
             if save_config_value(config_key, selected):
                 web_server.CONFIG[config_key] = selected
                 self.status_label.configure(text=f"✓ Model: {selected}")
             else:
                 self.status_label.configure(text=f"Model: {selected} (not saved)")
-            
-            # Also save session so updated model reflects in session browser
-            save_sessions()
     
     def _send(self):
         """Send a message with streaming support"""
@@ -1354,14 +1390,18 @@ class StandaloneChatWindow:
             
             streaming_enabled = web_server.CONFIG.get("streaming_enabled", True)
             
+            # Get current provider and model from config (not session)
+            current_provider = web_server.CONFIG.get("default_provider", "google")
+            current_model = self.selected_model or web_server.CONFIG.get(f"{current_provider}_model", "")
+            
             # Setup context and callbacks
             ctx = RequestContext(
                 origin=RequestOrigin.CHAT_WINDOW,
-                provider=self.session.provider,
-                model=self.session.model or "",
+                provider=current_provider,
+                model=current_model,
                 streaming=streaming_enabled,
                 thinking_enabled=web_server.CONFIG.get("thinking_enabled", False),
-                session_id=self.session.session_id
+                session_id=str(self.session.session_id)
             )
             
             # Callbacks for UI updates
@@ -1392,7 +1432,7 @@ class StandaloneChatWindow:
             self.is_streaming = True
             self.root.after(0, lambda: self.status_label.configure(text="Streaming..." if streaming_enabled else "Processing..."))
             
-            if streaming_enabled and self.session.provider in ("custom", "google", "openrouter"):
+            if streaming_enabled and current_provider in ("custom", "google", "openrouter"):
                 ctx = RequestPipeline.execute_streaming(
                     ctx,
                     self.session,
@@ -1542,6 +1582,10 @@ class StandaloneSessionBrowserWindow:
         self.selected_session_id = None
         self.colors = get_color_scheme()
         
+        # Sorting state
+        self.sort_column = "Updated"
+        self.sort_descending = True  # Default: newest first
+        
         self.root = None
     
     def show(self):
@@ -1597,24 +1641,20 @@ class StandaloneSessionBrowserWindow:
             foreground=[("selected", "#ffffff")]
         )
         
-        # Create treeview
-        columns = ("ID", "Title", "Endpoint", "Provider", "Messages", "Updated")
+        # Create treeview (removed Provider column - sessions use current config)
+        columns = ("ID", "Title", "Endpoint", "Messages", "Updated")
         self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
         
-        # Configure columns
-        self.tree.heading("ID", text="ID")
-        self.tree.heading("Title", text="Title")
-        self.tree.heading("Endpoint", text="Endpoint")
-        self.tree.heading("Provider", text="Provider")
-        self.tree.heading("Messages", text="Msgs")
-        self.tree.heading("Updated", text="Updated")
+        # Configure columns with click-to-sort handlers
+        for col in columns:
+            self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
         
-        self.tree.column("ID", width=70, anchor=tk.W)
-        self.tree.column("Title", width=250, anchor=tk.W)
-        self.tree.column("Endpoint", width=80, anchor=tk.W)
-        self.tree.column("Provider", width=80, anchor=tk.W)
-        self.tree.column("Messages", width=50, anchor=tk.CENTER)
-        self.tree.column("Updated", width=130, anchor=tk.W)
+        # Set column widths (redistributed after removing Provider)
+        self.tree.column("ID", width=60, anchor=tk.W)
+        self.tree.column("Title", width=320, anchor=tk.W)
+        self.tree.column("Endpoint", width=90, anchor=tk.W)
+        self.tree.column("Messages", width=60, anchor=tk.CENTER)
+        self.tree.column("Updated", width=150, anchor=tk.W)
         
         # Scrollbar
         scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -1706,6 +1746,17 @@ class StandaloneSessionBrowserWindow:
         # Run mainloop
         self.root.mainloop()
     
+    def _sort_by_column(self, column):
+        """Sort treeview by clicked column"""
+        # Toggle direction if clicking same column
+        if self.sort_column == column:
+            self.sort_descending = not self.sort_descending
+        else:
+            self.sort_column = column
+            self.sort_descending = True  # New column defaults to descending
+        
+        self._refresh()
+    
     def _refresh(self):
         """Refresh the session list"""
         # Clear existing items
@@ -1713,6 +1764,26 @@ class StandaloneSessionBrowserWindow:
             self.tree.delete(item)
         
         sessions = list_sessions()
+        
+        # Sort based on current settings
+        reverse = self.sort_descending
+        if self.sort_column == "ID":
+            sessions.sort(key=lambda s: s['id'] if isinstance(s['id'], int) else 0, reverse=reverse)
+        elif self.sort_column == "Title":
+            sessions.sort(key=lambda s: (s['title'] or '').lower(), reverse=reverse)
+        elif self.sort_column == "Endpoint":
+            sessions.sort(key=lambda s: s['endpoint'], reverse=reverse)
+        elif self.sort_column == "Messages":
+            sessions.sort(key=lambda s: s['messages'], reverse=reverse)
+        elif self.sort_column == "Updated":
+            sessions.sort(key=lambda s: s['updated'] or '', reverse=reverse)
+        
+        # Update column headers to show sort indicator
+        for col in ("ID", "Title", "Endpoint", "Messages", "Updated"):
+            indicator = ""
+            if col == self.sort_column:
+                indicator = " ▼" if self.sort_descending else " ▲"
+            self.tree.heading(col, text=col + indicator, command=lambda c=col: self._sort_by_column(c))
         
         for s in sessions:
             updated = s['updated'][:16].replace('T', ' ') if s['updated'] else ''
@@ -1722,7 +1793,6 @@ class StandaloneSessionBrowserWindow:
                 s['id'],
                 title,
                 s['endpoint'],
-                s['provider'],
                 s['messages'],
                 updated
             ))
