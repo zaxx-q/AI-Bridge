@@ -84,23 +84,6 @@ def get_provider_for_type(
         raise ValueError(f"Unknown provider type: {provider_type}")
 
 
-def get_google_openai_compat_provider(key_manager, config: Dict):
-    """
-    Get a Google provider using the OpenAI-compatible endpoint.
-    Useful for streaming with simpler response format.
-    """
-    provider_config = {
-        "request_timeout": config.get("request_timeout", 120),
-        "reasoning_effort": config.get("reasoning_effort", "high"),
-    }
-    
-    return OpenAICompatibleProvider(
-        endpoint_type=OpenAICompatibleProvider.ENDPOINT_GOOGLE,
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-        key_manager=key_manager,
-        config=provider_config
-    )
-
 
 # ============================================================
 # BACKWARD COMPATIBILITY - Legacy function signatures

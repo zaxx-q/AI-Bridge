@@ -96,11 +96,19 @@ class OpenAICompatibleProvider(BaseProvider):
         return f"{self.base_url}/models"
     
     def _is_google_endpoint(self) -> bool:
-        """Check if this is a Google endpoint (needs extra_body)"""
-        return (
-            self.endpoint_type == self.ENDPOINT_GOOGLE or
-            "googleapis.com" in self.base_url
-        )
+        """
+        Check if this is a Google endpoint (needs extra_body).
+        
+        Detects Google endpoints by:
+        - Explicit endpoint_type == ENDPOINT_GOOGLE
+        - URL containing "googleapis.com"
+        - URL containing "google" keyword (flexible detection)
+        """
+        if self.endpoint_type == self.ENDPOINT_GOOGLE:
+            return True
+        
+        url_lower = self.base_url.lower()
+        return "googleapis.com" in url_lower or "google" in url_lower
     
     def _get_headers(self, api_key: str) -> Dict[str, str]:
         """Get request headers"""
