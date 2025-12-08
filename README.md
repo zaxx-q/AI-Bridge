@@ -1,65 +1,84 @@
 # AI Bridge
 
-**AI Bridge** - A versatile multi-modal AI assistant server supporting hotkey-triggered text editing, image processing, and AI assistance through customizable APIs with Dear PyGui interface.
+**AI Bridge** is a versatile multi-modal AI assistant server that bridges the gap between your operating system and powerful AI models. It features hotkey-triggered text editing, image processing (via ShareX integration), and interactive chat assistance, all accessible through a lightweight local server and native GUI.
+
+## Features
+
+*   **⚡ ShareX Integration**: seamless image processing endpoints (OCR, translation, summarization) compatible with ShareX custom uploaders.
+*   **⌨️ TextEditTool**: Global hotkey (default: `Ctrl+Space`) to invoke AI on selected text in *any* application.
+    *   **Proofread/Rewrite**: Instant text improvement.
+    *   **Replace or Chat**: Choose to replace text in-place or open a chat window.
+    *   **Streaming Typing**: Simulates natural typing for direct text insertion.
+*   **🖥️ Native GUI**: Lightweight, threaded Tkinter-based interface for chat sessions and history browsing.
+*   **🧠 Advanced AI Features**:
+    *   **Streaming**: Real-time text generation.
+    *   **Thinking/Reasoning**: Support for reasoning models (e.g., Gemini 2.0 Flash Thinking) with collapsible thought process display.
+    *   **Multi-Provider**: Built-in support for Google Gemini, OpenRouter, and custom OpenAI-compatible endpoints.
+*   **🛡️ Robust Architecture**:
+    *   **Smart Key Rotation**: Automatically rotates API keys on rate limits.
+    *   **Session Management**: Auto-saves chat history to JSON.
+    *   **Terminal Control**: Interactive terminal commands for server management.
 
 ## Project Structure
 
-The project has been refactored into a clean, modular structure:
+The project follows a modular architecture separating the web server, GUI, and AI providers:
 
 ```
 AI-Bridge/
-├── main.py                 # Main entry point
-├── requirements.txt        # Python dependencies
-├── config.ini             # Configuration file (created on first run)
-├── chat_sessions.json     # Saved chat sessions (auto-created)
-├── text_edit_tool_options.json  # TextEditTool prompts configuration
-└── src/                   # Source code package
-    ├── __init__.py
-    ├── config.py          # Configuration loading and defaults
-    ├── utils.py           # Text processing and error detection utilities
-    ├── key_manager.py     # API key rotation and management
-    ├── session_manager.py # Chat session persistence
-    ├── api_client.py      # API calling with retry logic
-    ├── terminal.py        # Interactive terminal commands
-    ├── web_server.py      # Flask web server and routes
-    ├── text_edit_tool/    # TextEditTool module (hotkey text processing)
-    │   ├── __init__.py
-    │   ├── app.py         # Main controller
-    │   ├── hotkey_listener.py
-    │   ├── text_handler.py
-    │   ├── popup_window.py
-    │   ├── response_window.py
-    │   ├── ai_client.py
-    │   └── options.py
-    └── gui/               # GUI components (Dear PyGui)
-        ├── __init__.py
-        ├── core.py        # GUI initialization and threading
-        ├── utils.py       # Clipboard and markdown rendering
-        └── windows.py     # Window creation (Result, Chat, Browser)
+├── main.py                     # Main entry point
+├── requirements.txt            # Python dependencies
+├── config.ini                  # Configuration (auto-generated on first run)
+├── chat_sessions.json          # Saved chat sessions
+├── text_edit_tool_options.json # TextEditTool prompts configuration
+└── src/
+    ├── config.py               # Configuration management
+    ├── web_server.py           # Flask web server and API endpoints
+    ├── request_pipeline.py     # Unified request processing pipeline
+    ├── session_manager.py      # Session persistence
+    ├── terminal.py             # Interactive terminal commands
+    ├── gui/                    # GUI Package (Tkinter)
+    │   ├── core.py             # GUI threading and initialization
+    │   ├── windows.py          # Chat and Browser windows
+    │   ├── text_edit_tool.py   # TextEditTool application controller
+    │   ├── popups.py           # Quick action popups
+    │   └── hotkey.py           # Global hotkey listener
+    └── providers/              # AI Provider Implementations
+        ├── base.py             # Abstract base provider & retry logic
+        ├── gemini_native.py    # Google Gemini native API
+        └── openai_compatible.py # OpenRouter & Custom endpoints
 ```
 
 ## Installation
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   # or with uv:
-   uv pip install -r requirements.txt
-   ```
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/yourusername/AI-Bridge.git
+    cd AI-Bridge
+    ```
 
-2. Run the server for the first time to generate `config.ini`:
-   ```bash
-   python main.py
-   # or with uv:
-   uv run python main.py
-   ```
+2.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-3. Edit `config.ini` and add your API keys
+3.  **First Run (Generate Config):**
+    Run the server once to generate the default configuration file.
+    ```bash
+    python main.py
+    ```
+    The server will create `config.ini` and exit or prompt you to configure it.
 
-4. Run the server again:
-   ```bash
-   python main.py
-   ```
+4.  **Configuration:**
+    Edit `config.ini` and add your API keys:
+    ```ini
+    [google]
+    # Add your Gemini API keys here
+    AIzaSy...
+
+    [openrouter]
+    # Add OpenRouter keys here
+    sk-or-v1...
+    ```
 
 ## Usage
 
@@ -68,129 +87,43 @@ AI-Bridge/
 ```bash
 python main.py
 ```
-
-The server will start at `http://127.0.0.1:5000` by default.
-
-### ShareX Image Processing
-
-All endpoints accept POST requests with an image:
-
-- `/ocr` - Extract text from image
-- `/translate` - Translate text to English
-- `/summarize` - Summarize image content
-- `/describe` - Describe image in detail
-- `/code` - Extract code from image
-- `/textedit` - Logical endpoint used by TextEditTool sessions
-- And more... (customizable in config.ini)
-
-#### Show Modes
-
-Add `?show=<mode>` to any endpoint:
-
-- `?show=no` - Return text only (default)
-- `?show=yes` - Display result in chat GUI window
-- Note: Older `gui`/`chatgui` values are deprecated.
-
-Example:
-```
-POST http://127.0.0.1:5000/ocr?show=chatgui
-```
-
-### TextEditTool (Hotkey Text Processing)
-
-Press **Ctrl+Space** (configurable) to activate:
-
-- **With text selected**: Shows prompt options (Proofread, Rewrite, Summarize, etc.)
-- **Without text selected**: Opens direct AI chat
-
-Configure in `config.ini`:
-```ini
-text_edit_tool_enabled = true
-text_edit_tool_hotkey = ctrl+space
-# Response mode is now selected via popup radio buttons (Default/Replace/Show)
-```
+The server starts at `http://127.0.0.1:5000` by default.
 
 ### Terminal Commands
+While the server is running, you can use these keyboard commands in the terminal:
+*   `L` - List saved sessions
+*   `O` - Open session browser GUI
+*   `G` - Show GUI status
+*   `M` - List available models
+*   `T` - Toggle thinking/reasoning mode
+*   `R` - Toggle streaming mode
+*   `H` - Help menu
+*   `Ctrl+C` - Shutdown
 
-While the server is running, press these keys:
+### TextEditTool (Global Hotkey)
+1.  Select text in any application (Notepad, Browser, IDE, etc.).
+2.  Press **Ctrl+Space** (configurable).
+3.  A popup will appear offering options like "Proofread", "Summarize", or "Custom".
+4.  **Without selection**: Pressing the hotkey opens a quick input bar for asking the AI a question directly.
 
-- `L` - List saved sessions
-- `O` - Open session browser GUI
-- `S` - Show session details
-- `D` - Delete a session
-- `C` - Clear all sessions
-- `G` - Show GUI status
-- `M` - Model management (list available models)
-- `T` - Toggle thinking/reasoning mode
-- `R` - Toggle streaming mode
-- `H` - Help
+### ShareX Integration
+Configure ShareX to send images to these endpoints (POST request with image file):
+*   `http://localhost:5000/ocr`
+*   `http://localhost:5000/describe`
+*   `http://localhost:5000/code`
 
-### API Routes
+Add `?show=yes` to the URL to force the result to open in a chat window instead of just returning text.
 
-- `GET /` - Service information
-- `GET /health` - Health check
-- `GET /sessions` - List all sessions
-- `GET /sessions/<id>` - Get session details
-- `GET /gui/browser` - Open session browser GUI
-- `GET /models` - List available models (dynamically fetched from API)
+## Configuration Options
 
-## Configuration
+The `config.ini` file allows extensive customization:
 
-Edit `config.ini` to customize:
-
-- Server host and port
-- Default provider (google, openrouter, custom)
-- API models (dynamically selectable via GUI dropdown)
-- Retry settings
-- AI parameters (temperature, max_tokens, etc.)
-- Custom endpoints
-- TextEditTool settings (hotkey, response mode)
-- **Streaming**: `streaming_enabled = true/false`
-- **Thinking/Reasoning**: `thinking_enabled = true/false`, `thinking_output = reasoning_content`
-
-## Features
-
-✅ **ShareX Integration:**
-- Multiple API provider support (Google Gemini, OpenRouter, Custom)
-- Smart API key rotation on rate limits
-- Automatic retry with exponential backoff
-- Chat sessions with history
-- GUI windows for results and interactive chat
-- Configurable endpoints
-- Provider/model override via query params or headers
-
-✅ **Streaming Support:**
-- Real-time SSE streaming for all providers (Google, OpenRouter, Custom)
-- Streaming to chat window with live updates
-- Streaming to active text field (replace mode) with rate-limited typing
-- Toggle via terminal `[R]` or config `streaming_enabled`
-
-✅ **Model Selection:**
-- Dynamic model fetching from APIs (Google, OpenRouter, Custom)
-- GUI dropdown for model selection in chat windows
-- Model changes persist to config.ini and chat_sessions.json
-- Terminal `[M]` command to list all available models
-
-✅ **Thinking/Reasoning Mode:**
-- Support for `reasoning_content` in API responses
-- Collapsible thinking display in chat windows
-- Toggle via terminal `[T]` or config `thinking_enabled`
-
-✅ **TextEditTool:**
-- Global hotkey activation (Ctrl+Space by default)
-- Text selection-based prompts
-- AI chat without selection
-- Replace or popup response modes
-- Streaming to active field (default_show=no)
-- Customizable prompts
-- Dark/light mode support
-
-✅ **Clean Architecture:**
-- Modular structure for easier maintenance
-- Clear separation of concerns
-- Better testability
-- Easier to extend with new features
+*   **Providers**: Switch between `google`, `openrouter`, or `custom`.
+*   **Models**: Set specific models (e.g., `gemini-2.0-flash`, `gpt-4o`).
+*   **Streaming**: Enable/disable `streaming_enabled`.
+*   **Thinking**: Enable `thinking_enabled` to see the AI's reasoning process (for supported models).
+*   **TextEditTool**: Customize the `text_edit_tool_hotkey` and `text_edit_tool_response_mode`.
 
 ## License
 
-Same as original project.
+[MIT License](LICENSE)
