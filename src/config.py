@@ -28,6 +28,13 @@ DEFAULT_CONFIG = {
     "streaming_enabled": True,
     "thinking_enabled": False,
     "thinking_output": "reasoning_content",  # filter, raw, or reasoning_content
+    # Thinking configuration (per JSON-request-reference.md)
+    # - reasoning_effort: For OpenAI-compatible APIs ("low", "medium", "high")
+    # - thinking_budget: For Gemini 2.5 models (integer tokens, -1 = auto/unlimited)
+    # - thinking_level: For Gemini 3.x models ("low", "high")
+    "reasoning_effort": "high",
+    "thinking_budget": -1,
+    "thinking_level": "high",
     # TextEditTool settings
     "text_edit_tool_enabled": True,
     "text_edit_tool_hotkey": "ctrl+space",
@@ -268,6 +275,14 @@ thinking_enabled = false
 # - raw: Include thinking in main response
 # - reasoning_content: Separate field (for collapsible display)
 thinking_output = reasoning_content
+
+# Thinking configuration (for different providers)
+# - reasoning_effort: OpenAI-compatible APIs (low, medium, high)
+# - thinking_budget: Gemini 2.5 models (integer tokens, -1 = auto/unlimited)
+# - thinking_level: Gemini 3.x models (low, high)
+reasoning_effort = high
+thinking_budget = -1
+thinking_level = high
 
 # ============================================================
 # TEXT EDIT TOOL - Hotkey-triggered text processing with AI
