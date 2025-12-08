@@ -164,9 +164,28 @@ def add_session(session, max_sessions=50):
 
 
 def get_session(session_id):
-    """Get a session by ID"""
+    """Get a session by ID (handles both string and int IDs)"""
     with SESSION_LOCK:
-        return CHAT_SESSIONS.get(session_id)
+        # Try direct lookup first
+        if session_id in CHAT_SESSIONS:
+            return CHAT_SESSIONS.get(session_id)
+        
+        # Try converting string to int for integer IDs
+        if isinstance(session_id, str):
+            try:
+                int_id = int(session_id)
+                if int_id in CHAT_SESSIONS:
+                    return CHAT_SESSIONS.get(int_id)
+            except ValueError:
+                pass
+        
+        # Try converting int to string for old UUID format
+        if isinstance(session_id, int):
+            str_id = str(session_id)
+            if str_id in CHAT_SESSIONS:
+                return CHAT_SESSIONS.get(str_id)
+        
+        return None
 
 
 def list_sessions():
@@ -186,11 +205,30 @@ def list_sessions():
 
 
 def delete_session(session_id):
-    """Delete a session by ID"""
+    """Delete a session by ID (handles both string and int IDs)"""
     with SESSION_LOCK:
+        # Try direct lookup first
         if session_id in CHAT_SESSIONS:
             del CHAT_SESSIONS[session_id]
             return True
+        
+        # Try converting string to int
+        if isinstance(session_id, str):
+            try:
+                int_id = int(session_id)
+                if int_id in CHAT_SESSIONS:
+                    del CHAT_SESSIONS[int_id]
+                    return True
+            except ValueError:
+                pass
+        
+        # Try converting int to string for old UUID format
+        if isinstance(session_id, int):
+            str_id = str(session_id)
+            if str_id in CHAT_SESSIONS:
+                del CHAT_SESSIONS[str_id]
+                return True
+        
         return False
 
 

@@ -9,7 +9,7 @@ from tkinter import ttk
 from typing import Optional
 
 from ..utils import strip_markdown
-from ..session_manager import add_session, get_session, list_sessions, delete_session, save_sessions
+from ..session_manager import add_session, get_session, list_sessions, delete_session, save_sessions, ChatSession
 from .core import get_next_window_id, register_window, unregister_window
 from .utils import copy_to_clipboard, render_markdown, get_color_scheme, setup_text_tags
 
@@ -759,6 +759,19 @@ class SessionBrowserWindow:
         
         tk.Button(
             btn_frame,
+            text="New Session",
+            font=("Segoe UI", 10),
+            bg=self.colors["accent_green"],
+            fg="#ffffff",
+            activebackground="#45a049",
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._new_session
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            btn_frame,
             text="Open Chat",
             font=("Segoe UI", 10),
             bg=self.colors["accent"],
@@ -884,6 +897,14 @@ class SessionBrowserWindow:
         if selection:
             self.selected_session_id = selection[0]
             self.status_label.configure(text=f"Selected: {self.selected_session_id}")
+    
+    def _new_session(self):
+        """Create a new empty session and open it in a chat window"""
+        session = ChatSession(endpoint="chat")
+        add_session(session)
+        ChatWindow(session)
+        self._refresh()
+        self.status_label.configure(text=f"Created new session {session.session_id}")
     
     def _open_session(self):
         """Open selected session in a chat window"""
@@ -1673,6 +1694,19 @@ class StandaloneSessionBrowserWindow:
         
         tk.Button(
             btn_frame,
+            text="New Session",
+            font=("Segoe UI", 10),
+            bg=self.colors["accent_green"],
+            fg="#ffffff",
+            activebackground="#45a049",
+            relief=tk.FLAT,
+            padx=15,
+            pady=5,
+            command=self._new_session
+        ).pack(side=tk.LEFT, padx=2)
+        
+        tk.Button(
+            btn_frame,
             text="Open Chat",
             font=("Segoe UI", 10),
             bg=self.colors["accent"],
@@ -1805,6 +1839,20 @@ class StandaloneSessionBrowserWindow:
         if selection:
             self.selected_session_id = selection[0]
             self.status_label.configure(text=f"Selected: {self.selected_session_id}")
+    
+    def _new_session(self):
+        """Create a new empty session and open it in a chat window"""
+        session = ChatSession(endpoint="chat")
+        add_session(session)
+        
+        # Open in a new thread with its own Tk root
+        def open_chat():
+            chat = StandaloneChatWindow(session)
+            chat.show()
+        threading.Thread(target=open_chat, daemon=True).start()
+        
+        self._refresh()
+        self.status_label.configure(text=f"Created new session {session.session_id}")
     
     def _open_session(self):
         """Open selected session in a chat window"""
