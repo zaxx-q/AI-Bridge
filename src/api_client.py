@@ -215,8 +215,6 @@ def call_api_stream_unified(
     
     # Build params from ai_params
     params = dict(ai_params)
-    if "max_tokens" not in params:
-        params["max_tokens"] = 8192
     
     # Track content for the callback adapter
     accumulated_text = ""
@@ -401,8 +399,6 @@ def call_api_with_retry(provider, messages, model_override, config, ai_params, k
         prov = get_provider_for_type(provider, key_manager, config)
         
         params = dict(ai_params)
-        if "max_tokens" not in params:
-            params["max_tokens"] = 8192
         
         thinking_enabled = config.get("thinking_enabled", False)
         

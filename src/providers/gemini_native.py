@@ -172,9 +172,9 @@ class GeminiNativeProvider(BaseProvider):
         """
         config = {
             "temperature": params.get("temperature", 1.0),
-            "topP": params.get("top_p", 0.85),
-            "topK": params.get("top_k", 50),
-            "maxOutputTokens": params.get("max_tokens", 8192),
+            "topP": params.get("top_p", 0.95),
+            "topK": params.get("top_k", 0),
+            "maxOutputTokens": params.get("max_tokens", 65536),
             "candidateCount": 1
         }
         
