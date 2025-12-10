@@ -58,15 +58,27 @@ class ChatSession:
         """Convert session messages to API format"""
         messages = []
         for i, msg in enumerate(self.messages):
-            if msg["role"] == "user":
-                content = []
-                if i == 0 and include_image and self.image_base64:
+            role = msg["role"]
+            content = msg["content"]
+            
+            if role == "user":
+                # Check if we need to include an image for this user message
+                needs_image = i == 0 and include_image and self.image_base64
+                
+                if needs_image:
+                    # Use array format with image and text
+                    content_parts = []
                     data_url = f"data:{self.mime_type};base64,{self.image_base64}"
-                    content.append({"type": "image_url", "image_url": {"url": data_url}})
-                content.append({"type": "text", "text": msg["content"]})
-                messages.append({"role": "user", "content": content})
+                    content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+                    content_parts.append({"type": "text", "text": content})
+                    messages.append({"role": "user", "content": content_parts})
+                else:
+                    # Simple string format for user messages without image
+                    messages.append({"role": "user", "content": content})
             else:
-                messages.append({"role": "assistant", "content": msg["content"]})
+                # Preserve original role (system, assistant, etc.)
+                messages.append({"role": role, "content": content})
+        
         return messages
     
     def to_dict(self):
