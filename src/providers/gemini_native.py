@@ -69,6 +69,45 @@ class GeminiNativeProvider(BaseProvider):
         super().__init__("Gemini-Native", key_manager)
         self.config = config or {}
     
+    def _extract_error_brief(self, error_text: str, status_code: int = 0) -> str:
+        """
+        Extract a brief, readable error message from API error response.
+        
+        Args:
+            error_text: Raw error response text (may be JSON or plain text)
+            status_code: HTTP status code
+            
+        Returns:
+            Brief error description (max ~100 chars)
+        """
+        try:
+            # Try to parse as JSON and extract error message
+            import json
+            error_data = json.loads(error_text)
+            if "error" in error_data:
+                error_obj = error_data["error"]
+                if isinstance(error_obj, dict):
+                    # Standard Google API error format: {"error": {"message": "...", "status": "..."}}
+                    msg = error_obj.get("message", "")
+                    status = error_obj.get("status", "")
+                    if msg:
+                        brief = msg[:80]
+                        if status:
+                            brief = f"{status}: {brief}"[:100]
+                        return brief
+                    if status:
+                        return f"Status: {status}"
+                elif isinstance(error_obj, str):
+                    return error_obj[:100]
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+        
+        # Fallback: use first line or truncated text
+        first_line = error_text.split('\n')[0][:100] if error_text else ""
+        if status_code:
+            return f"HTTP {status_code}: {first_line[:80]}"
+        return first_line or "Unknown error"
+    
     def _is_gemini_3(self, model: str) -> bool:
         """Check if model is Gemini 3.x (uses thinkingLevel instead of thinkingBudget)"""
         lower = model.lower()
@@ -279,7 +318,9 @@ class GeminiNativeProvider(BaseProvider):
                 
                 if self.should_retry(reason, retry_count):
                     delay = self.get_retry_delay(reason)
-                    self.log_retry(reason, retry_count + 1, delay)
+                    # Extract brief error description from response
+                    error_brief = self._extract_error_brief(error_text, status_code)
+                    self.log_retry(reason, retry_count + 1, delay, error_brief)
                     
                     if reason in (RetryReason.RATE_LIMITED, RetryReason.AUTH_ERROR):
                         self.rotate_key_if_possible(f"({reason.value})")
@@ -370,7 +411,7 @@ class GeminiNativeProvider(BaseProvider):
                 
                 if self.should_retry(RetryReason.EMPTY_RESPONSE, retry_count):
                     delay = self.get_retry_delay(RetryReason.EMPTY_RESPONSE)
-                    self.log_retry(RetryReason.EMPTY_RESPONSE, retry_count + 1, delay)
+                    self.log_retry(RetryReason.EMPTY_RESPONSE, retry_count + 1, delay, "0 output tokens, no content")
                     self.rotate_key_if_possible("(empty response)")
                     
                     if delay > 0:
@@ -414,7 +455,7 @@ class GeminiNativeProvider(BaseProvider):
             
             if self.should_retry(RetryReason.NETWORK_ERROR, retry_count):
                 delay = self.get_retry_delay(RetryReason.NETWORK_ERROR)
-                self.log_retry(RetryReason.NETWORK_ERROR, retry_count + 1, delay)
+                self.log_retry(RetryReason.NETWORK_ERROR, retry_count + 1, delay, f"timeout after {timeout}s")
                 self.rotate_key_if_possible("(timeout)")
                 
                 if delay > 0:
@@ -437,7 +478,7 @@ class GeminiNativeProvider(BaseProvider):
             
             if self.should_retry(RetryReason.NETWORK_ERROR, retry_count):
                 delay = self.get_retry_delay(RetryReason.NETWORK_ERROR)
-                self.log_retry(RetryReason.NETWORK_ERROR, retry_count + 1, delay)
+                self.log_retry(RetryReason.NETWORK_ERROR, retry_count + 1, delay, error_msg[:100])
                 self.rotate_key_if_possible("(network error)")
                 
                 if delay > 0:
@@ -460,7 +501,7 @@ class GeminiNativeProvider(BaseProvider):
             
             if self.should_retry(RetryReason.SERVER_ERROR, retry_count):
                 delay = self.get_retry_delay(RetryReason.SERVER_ERROR)
-                self.log_retry(RetryReason.SERVER_ERROR, retry_count + 1, delay)
+                self.log_retry(RetryReason.SERVER_ERROR, retry_count + 1, delay, error_msg[:100])
                 
                 if delay > 0:
                     time.sleep(delay)
@@ -521,7 +562,8 @@ class GeminiNativeProvider(BaseProvider):
                 
                 if self.should_retry(reason, retry_count):
                     delay = self.get_retry_delay(reason)
-                    self.log_retry(reason, retry_count + 1, delay)
+                    error_brief = self._extract_error_brief(error_text, status_code)
+                    self.log_retry(reason, retry_count + 1, delay, error_brief)
                     
                     if reason in (RetryReason.RATE_LIMITED, RetryReason.AUTH_ERROR):
                         self.rotate_key_if_possible(f"({reason.value})")
@@ -582,7 +624,7 @@ class GeminiNativeProvider(BaseProvider):
                 
                 if self.should_retry(RetryReason.EMPTY_RESPONSE, retry_count):
                     delay = self.get_retry_delay(RetryReason.EMPTY_RESPONSE)
-                    self.log_retry(RetryReason.EMPTY_RESPONSE, retry_count + 1, delay)
+                    self.log_retry(RetryReason.EMPTY_RESPONSE, retry_count + 1, delay, "0 output tokens, no content")
                     self.rotate_key_if_possible("(empty response)")
                     
                     if delay > 0:
@@ -612,7 +654,7 @@ class GeminiNativeProvider(BaseProvider):
             
             if self.should_retry(RetryReason.NETWORK_ERROR, retry_count):
                 delay = self.get_retry_delay(RetryReason.NETWORK_ERROR)
-                self.log_retry(RetryReason.NETWORK_ERROR, retry_count + 1, delay)
+                self.log_retry(RetryReason.NETWORK_ERROR, retry_count + 1, delay, f"timeout after {timeout}s")
                 self.rotate_key_if_possible("(timeout)")
                 
                 if delay > 0:
@@ -632,7 +674,7 @@ class GeminiNativeProvider(BaseProvider):
             
             if self.should_retry(RetryReason.NETWORK_ERROR, retry_count):
                 delay = self.get_retry_delay(RetryReason.NETWORK_ERROR)
-                self.log_retry(RetryReason.NETWORK_ERROR, retry_count + 1, delay)
+                self.log_retry(RetryReason.NETWORK_ERROR, retry_count + 1, delay, error_msg[:100])
                 self.rotate_key_if_possible("(network error)")
                 
                 if delay > 0:

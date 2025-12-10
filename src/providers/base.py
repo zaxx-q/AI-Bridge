@@ -278,10 +278,11 @@ class BaseProvider(ABC):
         """Log successful completion"""
         self.log("info", f"Request completed successfully with key #{key_num}")
     
-    def log_retry(self, reason: RetryReason, retry_count: int, delay: float):
-        """Log retry attempt"""
+    def log_retry(self, reason: RetryReason, retry_count: int, delay: float, error_detail: str = ""):
+        """Log retry attempt with optional error detail"""
         delay_str = f" after {delay}s delay" if delay > 0 else " immediately"
-        self.log("warn", f"{reason.value}, retrying{delay_str} ({retry_count}/{self.MAX_RETRIES})")
+        detail_str = f": {error_detail}" if error_detail else ""
+        self.log("warn", f"{reason.value}{detail_str}, retrying{delay_str} ({retry_count}/{self.MAX_RETRIES})")
     
     def log_error(self, message: str, status_code: int = 0):
         """Log error"""

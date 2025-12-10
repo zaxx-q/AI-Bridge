@@ -202,18 +202,24 @@ def setup_text_tags(text_widget: tk.Text, colors: Dict[str, str]):
         foreground=colors["border"],
         justify="center")
     
-    # Thinking/Reasoning display
+    # Thinking/Reasoning display - clickable header
     text_widget.tag_configure("thinking_header",
-        font=(base_font, 10, "bold italic"),
+        font=(base_font, 10, "bold"),
         foreground=colors["accent_yellow"],
-        spacing1=5)
+        spacing1=5,
+        spacing3=2)
+    
+    # Add cursor change on hover for thinking header
+    text_widget.tag_bind("thinking_header", "<Enter>",
+        lambda e: text_widget.config(cursor="hand2"))
+    text_widget.tag_bind("thinking_header", "<Leave>",
+        lambda e: text_widget.config(cursor=""))
     
     text_widget.tag_configure("thinking_content",
-        font=(base_font, 10, "italic"),
+        font=(base_font, 10),
         foreground=colors["blockquote"],
-        lmargin1=15, lmargin2=15,
-        background=colors["code_bg"] if "code_bg" in colors else colors["input_bg"],
-        spacing1=3, spacing3=3)
+        lmargin1=20, lmargin2=20,
+        spacing1=2, spacing3=0)
 
 
 def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str], 
