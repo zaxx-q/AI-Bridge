@@ -28,7 +28,7 @@ DEFAULT_CONFIG = {
     # Show AI response in chat window: yes or no
     # This controls whether responses appear in a GUI window or are typed directly.
     # For API endpoints: overridden by ?show=yes/no URL parameter
-    # For TextEditTool: overridden by action_show_in_chat_window per-action setting,
+    # For TextEditTool: overridden by show_chat_window_instead_of_replace per-action setting,
     #                   which is further overridden by popup radio button selection
     "show_ai_response_in_chat_window": "no",
     # Legacy alias for backward compatibility
@@ -252,7 +252,7 @@ default_provider = google
 # Override hierarchy (highest to lowest priority):
 #   1. ?show=yes/no URL parameter (API endpoints only)
 #   2. Popup radio button selection (TextEditTool, if not "Default")
-#   3. action_show_in_chat_window per-action setting (TextEditTool)
+#   3. show_chat_window_instead_of_replace per-action setting (TextEditTool)
 #   4. This global setting (show_ai_response_in_chat_window)
 show_ai_response_in_chat_window = no
 

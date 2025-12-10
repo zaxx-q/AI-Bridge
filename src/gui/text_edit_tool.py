@@ -4,7 +4,7 @@ Main TextEditTool application controller
 
 Settings Override Hierarchy (for display mode):
 1. Radio button in popup (if not "Default") - highest priority
-2. action_show_in_chat_window per-action option - per-action default
+2. show_chat_window_instead_of_replace per-action option - per-action default
 3. show_ai_response_in_chat_window in config - global default (InputPopup only)
 
 For API endpoints, the ?show= URL parameter takes highest priority.
@@ -167,18 +167,13 @@ class TextEditToolApp:
         # Get selected text with quick check first, then retry if empty
         self.current_selected_text = self.text_handler.get_selected_text(sleep_duration=0.15)
         
-        # Get placeholder texts from settings
-        no_selection_placeholder = self._get_setting("no_selection_placeholder", "Ask your AI...")
-        selection_placeholder = self._get_setting("selection_placeholder", "Describe your change...")
-        
         if self.current_selected_text:
             logging.debug(f'Selected text: "{self.current_selected_text[:50]}..."')
             # Text selected - show prompt selection popup
             self.popup = PromptSelectionPopup(
                 options=self._get_action_options(),
                 on_option_selected=self._on_option_selected,
-                on_close=self._on_popup_closed,
-                placeholder=selection_placeholder
+                on_close=self._on_popup_closed
             )
             self.popup.show(self.current_selected_text)
         else:
@@ -186,8 +181,7 @@ class TextEditToolApp:
             logging.debug('No text selected, showing input popup')
             self.popup = InputPopup(
                 on_submit=self._on_direct_chat,
-                on_close=self._on_popup_closed,
-                placeholder=no_selection_placeholder
+                on_close=self._on_popup_closed
             )
             self.popup.show()
     
@@ -441,7 +435,7 @@ class TextEditToolApp:
         
         Display Mode Override Hierarchy:
             1. response_mode from popup radio button (if not "default")
-            2. action_show_in_chat_window per-action setting
+            2. show_chat_window_instead_of_replace per-action setting
             3. Falls back to False (replace mode)
         """
         try:
@@ -455,7 +449,7 @@ class TextEditToolApp:
             elif response_mode == "replace":
                 show_in_chat_window = False
             else:  # "default" - use the action's setting
-                show_in_chat_window = option.get("action_show_in_chat_window", False)
+                show_in_chat_window = option.get("show_chat_window_instead_of_replace", False)
             
             # Build prompt
             prefix = option.get("prefix", "")
