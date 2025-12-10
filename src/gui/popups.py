@@ -72,11 +72,13 @@ class InputPopup(BasePopup):
     def __init__(
         self,
         on_submit: Callable[[str], None],
-        on_close: Optional[Callable[[], None]] = None
+        on_close: Optional[Callable[[], None]] = None,
+        placeholder: str = "Ask your AI..."
     ):
         super().__init__()
         self.on_submit = on_submit
         self.on_close_callback = on_close
+        self.placeholder = placeholder
         self.input_var: Optional[tk.StringVar] = None
     
     def show(self, x: Optional[int] = None, y: Optional[int] = None):
@@ -123,7 +125,7 @@ class InputPopup(BasePopup):
         input_frame.pack(fill=tk.X)
         
         self.input_var = tk.StringVar()
-        placeholder = "Ask your AI..."
+        placeholder = self.placeholder
         
         input_entry = tk.Entry(
             input_frame,
@@ -142,13 +144,13 @@ class InputPopup(BasePopup):
         input_entry.config(fg='gray')
         
         def on_focus_in(event):
-            if input_entry.get() == placeholder:
+            if input_entry.get() == self.placeholder:
                 input_entry.delete(0, tk.END)
                 input_entry.config(fg=self.fg_color)
         
         def on_focus_out(event):
             if not input_entry.get():
-                input_entry.insert(0, placeholder)
+                input_entry.insert(0, self.placeholder)
                 input_entry.config(fg='gray')
         
         input_entry.bind('<FocusIn>', on_focus_in)
@@ -203,7 +205,7 @@ class InputPopup(BasePopup):
     def _submit(self):
         """Handle submit."""
         text = self.input_var.get().strip()
-        if text and text != "Ask your AI...":
+        if text and text != self.placeholder:
             self._close()
             self.on_submit(text)
     
@@ -217,18 +219,25 @@ class PromptSelectionPopup(BasePopup):
     """
     Popup with prompt selection buttons for when text is selected.
     Shows input field plus predefined prompt options.
+    
+    Display Mode Override Hierarchy:
+        1. Radio button selection (if not "Default") - highest priority
+        2. action_show_in_chat_window per-action setting
+        3. Falls back to replace mode (False)
     """
     
     def __init__(
         self,
         options: Dict,
         on_option_selected: Callable[[str, str, Optional[str]], None],
-        on_close: Optional[Callable[[], None]] = None
+        on_close: Optional[Callable[[], None]] = None,
+        placeholder: str = "Describe your change..."
     ):
         super().__init__()
         self.options = options
         self.on_option_selected = on_option_selected
         self.on_close_callback = on_close
+        self.placeholder = placeholder
         self.selected_text = ""
         self.input_var: Optional[tk.StringVar] = None
         self.response_mode_var: Optional[tk.StringVar] = None  # "default", "replace", "show"
@@ -311,7 +320,7 @@ class PromptSelectionPopup(BasePopup):
         input_frame.pack(fill=tk.X, pady=(0, 10))
         
         self.input_var = tk.StringVar()
-        placeholder = "Describe your change..."
+        placeholder = self.placeholder
         
         input_entry = tk.Entry(
             input_frame,
@@ -329,13 +338,13 @@ class PromptSelectionPopup(BasePopup):
         input_entry.config(fg='gray')
         
         def on_focus_in(event):
-            if input_entry.get() == placeholder:
+            if input_entry.get() == self.placeholder:
                 input_entry.delete(0, tk.END)
                 input_entry.config(fg=self.fg_color)
         
         def on_focus_out(event):
             if not input_entry.get():
-                input_entry.insert(0, placeholder)
+                input_entry.insert(0, self.placeholder)
                 input_entry.config(fg='gray')
         
         input_entry.bind('<FocusIn>', on_focus_in)
@@ -441,7 +450,7 @@ class PromptSelectionPopup(BasePopup):
         """Handle custom input submission."""
         custom_text = self.input_var.get().strip()
         
-        if not custom_text or custom_text == "Describe your change...":
+        if not custom_text or custom_text == self.placeholder:
             return
         
         logging.debug(f'Custom input submitted: {custom_text[:50]}...')

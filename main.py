@@ -56,7 +56,8 @@ def initialize():
     print(f"  Host: {config.get('host', '127.0.0.1')}")
     print(f"  Port: {config.get('port', 5000)}")
     print(f"  Default Provider: {config.get('default_provider', 'google')}")
-    print(f"  Default Show: {config.get('default_show', 'no')}")
+    show_setting = config.get('show_ai_response_in_chat_window', config.get('default_show', 'no'))
+    print(f"  Show Response in Chat: {show_setting}")
     print(f"  GUI Available: {HAVE_GUI}")
     print(f"  GUI Mode: On-demand (starts when needed)")
     print(f"  Max Sessions: {config.get('max_sessions', 50)}")
@@ -175,10 +176,9 @@ def main():
     
     if TEXT_EDIT_TOOL_APP:
         hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
-        mode = config.get("text_edit_tool_response_mode", "replace")
         print(f"\n   TextEditTool:")
         print(f"     Press '{hotkey}' to activate")
-        print(f"     Response mode: {mode}")
+        print(f"     Options in text_edit_tool_options.json")
     
     print("\nPress Ctrl+C to stop\n")
     

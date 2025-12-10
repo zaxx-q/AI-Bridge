@@ -25,6 +25,13 @@ DEFAULT_CONFIG = {
     "retry_delay": 5,
     "request_timeout": 120,
     "max_sessions": 50,
+    # Show AI response in chat window: yes or no
+    # This controls whether responses appear in a GUI window or are typed directly.
+    # For API endpoints: overridden by ?show=yes/no URL parameter
+    # For TextEditTool: overridden by action_show_in_chat_window per-action setting,
+    #                   which is further overridden by popup radio button selection
+    "show_ai_response_in_chat_window": "no",
+    # Legacy alias for backward compatibility
     "default_show": "no",
     # Streaming and thinking settings
     "streaming_enabled": True,
@@ -237,8 +244,17 @@ port = 5000
 # Default API provider: custom, openrouter, or google
 default_provider = google
 
-# Show chat window for responses: yes or no
-default_show = no
+# ============================================================
+# RESPONSE DISPLAY SETTINGS
+# ============================================================
+# Show AI response in a chat window (yes) or type directly (no)
+#
+# Override hierarchy (highest to lowest priority):
+#   1. ?show=yes/no URL parameter (API endpoints only)
+#   2. Popup radio button selection (TextEditTool, if not "Default")
+#   3. action_show_in_chat_window per-action setting (TextEditTool)
+#   4. This global setting (show_ai_response_in_chat_window)
+show_ai_response_in_chat_window = no
 
 # Custom API configuration
 # custom_url = https://api.openai.com/v1/chat/completions
@@ -301,8 +317,8 @@ text_edit_tool_enabled = true
 # Hotkey combination (e.g., ctrl+space, ctrl+alt+w)
 text_edit_tool_hotkey = ctrl+space
 
-# Response mode: replace (replace selected text) or popup (show in window)
-text_edit_tool_response_mode = replace
+# TextEditTool options are configured in text_edit_tool_options.json
+# including: action prompts, placeholders, and per-action display settings
 
 
 # ============================================================

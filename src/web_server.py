@@ -82,7 +82,9 @@ def create_endpoint_handler(endpoint_name, prompt_template):
             effective_model = "unknown"
         
         # Show parameter: yes/true/1 = show chat window, anything else = no
-        show_param = request.args.get('show', CONFIG.get('default_show', 'no'))
+        # Uses show_ai_response_in_chat_window with fallback to legacy default_show
+        default_show = CONFIG.get('show_ai_response_in_chat_window', CONFIG.get('default_show', 'no'))
+        show_param = request.args.get('show', default_show)
         if isinstance(show_param, bool):
             show_gui = show_param
         else:

@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """
 Main TextEditTool application controller
+
+Settings Override Hierarchy (for display mode):
+1. Radio button in popup (if not "Default") - highest priority
+2. action_show_in_chat_window per-action option - per-action default
+3. show_ai_response_in_chat_window in config - global default (InputPopup only)
+
+For API endpoints, the ?show= URL parameter takes highest priority.
 """
 
 import json
@@ -13,7 +20,7 @@ from typing import Optional, Dict
 from .hotkey import HotkeyListener
 from .text_handler import TextHandler
 from .popups import InputPopup, PromptSelectionPopup
-from .options import DEFAULT_OPTIONS, CHAT_SYSTEM_INSTRUCTION, FOLLOWUP_SYSTEM_INSTRUCTION
+from .options import DEFAULT_OPTIONS, SETTINGS_KEY, DEFAULT_SETTINGS
 
 # Import API client directly (no wrapper needed)
 from ..api_client import call_api_with_retry
@@ -81,8 +88,18 @@ class TextEditToolApp:
         
         # Use defaults and save them
         logging.debug('Using default options')
-        self._save_options(DEFAULT_OPTIONS)
-        return DEFAULT_OPTIONS.copy()
+        default_with_settings = {SETTINGS_KEY: DEFAULT_SETTINGS.copy(), **DEFAULT_OPTIONS}
+        self._save_options(default_with_settings)
+        return default_with_settings
+    
+    def _get_setting(self, key: str, default=None):
+        """Get a setting from the _settings section of options."""
+        settings = self.options.get(SETTINGS_KEY, {})
+        return settings.get(key, DEFAULT_SETTINGS.get(key, default))
+    
+    def _get_action_options(self) -> Dict:
+        """Get action options (excluding _settings)."""
+        return {k: v for k, v in self.options.items() if k != SETTINGS_KEY}
     
     def _save_options(self, options: Dict):
         """Save options to JSON file."""
@@ -150,13 +167,18 @@ class TextEditToolApp:
         # Get selected text with quick check first, then retry if empty
         self.current_selected_text = self.text_handler.get_selected_text(sleep_duration=0.15)
         
+        # Get placeholder texts from settings
+        no_selection_placeholder = self._get_setting("no_selection_placeholder", "Ask your AI...")
+        selection_placeholder = self._get_setting("selection_placeholder", "Describe your change...")
+        
         if self.current_selected_text:
             logging.debug(f'Selected text: "{self.current_selected_text[:50]}..."')
             # Text selected - show prompt selection popup
             self.popup = PromptSelectionPopup(
-                options=self.options,
+                options=self._get_action_options(),
                 on_option_selected=self._on_option_selected,
-                on_close=self._on_popup_closed
+                on_close=self._on_popup_closed,
+                placeholder=selection_placeholder
             )
             self.popup.show(self.current_selected_text)
         else:
@@ -164,7 +186,8 @@ class TextEditToolApp:
             logging.debug('No text selected, showing input popup')
             self.popup = InputPopup(
                 on_submit=self._on_direct_chat,
-                on_close=self._on_popup_closed
+                on_close=self._on_popup_closed,
+                placeholder=no_selection_placeholder
             )
             self.popup.show()
     
@@ -316,14 +339,21 @@ class TextEditToolApp:
     def _process_direct_chat(self, user_input: str):
         """Process direct chat input."""
         try:
+            # Get system instruction from settings
+            chat_system_instruction = self._get_setting(
+                "chat_system_instruction",
+                "You are a helpful AI assistant."
+            )
+            
             messages = [
-                {"role": "system", "content": CHAT_SYSTEM_INSTRUCTION},
+                {"role": "system", "content": chat_system_instruction},
                 {"role": "user", "content": user_input}
             ]
             
-            # Check default_show setting
-            default_show = self.config.get("default_show", "no")
-            show_gui = str(default_show).lower() in ("yes", "true", "1")
+            # Check show_ai_response_in_chat_window setting (with fallback to legacy default_show)
+            show_setting = self.config.get("show_ai_response_in_chat_window",
+                                           self.config.get("default_show", "no"))
+            show_gui = str(show_setting).lower() in ("yes", "true", "1")
             
             if show_gui:
                 # For GUI mode, stream to console then show window
@@ -408,17 +438,24 @@ class TextEditToolApp:
             selected_text: The selected text
             custom_input: Custom input text
             response_mode: Response mode ("default", "replace", or "show")
+        
+        Display Mode Override Hierarchy:
+            1. response_mode from popup radio button (if not "default")
+            2. action_show_in_chat_window per-action setting
+            3. Falls back to False (replace mode)
         """
         try:
-            option = self.options.get(option_key, {})
+            action_options = self._get_action_options()
+            option = action_options.get(option_key, {})
             
             # Determine if this should open in a window based on response mode
+            # Hierarchy: radio button > per-action setting > default (False)
             if response_mode == "show":
-                open_in_window = True
+                show_in_chat_window = True
             elif response_mode == "replace":
-                open_in_window = False
-            else:  # "default" - use the prompt's setting
-                open_in_window = option.get("open_in_window", False)
+                show_in_chat_window = False
+            else:  # "default" - use the action's setting
+                show_in_chat_window = option.get("action_show_in_chat_window", False)
             
             # Build prompt
             prefix = option.get("prefix", "")
@@ -450,7 +487,7 @@ class TextEditToolApp:
                 return
             
             # Handle response
-            if open_in_window:
+            if show_in_chat_window:
                 self._show_chat_window(f"{option_key} Result", response, selected_text)
             else:
                 self._replace_text(response)
