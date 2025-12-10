@@ -430,13 +430,20 @@ class TextEditToolApp:
         Args:
             option_key: The selected option key
             selected_text: The selected text
-            custom_input: Custom input text
+            custom_input: Custom input text (for Custom option)
             response_mode: Response mode ("default", "replace", or "show")
         
         Display Mode Override Hierarchy:
             1. response_mode from popup radio button (if not "default")
             2. show_chat_window_instead_of_replace per-action setting
             3. Falls back to False (replace mode)
+        
+        Prompt Structure:
+            SYSTEM: {system_prompt}
+            USER: {task}
+                   {base_output_rules}
+                   {text_delimiter}
+                   {selected_text}
         """
         try:
             action_options = self._get_action_options()
@@ -451,20 +458,39 @@ class TextEditToolApp:
             else:  # "default" - use the action's setting
                 show_in_chat_window = option.get("show_chat_window_instead_of_replace", False)
             
-            # Build prompt
-            prefix = option.get("prefix", "")
-            system_instruction = option.get("instruction", "")
+            # Build prompt using new structure with backwards compatibility
+            # New keys: system_prompt, task
+            # Legacy keys: instruction, prefix
+            system_prompt = option.get("system_prompt") or option.get("instruction", "")
+            task = option.get("task") or option.get("prefix", "")
             
+            # Get shared settings
+            base_output_rules = self._get_setting("base_output_rules", "")
+            text_delimiter = self._get_setting("text_delimiter", "\n\n")
+            
+            # Handle Custom action - use template for task
             if option_key == "Custom" and custom_input:
-                prompt = f"{prefix}Described change: {custom_input}\n\nText: {selected_text}"
-            else:
-                prompt = f"{prefix}{selected_text}"
+                custom_task_template = self._get_setting(
+                    "custom_task_template",
+                    "Apply the following change to the text below: {custom_input}"
+                )
+                task = custom_task_template.format(custom_input=custom_input)
+            
+            # Build user message: task + output rules + delimiter + text
+            user_message_parts = []
+            if task:
+                user_message_parts.append(task)
+            if base_output_rules:
+                user_message_parts.append(base_output_rules)
+            
+            user_message = "\n\n".join(user_message_parts)
+            user_message += text_delimiter + selected_text
             
             logging.debug(f'Getting AI response for {option_key}')
             
             messages = [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
             ]
             
             from ..request_pipeline import RequestOrigin
