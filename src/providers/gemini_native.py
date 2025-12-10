@@ -213,8 +213,9 @@ class GeminiNativeProvider(BaseProvider):
         }
         
         if system_instruction:
+            # systemInstruction is a top-level field - omit "role" (best practice)
+            # Never use "role": "user" here as it conflicts with system instruction purpose
             body["systemInstruction"] = {
-                "role": "user",
                 "parts": [{"text": system_instruction}]
             }
         
