@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
 Popup windows for TextEditTool - input and prompt selection
+
+Threading Note:
+    Popups are shown from hotkey threads and create their own Tk roots.
+    To avoid conflicts with other Tk instances (like session browser),
+    we use a polling update loop instead of blocking mainloop().
 """
 
 import logging
+import time
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional, Dict
@@ -236,7 +242,23 @@ class InputPopup(BasePopup):
         self.root.focus_force()
         input_entry.focus_set()
         
-        self.root.mainloop()
+        # Use polling update loop instead of mainloop() to avoid conflicts
+        # with other Tk instances in different threads
+        self._run_event_loop()
+    
+    def _run_event_loop(self):
+        """Run event loop without blocking other Tk instances."""
+        try:
+            while self.root is not None:
+                try:
+                    if not self.root.winfo_exists():
+                        break
+                    self.root.update()
+                    time.sleep(0.01)  # Small delay to avoid busy-waiting
+                except tk.TclError:
+                    break  # Window was destroyed
+        except Exception as e:
+            logging.debug(f"Popup event loop ended: {e}")
     
     def _submit(self):
         """Handle submit."""
@@ -432,7 +454,23 @@ class PromptSelectionPopup(BasePopup):
         self.root.focus_force()
         input_entry.focus_set()
         
-        self.root.mainloop()
+        # Use polling update loop instead of mainloop() to avoid conflicts
+        # with other Tk instances in different threads
+        self._run_event_loop()
+    
+    def _run_event_loop(self):
+        """Run event loop without blocking other Tk instances."""
+        try:
+            while self.root is not None:
+                try:
+                    if not self.root.winfo_exists():
+                        break
+                    self.root.update()
+                    time.sleep(0.01)  # Small delay to avoid busy-waiting
+                except tk.TclError:
+                    break  # Window was destroyed
+        except Exception as e:
+            logging.debug(f"Popup event loop ended: {e}")
     
     def _create_option_buttons(self, parent: tk.Frame):
         """Create option buttons in a grid."""

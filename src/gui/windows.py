@@ -993,6 +993,7 @@ class StandaloneChatWindow:
         self.auto_scroll = True
         self.last_response = initial_response or ""
         self.is_loading = False
+        self._destroyed = False  # Track if window has been destroyed
         
         # Streaming state
         self.streaming_text = ""
@@ -1012,6 +1013,20 @@ class StandaloneChatWindow:
         self.colors = get_color_scheme()
         
         self.root = None
+    
+    def _safe_after(self, delay: int, func):
+        """
+        Schedule a callback only if window still exists.
+        Safe to call from background threads.
+        """
+        if self._destroyed:
+            return
+        try:
+            if self.root and self.root.winfo_exists():
+                self.root.after(delay, func)
+        except (tk.TclError, RuntimeError):
+            # Window was destroyed or Tk not in valid state
+            pass
     
     def show(self):
         """Create and show the window with its own mainloop"""
@@ -1377,29 +1392,36 @@ class StandaloneChatWindow:
     
     def _load_models(self):
         """Load available models in background"""
+        if self._destroyed:
+            return
         try:
             from ..api_client import fetch_models
             from .. import web_server
             
             models, error = fetch_models(web_server.CONFIG, web_server.KEY_MANAGERS)
             
-            if models and not error:
+            if models and not error and not self._destroyed:
                 self.available_models = models
                 model_ids = [m['id'] for m in models]
                 
-                # Update dropdown on main thread
+                # Update dropdown on main thread (use safe_after)
                 def update_dropdown():
-                    provider = web_server.CONFIG.get("default_provider", "google")
-                    current = web_server.CONFIG.get(f"{provider}_model", "")
-                    self.model_dropdown.configure(values=model_ids)
-                    if current and current in model_ids:
-                        self.model_var.set(current)
-                    elif model_ids:
-                        self.model_var.set(current if current else model_ids[0])
-                    else:
-                        self.model_var.set("(no models)")
+                    if self._destroyed:
+                        return
+                    try:
+                        provider = web_server.CONFIG.get("default_provider", "google")
+                        current = web_server.CONFIG.get(f"{provider}_model", "")
+                        self.model_dropdown.configure(values=model_ids)
+                        if current and current in model_ids:
+                            self.model_var.set(current)
+                        elif model_ids:
+                            self.model_var.set(current if current else model_ids[0])
+                        else:
+                            self.model_var.set("(no models)")
+                    except tk.TclError:
+                        pass  # Widget destroyed
                 
-                self.root.after(0, update_dropdown)
+                self._safe_after(0, update_dropdown)
         except Exception as e:
             print(f"[StandaloneChatWindow] Error loading models: {e}")
     
@@ -1452,10 +1474,10 @@ class StandaloneChatWindow:
             
             self.session.add_message("user", user_input)
             
-            # Update display and clear input on main thread
-            self.root.after(0, lambda: self._update_chat_display(scroll_to_bottom=True))
-            self.root.after(0, lambda: self.input_text.configure(state=tk.NORMAL))
-            self.root.after(0, lambda: self.input_text.delete("1.0", tk.END))
+            # Update display and clear input on main thread (use safe_after)
+            self._safe_after(0, lambda: self._update_chat_display(scroll_to_bottom=True))
+            self._safe_after(0, lambda: self.input_text.configure(state=tk.NORMAL))
+            self._safe_after(0, lambda: self.input_text.delete("1.0", tk.END))
             
             streaming_enabled = web_server.CONFIG.get("streaming_enabled", True)
             
@@ -1473,20 +1495,26 @@ class StandaloneChatWindow:
                 session_id=str(self.session.session_id)
             )
             
-            # Callbacks for UI updates
+            # Callbacks for UI updates (use safe_after to handle window closure)
             def on_text(content):
+                if self._destroyed:
+                    return
                 self.streaming_text += content
-                self.root.after(0, lambda: self._update_streaming_display())
+                self._safe_after(0, lambda: self._update_streaming_display())
                 
             def on_thinking(content):
+                if self._destroyed:
+                    return
                 self.streaming_thinking += content
-                self.root.after(0, lambda: self._update_streaming_display())
+                self._safe_after(0, lambda: self._update_streaming_display())
                 
             def on_usage(content):
                 self.last_usage = content
                 
             def on_error(content):
-                self.root.after(0, lambda: self.status_label.configure(
+                if self._destroyed:
+                    return
+                self._safe_after(0, lambda: self.status_label.configure(
                     text=f"Error: {content}", fg=self.colors["accent_red"]
                 ))
             
@@ -1499,7 +1527,7 @@ class StandaloneChatWindow:
             
             # Execute request
             self.is_streaming = True
-            self.root.after(0, lambda: self.status_label.configure(text="Streaming..." if streaming_enabled else "Processing..."))
+            self._safe_after(0, lambda: self.status_label.configure(text="Streaming..." if streaming_enabled else "Processing..."))
             
             if streaming_enabled and current_provider in ("custom", "google", "openrouter"):
                 ctx = RequestPipeline.execute_streaming(
@@ -1530,7 +1558,14 @@ class StandaloneChatWindow:
                 "estimated": ctx.estimated
             }
             
+            # Check if window was destroyed during request
+            if self._destroyed:
+                return
+            
             def handle_response():
+                if self._destroyed:
+                    return
+                    
                 if ctx.error:
                     self.status_label.configure(text=f"Error: {ctx.error}", fg=self.colors["accent_red"])
                     self.session.messages.pop()  # Remove failed user message
@@ -1567,13 +1602,13 @@ class StandaloneChatWindow:
                 self.streaming_text = ""
                 self.streaming_thinking = ""
             
-            self.root.after(0, handle_response)
+            self._safe_after(0, handle_response)
         
         threading.Thread(target=process_message, daemon=True).start()
     
     def _update_streaming_display(self):
         """Update display during streaming"""
-        if not self.is_streaming:
+        if not self.is_streaming or self._destroyed:
             return
         
         self.chat_text.configure(state=tk.NORMAL)
@@ -1634,8 +1669,16 @@ class StandaloneChatWindow:
             self.status_label.configure(text="✗ Failed to copy", fg=self.colors["accent_red"])
     
     def _close(self):
+        """Close window and cleanup resources"""
+        self._destroyed = True
+        self.is_streaming = False
         unregister_window(self.window_tag)
-        self.root.destroy()
+        try:
+            if self.root:
+                self.root.destroy()
+        except tk.TclError:
+            pass
+        self.root = None
 
 
 class StandaloneSessionBrowserWindow:
@@ -1656,6 +1699,17 @@ class StandaloneSessionBrowserWindow:
         self.sort_descending = True  # Default: newest first
         
         self.root = None
+        self._destroyed = False
+    
+    def _safe_after(self, delay: int, func):
+        """Schedule a callback only if window still exists."""
+        if self._destroyed:
+            return
+        try:
+            if self.root and self.root.winfo_exists():
+                self.root.after(delay, func)
+        except (tk.TclError, RuntimeError):
+            pass
     
     def show(self):
         """Create and show the window with its own mainloop"""
@@ -1935,5 +1989,12 @@ class StandaloneSessionBrowserWindow:
             self.status_label.configure(text="Failed to delete session")
     
     def _close(self):
+        """Close window and cleanup resources"""
+        self._destroyed = True
         unregister_window(self.window_tag)
-        self.root.destroy()
+        try:
+            if self.root:
+                self.root.destroy()
+        except tk.TclError:
+            pass
+        self.root = None
