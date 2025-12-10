@@ -190,15 +190,21 @@ class TextEditToolApp:
         logging.debug('Popup window closed')
         self.popup = None
     
-    def _on_direct_chat(self, user_input: str):
-        """Handle direct chat input (no selected text)."""
-        logging.debug(f'Direct chat input: {user_input[:50]}...')
+    def _on_direct_chat(self, user_input: str, response_mode: str = "default"):
+        """
+        Handle direct chat input (no selected text).
+        
+        Args:
+            user_input: The user's chat input
+            response_mode: Response mode ("default", "replace", or "show")
+        """
+        logging.debug(f'Direct chat input: {user_input[:50]}..., mode: {response_mode}')
         
         self.is_processing = True
         
         threading.Thread(
             target=self._process_direct_chat,
-            args=(user_input,),
+            args=(user_input, response_mode),
             daemon=True
         ).start()
     
@@ -330,8 +336,17 @@ class TextEditToolApp:
         except Exception as e:
             logging.error(f"Error typing text chunk: {e}")
     
-    def _process_direct_chat(self, user_input: str):
-        """Process direct chat input."""
+    def _process_direct_chat(self, user_input: str, response_mode: str = "default"):
+        """
+        Process direct chat input.
+        
+        Args:
+            user_input: The user's chat input
+            response_mode: Response mode ("default", "replace", or "show")
+                - "show": Force show in chat window
+                - "replace": Force type to active field
+                - "default": Use show_ai_response_in_chat_window config setting
+        """
         try:
             # Get system instruction from settings
             chat_system_instruction = self._get_setting(
@@ -344,10 +359,17 @@ class TextEditToolApp:
                 {"role": "user", "content": user_input}
             ]
             
-            # Check show_ai_response_in_chat_window setting (with fallback to legacy default_show)
-            show_setting = self.config.get("show_ai_response_in_chat_window",
-                                           self.config.get("default_show", "no"))
-            show_gui = str(show_setting).lower() in ("yes", "true", "1")
+            # Determine display mode based on hierarchy:
+            # 1. Radio button (if not "default")
+            # 2. Config setting show_ai_response_in_chat_window
+            if response_mode == "show":
+                show_gui = True
+            elif response_mode == "replace":
+                show_gui = False
+            else:  # "default" - use config setting
+                show_setting = self.config.get("show_ai_response_in_chat_window",
+                                               self.config.get("default_show", "no"))
+                show_gui = str(show_setting).lower() in ("yes", "true", "1")
             
             if show_gui:
                 # For GUI mode, stream to console then show window

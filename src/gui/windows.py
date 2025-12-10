@@ -194,6 +194,9 @@ class ChatWindow:
         # Setup tags
         setup_text_tags(self.chat_text, self.colors)
         
+        # Bind thinking header click to toggle expand/collapse
+        self.chat_text.tag_bind("thinking_header", "<Button-1>", self._on_thinking_click)
+        
         # Input section
         input_label = tk.Label(
             self.root,
@@ -385,6 +388,13 @@ class ChatWindow:
         self.auto_scroll = not self.auto_scroll
         self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         self.status_label.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
+    
+    def _on_thinking_click(self, event):
+        """Handle click on thinking header to toggle expand/collapse."""
+        self.thinking_collapsed = not self.thinking_collapsed
+        self._update_chat_display()
+        state_text = "collapsed" if self.thinking_collapsed else "expanded"
+        self.status_label.configure(text=f"Thinking: {state_text}")
     
     def _load_models(self):
         """Load available models in background"""
@@ -1129,6 +1139,9 @@ class StandaloneChatWindow:
         # Setup tags
         setup_text_tags(self.chat_text, self.colors)
         
+        # Bind thinking header click to toggle expand/collapse
+        self.chat_text.tag_bind("thinking_header", "<Button-1>", self._on_thinking_click)
+        
         # Input section
         input_label = tk.Label(
             self.root,
@@ -1326,6 +1339,13 @@ class StandaloneChatWindow:
         self.auto_scroll = not self.auto_scroll
         self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         self.status_label.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
+    
+    def _on_thinking_click(self, event):
+        """Handle click on thinking header to toggle expand/collapse."""
+        self.thinking_collapsed = not self.thinking_collapsed
+        self._update_chat_display()
+        state_text = "collapsed" if self.thinking_collapsed else "expanded"
+        self.status_label.configure(text=f"Thinking: {state_text}")
     
     def _load_models(self):
         """Load available models in background"""

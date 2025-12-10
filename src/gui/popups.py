@@ -42,7 +42,7 @@ class BasePopup:
             self.button_hover = "#555555"
             self.input_bg = "#333333"
             self.border_color = "#666666"
-            self.accent_color = "#4CAF50"
+            self.accent_color = "#2196F3"  # Blue send button
         else:
             self.bg_color = "#f5f5f5"
             self.fg_color = "#333333"
@@ -50,7 +50,7 @@ class BasePopup:
             self.button_hover = "#e8e8e8"
             self.input_bg = "#ffffff"
             self.border_color = "#cccccc"
-            self.accent_color = "#4CAF50"
+            self.accent_color = "#1e66f5"  # Blue send button
     
     def _close(self):
         """Close the popup window."""
@@ -67,17 +67,23 @@ class InputPopup(BasePopup):
     """
     Simple input popup for when no text is selected.
     Shows only an input field for direct AI chat.
+    
+    Display Mode Override Hierarchy:
+        1. Radio button selection (if not "Default") - highest priority
+        2. show_ai_response_in_chat_window config setting
+        3. Falls back to replace mode (False)
     """
     
     def __init__(
         self,
-        on_submit: Callable[[str], None],
+        on_submit: Callable[[str, str], None],  # (text, response_mode)
         on_close: Optional[Callable[[], None]] = None
     ):
         super().__init__()
         self.on_submit = on_submit
         self.on_close_callback = on_close
         self.input_var: Optional[tk.StringVar] = None
+        self.response_mode_var: Optional[tk.StringVar] = None  # "default", "replace", "show"
     
     def show(self, x: Optional[int] = None, y: Optional[int] = None):
         """Show the input popup."""
@@ -117,6 +123,38 @@ class InputPopup(BasePopup):
             command=self._close
         )
         close_btn.pack(side=tk.RIGHT)
+        
+        # Response mode radio buttons
+        mode_frame = tk.Frame(content_frame, bg=self.bg_color)
+        mode_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        tk.Label(
+            mode_frame,
+            text="Response:",
+            font=("Arial", 9),
+            bg=self.bg_color,
+            fg=self.fg_color
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        
+        # Bind StringVar to THIS popup's root
+        self.response_mode_var = tk.StringVar(master=self.root, value="default")
+        
+        for mode_text, mode_value in [("Default", "default"), ("Replace", "replace"), ("Show", "show")]:
+            rb = tk.Radiobutton(
+                mode_frame,
+                text=mode_text,
+                variable=self.response_mode_var,
+                value=mode_value,
+                font=("Arial", 9),
+                bg=self.bg_color,
+                fg=self.fg_color,
+                selectcolor=self.input_bg,
+                activebackground=self.bg_color,
+                activeforeground=self.fg_color,
+                highlightthickness=0,
+                indicatoron=True
+            )
+            rb.pack(side=tk.LEFT, padx=2)
         
         # Input area
         input_frame = tk.Frame(content_frame, bg=self.bg_color)
@@ -162,7 +200,7 @@ class InputPopup(BasePopup):
             font=("Arial", 12),
             bg=self.accent_color,
             fg="#ffffff",
-            activebackground="#45a049",
+            activebackground="#1976D2",  # Darker blue for active state
             relief=tk.FLAT,
             bd=0,
             padx=10,
@@ -204,8 +242,9 @@ class InputPopup(BasePopup):
         """Handle submit."""
         text = self.input_var.get().strip()
         if text and text != "Ask your AI...":
+            response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
             self._close()
-            self.on_submit(text)
+            self.on_submit(text, response_mode)
     
     def _close(self):
         super()._close()
@@ -354,7 +393,7 @@ class PromptSelectionPopup(BasePopup):
             font=("Arial", 12),
             bg=self.accent_color,
             fg="#ffffff",
-            activebackground="#45a049",
+            activebackground="#1976D2",  # Darker blue for active state
             relief=tk.FLAT,
             bd=0,
             padx=10,
