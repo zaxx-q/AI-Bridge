@@ -317,8 +317,19 @@ class ChatWindow:
         # Initial display
         self._update_chat_display()
     
-    def _update_chat_display(self, scroll_to_bottom: bool = False):
-        """Update the chat display"""
+    def _update_chat_display(self, scroll_to_bottom: bool = False, preserve_scroll: bool = False):
+        """
+        Update the chat display.
+        
+        Args:
+            scroll_to_bottom: Scroll to bottom after update (for new messages)
+            preserve_scroll: Preserve current scroll position (for toggle operations)
+        """
+        # Save scroll position before clearing
+        saved_scroll = None
+        if preserve_scroll:
+            saved_scroll = self.chat_text.yview()
+        
         self.chat_text.configure(state=tk.NORMAL)
         self.chat_text.delete("1.0", tk.END)
         
@@ -365,9 +376,12 @@ class ChatWindow:
         
         self.chat_text.configure(state=tk.DISABLED)
         
-        # Auto-scroll to bottom
+        # Handle scrolling
         if scroll_to_bottom and self.auto_scroll:
             self.chat_text.see(tk.END)
+        elif preserve_scroll and saved_scroll:
+            # Restore saved scroll position
+            self.chat_text.yview_moveto(saved_scroll[0])
     
     def _toggle_wrap(self):
         self.wrapped = not self.wrapped
@@ -376,12 +390,12 @@ class ChatWindow:
             self.h_scrollbar.grid_remove()
         else:
             self.h_scrollbar.grid()
-        self._update_chat_display()
+        self._update_chat_display(preserve_scroll=True)
         self.status_label.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
     
     def _toggle_markdown(self):
         self.markdown = not self.markdown
-        self._update_chat_display()
+        self._update_chat_display(preserve_scroll=True)
         self.status_label.configure(text=f"Mode: {'Markdown' if self.markdown else 'Raw Text'}")
     
     def _toggle_autoscroll(self):
@@ -392,7 +406,7 @@ class ChatWindow:
     def _on_thinking_click(self, event):
         """Handle click on thinking header to toggle expand/collapse."""
         self.thinking_collapsed = not self.thinking_collapsed
-        self._update_chat_display()
+        self._update_chat_display(preserve_scroll=True)
         state_text = "collapsed" if self.thinking_collapsed else "expanded"
         self.status_label.configure(text=f"Thinking: {state_text}")
     
@@ -1269,8 +1283,19 @@ class StandaloneChatWindow:
         # Run mainloop
         self.root.mainloop()
     
-    def _update_chat_display(self, scroll_to_bottom: bool = False):
-        """Update the chat display"""
+    def _update_chat_display(self, scroll_to_bottom: bool = False, preserve_scroll: bool = False):
+        """
+        Update the chat display.
+        
+        Args:
+            scroll_to_bottom: Scroll to bottom after update (for new messages)
+            preserve_scroll: Preserve current scroll position (for toggle operations)
+        """
+        # Save scroll position before clearing
+        saved_scroll = None
+        if preserve_scroll:
+            saved_scroll = self.chat_text.yview()
+        
         self.chat_text.configure(state=tk.NORMAL)
         self.chat_text.delete("1.0", tk.END)
         
@@ -1317,9 +1342,12 @@ class StandaloneChatWindow:
         
         self.chat_text.configure(state=tk.DISABLED)
         
-        # Auto-scroll to bottom
+        # Handle scrolling
         if scroll_to_bottom and self.auto_scroll:
             self.chat_text.see(tk.END)
+        elif preserve_scroll and saved_scroll:
+            # Restore saved scroll position
+            self.chat_text.yview_moveto(saved_scroll[0])
     
     def _toggle_wrap(self):
         self.wrapped = not self.wrapped
@@ -1327,12 +1355,12 @@ class StandaloneChatWindow:
             self.h_scrollbar.grid_remove()
         else:
             self.h_scrollbar.grid()
-        self._update_chat_display()
+        self._update_chat_display(preserve_scroll=True)
         self.status_label.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
     
     def _toggle_markdown(self):
         self.markdown = not self.markdown
-        self._update_chat_display()
+        self._update_chat_display(preserve_scroll=True)
         self.status_label.configure(text=f"Mode: {'Markdown' if self.markdown else 'Raw Text'}")
     
     def _toggle_autoscroll(self):
@@ -1343,7 +1371,7 @@ class StandaloneChatWindow:
     def _on_thinking_click(self, event):
         """Handle click on thinking header to toggle expand/collapse."""
         self.thinking_collapsed = not self.thinking_collapsed
-        self._update_chat_display()
+        self._update_chat_display(preserve_scroll=True)
         state_text = "collapsed" if self.thinking_collapsed else "expanded"
         self.status_label.configure(text=f"Thinking: {state_text}")
     
