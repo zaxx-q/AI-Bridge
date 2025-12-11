@@ -535,3 +535,439 @@ class PromptSelectionPopup(BasePopup):
         super()._close()
         if self.on_close_callback:
             self.on_close_callback()
+
+
+# Attached popup creation functions for GUICoordinator
+# These create Toplevel windows attached to the coordinator's hidden root
+
+class AttachedInputPopup:
+    """
+    Input popup as Toplevel attached to coordinator's root.
+    Used for centralized GUI threading.
+    """
+    
+    def __init__(
+        self,
+        parent_root: tk.Tk,
+        on_submit: Callable[[str, str], None],
+        on_close: Optional[Callable[[], None]] = None,
+        x: Optional[int] = None,
+        y: Optional[int] = None
+    ):
+        self.parent_root = parent_root
+        self.on_submit = on_submit
+        self.on_close_callback = on_close
+        self.x = x
+        self.y = y
+        
+        self.dark_mode = is_dark_mode()
+        self._setup_colors()
+        
+        self.root: Optional[tk.Toplevel] = None
+        self.input_var: Optional[tk.StringVar] = None
+        self.response_mode_var: Optional[tk.StringVar] = None
+        
+        self._create_window()
+    
+    def _setup_colors(self):
+        if self.dark_mode:
+            self.bg_color = "#2d2d2d"
+            self.fg_color = "#ffffff"
+            self.button_bg = "#444444"
+            self.button_hover = "#555555"
+            self.input_bg = "#333333"
+            self.border_color = "#666666"
+            self.accent_color = "#2196F3"
+        else:
+            self.bg_color = "#f5f5f5"
+            self.fg_color = "#333333"
+            self.button_bg = "#ffffff"
+            self.button_hover = "#e8e8e8"
+            self.input_bg = "#ffffff"
+            self.border_color = "#cccccc"
+            self.accent_color = "#1e66f5"
+    
+    def _create_window(self):
+        self.root = tk.Toplevel(self.parent_root)
+        self.root.title("AI Chat")
+        self.root.overrideredirect(True)
+        self.root.attributes('-topmost', True)
+        self.root.configure(bg=self.bg_color)
+        
+        main_frame = tk.Frame(
+            self.root,
+            bg=self.bg_color,
+            highlightbackground=self.border_color,
+            highlightthickness=1
+        )
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+        
+        content_frame = tk.Frame(main_frame, bg=self.bg_color)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Close button
+        top_bar = tk.Frame(content_frame, bg=self.bg_color)
+        top_bar.pack(fill=tk.X, pady=(0, 5))
+        
+        close_btn = tk.Button(
+            top_bar, text="×", font=("Arial", 14, "bold"),
+            bg=self.bg_color, fg=self.fg_color,
+            activebackground=self.button_hover,
+            relief=tk.FLAT, bd=0, command=self._close
+        )
+        close_btn.pack(side=tk.RIGHT)
+        
+        # Response mode radio buttons
+        mode_frame = tk.Frame(content_frame, bg=self.bg_color)
+        mode_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        tk.Label(
+            mode_frame, text="Response:", font=("Arial", 9),
+            bg=self.bg_color, fg=self.fg_color
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        
+        self.response_mode_var = tk.StringVar(master=self.root, value="default")
+        
+        for mode_text, mode_value in [("Default", "default"), ("Replace", "replace"), ("Show", "show")]:
+            rb = tk.Radiobutton(
+                mode_frame, text=mode_text, variable=self.response_mode_var,
+                value=mode_value, font=("Arial", 9), bg=self.bg_color,
+                fg=self.fg_color, selectcolor=self.input_bg,
+                activebackground=self.bg_color, activeforeground=self.fg_color,
+                highlightthickness=0, indicatoron=True
+            )
+            rb.pack(side=tk.LEFT, padx=2)
+        
+        # Input area
+        input_frame = tk.Frame(content_frame, bg=self.bg_color)
+        input_frame.pack(fill=tk.X)
+        
+        self.input_var = tk.StringVar(master=self.root)
+        placeholder = "Ask your AI..."
+        
+        self.input_entry = tk.Entry(
+            input_frame, textvariable=self.input_var, font=("Arial", 11),
+            bg=self.input_bg, fg=self.fg_color, insertbackground=self.fg_color,
+            relief=tk.FLAT, highlightbackground=self.border_color,
+            highlightthickness=1, width=40
+        )
+        self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5), ipady=8)
+        self.input_entry.insert(0, placeholder)
+        self.input_entry.config(fg='gray')
+        
+        def on_focus_in(event):
+            if self.input_entry.get() == placeholder:
+                self.input_entry.delete(0, tk.END)
+                self.input_entry.config(fg=self.fg_color)
+        
+        def on_focus_out(event):
+            if not self.input_entry.get():
+                self.input_entry.insert(0, placeholder)
+                self.input_entry.config(fg='gray')
+        
+        self.input_entry.bind('<FocusIn>', on_focus_in)
+        self.input_entry.bind('<FocusOut>', on_focus_out)
+        self.input_entry.bind('<Return>', lambda e: self._submit())
+        
+        send_btn = tk.Button(
+            input_frame, text="➤", font=("Arial", 12),
+            bg=self.accent_color, fg="#ffffff",
+            activebackground="#1976D2", relief=tk.FLAT, bd=0,
+            padx=10, pady=5, command=self._submit
+        )
+        send_btn.pack(side=tk.RIGHT)
+        
+        # Position window
+        self.root.update_idletasks()
+        
+        x = self.x
+        y = self.y
+        if x is None or y is None:
+            x = self.root.winfo_pointerx()
+            y = self.root.winfo_pointery() + 20
+        
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        window_width = self.root.winfo_reqwidth()
+        window_height = self.root.winfo_reqheight()
+        
+        if x + window_width > screen_width:
+            x = screen_width - window_width - 10
+        if y + window_height > screen_height:
+            y = y - window_height - 30
+        
+        self.root.geometry(f"+{x}+{y}")
+        
+        self.root.bind('<Escape>', lambda e: self._close())
+        
+        self.root.lift()
+        self.root.focus_force()
+        self.input_entry.focus_set()
+    
+    def _submit(self):
+        text = self.input_var.get().strip()
+        if text and text != "Ask your AI...":
+            response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
+            self._close()
+            self.on_submit(text, response_mode)
+    
+    def _close(self):
+        if self.root:
+            try:
+                self.root.destroy()
+            except tk.TclError:
+                pass
+            self.root = None
+        if self.on_close_callback:
+            self.on_close_callback()
+
+
+class AttachedPromptPopup:
+    """
+    Prompt selection popup as Toplevel attached to coordinator's root.
+    Used for centralized GUI threading.
+    """
+    
+    def __init__(
+        self,
+        parent_root: tk.Tk,
+        options: Dict,
+        on_option_selected: Callable[[str, str, Optional[str], str], None],
+        on_close: Optional[Callable[[], None]],
+        selected_text: str,
+        x: Optional[int] = None,
+        y: Optional[int] = None
+    ):
+        self.parent_root = parent_root
+        self.options = options
+        self.on_option_selected = on_option_selected
+        self.on_close_callback = on_close
+        self.selected_text = selected_text
+        self.x = x
+        self.y = y
+        
+        self.dark_mode = is_dark_mode()
+        self._setup_colors()
+        
+        self.root: Optional[tk.Toplevel] = None
+        self.input_var: Optional[tk.StringVar] = None
+        self.response_mode_var: Optional[tk.StringVar] = None
+        
+        self._create_window()
+    
+    def _setup_colors(self):
+        if self.dark_mode:
+            self.bg_color = "#2d2d2d"
+            self.fg_color = "#ffffff"
+            self.button_bg = "#444444"
+            self.button_hover = "#555555"
+            self.input_bg = "#333333"
+            self.border_color = "#666666"
+            self.accent_color = "#2196F3"
+        else:
+            self.bg_color = "#f5f5f5"
+            self.fg_color = "#333333"
+            self.button_bg = "#ffffff"
+            self.button_hover = "#e8e8e8"
+            self.input_bg = "#ffffff"
+            self.border_color = "#cccccc"
+            self.accent_color = "#1e66f5"
+    
+    def _create_window(self):
+        self.root = tk.Toplevel(self.parent_root)
+        self.root.title("Text Edit Tool")
+        self.root.overrideredirect(True)
+        self.root.attributes('-topmost', True)
+        self.root.configure(bg=self.bg_color)
+        
+        main_frame = tk.Frame(
+            self.root, bg=self.bg_color,
+            highlightbackground=self.border_color, highlightthickness=1
+        )
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+        
+        content_frame = tk.Frame(main_frame, bg=self.bg_color)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Close button
+        top_bar = tk.Frame(content_frame, bg=self.bg_color)
+        top_bar.pack(fill=tk.X, pady=(0, 5))
+        
+        close_btn = tk.Button(
+            top_bar, text="×", font=("Arial", 14, "bold"),
+            bg=self.bg_color, fg=self.fg_color,
+            activebackground=self.button_hover,
+            relief=tk.FLAT, bd=0, command=self._close
+        )
+        close_btn.pack(side=tk.RIGHT)
+        
+        # Response mode radio buttons
+        mode_frame = tk.Frame(content_frame, bg=self.bg_color)
+        mode_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        tk.Label(
+            mode_frame, text="Response:", font=("Arial", 9),
+            bg=self.bg_color, fg=self.fg_color
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        
+        self.response_mode_var = tk.StringVar(master=self.root, value="default")
+        
+        for mode_text, mode_value in [("Default", "default"), ("Replace", "replace"), ("Show", "show")]:
+            rb = tk.Radiobutton(
+                mode_frame, text=mode_text, variable=self.response_mode_var,
+                value=mode_value, font=("Arial", 9), bg=self.bg_color,
+                fg=self.fg_color, selectcolor=self.input_bg,
+                activebackground=self.bg_color, activeforeground=self.fg_color,
+                highlightthickness=0, indicatoron=True
+            )
+            rb.pack(side=tk.LEFT, padx=2)
+        
+        # Input area
+        input_frame = tk.Frame(content_frame, bg=self.bg_color)
+        input_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.input_var = tk.StringVar(master=self.root)
+        placeholder = "Describe your change..."
+        
+        self.input_entry = tk.Entry(
+            input_frame, textvariable=self.input_var, font=("Arial", 11),
+            bg=self.input_bg, fg=self.fg_color, insertbackground=self.fg_color,
+            relief=tk.FLAT, highlightbackground=self.border_color,
+            highlightthickness=1
+        )
+        self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5), ipady=8)
+        self.input_entry.insert(0, placeholder)
+        self.input_entry.config(fg='gray')
+        
+        def on_focus_in(event):
+            if self.input_entry.get() == placeholder:
+                self.input_entry.delete(0, tk.END)
+                self.input_entry.config(fg=self.fg_color)
+        
+        def on_focus_out(event):
+            if not self.input_entry.get():
+                self.input_entry.insert(0, placeholder)
+                self.input_entry.config(fg='gray')
+        
+        self.input_entry.bind('<FocusIn>', on_focus_in)
+        self.input_entry.bind('<FocusOut>', on_focus_out)
+        self.input_entry.bind('<Return>', lambda e: self._on_custom_submit())
+        
+        send_btn = tk.Button(
+            input_frame, text="➤", font=("Arial", 12),
+            bg=self.accent_color, fg="#ffffff",
+            activebackground="#1976D2", relief=tk.FLAT, bd=0,
+            padx=10, pady=5, command=self._on_custom_submit
+        )
+        send_btn.pack(side=tk.RIGHT)
+        
+        # Option buttons
+        self._create_option_buttons(content_frame)
+        
+        # Position window
+        self.root.update_idletasks()
+        
+        x = self.x
+        y = self.y
+        if x is None or y is None:
+            x = self.root.winfo_pointerx()
+            y = self.root.winfo_pointery() + 20
+        
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        window_width = self.root.winfo_reqwidth()
+        window_height = self.root.winfo_reqheight()
+        
+        if x + window_width > screen_width:
+            x = screen_width - window_width - 10
+        if y + window_height > screen_height:
+            y = y - window_height - 30
+        
+        self.root.geometry(f"+{x}+{y}")
+        
+        self.root.bind('<Escape>', lambda e: self._close())
+        
+        self.root.lift()
+        self.root.focus_force()
+        self.input_entry.focus_set()
+    
+    def _create_option_buttons(self, parent: tk.Frame):
+        buttons_frame = tk.Frame(parent, bg=self.bg_color)
+        buttons_frame.pack(fill=tk.BOTH, expand=True)
+        
+        row = 0
+        col = 0
+        
+        for key, option in self.options.items():
+            if key == "Custom":
+                continue
+            
+            btn = tk.Button(
+                buttons_frame, text=key, font=("Arial", 10),
+                bg=self.button_bg, fg=self.fg_color,
+                activebackground=self.button_hover,
+                relief=tk.FLAT, bd=0, padx=15, pady=8, width=12, anchor=tk.W,
+                command=lambda k=key: self._on_option_click(k)
+            )
+            btn.grid(row=row, column=col, padx=3, pady=3, sticky=tk.EW)
+            
+            btn.bind('<Enter>', lambda e, b=btn: b.config(bg=self.button_hover))
+            btn.bind('<Leave>', lambda e, b=btn: b.config(bg=self.button_bg))
+            
+            col += 1
+            if col > 1:
+                col = 0
+                row += 1
+        
+        buttons_frame.columnconfigure(0, weight=1)
+        buttons_frame.columnconfigure(1, weight=1)
+    
+    def _on_option_click(self, option_key: str):
+        logging.debug(f'Option selected: {option_key}')
+        response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
+        self._close()
+        self.on_option_selected(option_key, self.selected_text, None, response_mode)
+    
+    def _on_custom_submit(self):
+        custom_text = self.input_var.get().strip()
+        if not custom_text or custom_text == "Describe your change...":
+            return
+        
+        logging.debug(f'Custom input submitted: {custom_text[:50]}...')
+        response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
+        self._close()
+        self.on_option_selected("Custom", self.selected_text, custom_text, response_mode)
+    
+    def _close(self):
+        if self.root:
+            try:
+                self.root.destroy()
+            except tk.TclError:
+                pass
+            self.root = None
+        if self.on_close_callback:
+            self.on_close_callback()
+
+
+def create_attached_input_popup(
+    parent_root: tk.Tk,
+    on_submit: Callable[[str, str], None],
+    on_close: Optional[Callable[[], None]],
+    x: Optional[int] = None,
+    y: Optional[int] = None
+):
+    """Create an input popup as Toplevel attached to parent root (called on GUI thread)"""
+    AttachedInputPopup(parent_root, on_submit, on_close, x, y)
+
+
+def create_attached_prompt_popup(
+    parent_root: tk.Tk,
+    options: Dict,
+    on_option_selected: Callable[[str, str, Optional[str], str], None],
+    on_close: Optional[Callable[[], None]],
+    selected_text: str,
+    x: Optional[int] = None,
+    y: Optional[int] = None
+):
+    """Create a prompt selection popup as Toplevel attached to parent root (called on GUI thread)"""
+    AttachedPromptPopup(parent_root, options, on_option_selected, on_close, selected_text, x, y)

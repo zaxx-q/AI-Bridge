@@ -2,14 +2,23 @@
 """
 GUI core initialization and threading - Tkinter implementation
 
-This module provides a simple approach where each window type creates
-its own Tk root and runs its own mainloop in a thread, avoiding the
-threading issues with shared Tk roots.
+This module provides a centralized GUI coordinator that ensures all Tkinter
+operations happen on a single dedicated GUI thread. This is necessary because
+Tkinter is not thread-safe and doesn't support multiple Tk() instances
+across different threads.
+
+Architecture:
+    - One dedicated GUI thread runs a single Tk() root with an event loop
+    - All window creation requests go through a queue
+    - The GUI thread processes the queue and creates windows as Toplevel
+    - Background threads can safely request window creation without conflicts
 """
 
+import queue
 import threading
 import time
-from typing import Optional
+import tkinter as tk
+from typing import Optional, Callable, Any
 
 # Tkinter is always available in standard Python
 HAVE_GUI = True
@@ -47,34 +56,218 @@ def has_open_windows():
         return len(OPEN_WINDOWS) > 0
 
 
-def show_chat_gui(session, initial_response=None):
-    """Show a chat GUI window in a new thread with its own Tk root"""
-    def run_chat_window():
-        from .windows import StandaloneChatWindow
-        window = StandaloneChatWindow(session, initial_response)
-        window.show()
+class GUICoordinator:
+    """
+    Centralized coordinator for all GUI operations.
     
-    thread = threading.Thread(target=run_chat_window, daemon=True)
-    thread.start()
+    Ensures all Tkinter operations happen on a single dedicated thread,
+    avoiding the threading issues that occur with multiple Tk() instances.
+    """
+    
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __init__(self):
+        self._root: Optional[tk.Tk] = None
+        self._request_queue: queue.Queue = queue.Queue()
+        self._running = False
+        self._gui_thread: Optional[threading.Thread] = None
+        self._started = threading.Event()
+    
+    @classmethod
+    def get_instance(cls) -> 'GUICoordinator':
+        """Get singleton instance"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+    
+    def ensure_running(self):
+        """Ensure the GUI thread is running"""
+        if not self._running:
+            with self._lock:
+                if not self._running:
+                    self._start_gui_thread()
+                    # Wait for GUI thread to initialize
+                    self._started.wait(timeout=5.0)
+    
+    def _start_gui_thread(self):
+        """Start the dedicated GUI thread"""
+        def run_gui():
+            try:
+                self._root = tk.Tk()
+                self._root.withdraw()  # Hidden root window
+                self._running = True
+                self._started.set()
+                
+                # Main event loop
+                while self._running:
+                    # Process pending window creation requests
+                    self._process_queue()
+                    
+                    # Update Tk event loop
+                    try:
+                        self._root.update()
+                    except tk.TclError:
+                        break
+                    
+                    time.sleep(0.01)  # ~100 FPS
+                    
+            except Exception as e:
+                print(f"[GUICoordinator] Error in GUI thread: {e}")
+            finally:
+                self._running = False
+                self._started.set()  # Unblock waiters
+        
+        self._gui_thread = threading.Thread(target=run_gui, daemon=True, name="GUI-Thread")
+        self._gui_thread.start()
+    
+    def _process_queue(self):
+        """Process pending window creation requests"""
+        while not self._request_queue.empty():
+            try:
+                request = self._request_queue.get_nowait()
+                request_type = request.get('type')
+                
+                if request_type == 'chat':
+                    self._create_chat_window(request)
+                elif request_type == 'browser':
+                    self._create_browser_window(request)
+                elif request_type == 'popup_input':
+                    self._create_input_popup(request)
+                elif request_type == 'popup_prompt':
+                    self._create_prompt_popup(request)
+                elif request_type == 'callback':
+                    # Generic callback execution on GUI thread
+                    callback = request.get('callback')
+                    if callback:
+                        try:
+                            callback()
+                        except Exception as e:
+                            print(f"[GUICoordinator] Callback error: {e}")
+                            
+            except queue.Empty:
+                break
+            except Exception as e:
+                print(f"[GUICoordinator] Error processing request: {e}")
+    
+    def _create_chat_window(self, request):
+        """Create a chat window on the GUI thread"""
+        from .windows import create_attached_chat_window
+        session = request.get('session')
+        initial_response = request.get('initial_response')
+        if session:
+            create_attached_chat_window(self._root, session, initial_response)
+    
+    def _create_browser_window(self, request):
+        """Create a session browser window on the GUI thread"""
+        from .windows import create_attached_browser_window
+        create_attached_browser_window(self._root)
+    
+    def _create_input_popup(self, request):
+        """Create an input popup on the GUI thread"""
+        from .popups import create_attached_input_popup
+        on_submit = request.get('on_submit')
+        on_close = request.get('on_close')
+        x = request.get('x')
+        y = request.get('y')
+        create_attached_input_popup(self._root, on_submit, on_close, x, y)
+    
+    def _create_prompt_popup(self, request):
+        """Create a prompt selection popup on the GUI thread"""
+        from .popups import create_attached_prompt_popup
+        options = request.get('options')
+        on_option_selected = request.get('on_option_selected')
+        on_close = request.get('on_close')
+        selected_text = request.get('selected_text')
+        x = request.get('x')
+        y = request.get('y')
+        create_attached_prompt_popup(self._root, options, on_option_selected, on_close, selected_text, x, y)
+    
+    def request_chat_window(self, session, initial_response=None):
+        """Request creation of a chat window (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'chat',
+            'session': session,
+            'initial_response': initial_response
+        })
+    
+    def request_browser_window(self):
+        """Request creation of a session browser window (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'browser'
+        })
+    
+    def request_input_popup(self, on_submit: Callable, on_close: Optional[Callable] = None,
+                           x: Optional[int] = None, y: Optional[int] = None):
+        """Request creation of an input popup (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'popup_input',
+            'on_submit': on_submit,
+            'on_close': on_close,
+            'x': x,
+            'y': y
+        })
+    
+    def request_prompt_popup(self, options: dict, on_option_selected: Callable,
+                            on_close: Optional[Callable], selected_text: str,
+                            x: Optional[int] = None, y: Optional[int] = None):
+        """Request creation of a prompt selection popup (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'popup_prompt',
+            'options': options,
+            'on_option_selected': on_option_selected,
+            'on_close': on_close,
+            'selected_text': selected_text,
+            'x': x,
+            'y': y
+        })
+    
+    def run_on_gui_thread(self, callback: Callable):
+        """Run a callback on the GUI thread (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'callback',
+            'callback': callback
+        })
+    
+    def get_root(self) -> Optional[tk.Tk]:
+        """Get the root Tk instance (only safe to use from GUI thread!)"""
+        return self._root
+    
+    def is_running(self) -> bool:
+        """Check if GUI thread is running"""
+        return self._running
+    
+    def shutdown(self):
+        """Shutdown the GUI coordinator"""
+        self._running = False
+
+
+def show_chat_gui(session, initial_response=None):
+    """Show a chat GUI window (thread-safe)"""
+    coordinator = GUICoordinator.get_instance()
+    coordinator.request_chat_window(session, initial_response)
     return True
 
 
 def show_session_browser():
-    """Show a session browser window in a new thread with its own Tk root"""
-    def run_browser_window():
-        from .windows import StandaloneSessionBrowserWindow
-        window = StandaloneSessionBrowserWindow()
-        window.show()
-    
-    thread = threading.Thread(target=run_browser_window, daemon=True)
-    thread.start()
+    """Show a session browser window (thread-safe)"""
+    coordinator = GUICoordinator.get_instance()
+    coordinator.request_browser_window()
     return True
 
 
 def get_gui_status():
     """Get current GUI status"""
+    coordinator = GUICoordinator.get_instance()
     return {
         "available": HAVE_GUI,
-        "running": has_open_windows(),
+        "running": coordinator.is_running(),
         "open_windows": len(OPEN_WINDOWS)
     }

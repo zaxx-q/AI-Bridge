@@ -161,29 +161,30 @@ class TextEditToolApp:
         threading.Thread(target=self._show_popup, daemon=True).start()
     
     def _show_popup(self):
-        """Show the appropriate popup window."""
-        logging.debug('Showing popup window')
+        """Show the appropriate popup window via GUICoordinator."""
+        logging.debug('Showing popup window via GUICoordinator')
+        
+        from .core import GUICoordinator
         
         # Get selected text with quick check first, then retry if empty
         self.current_selected_text = self.text_handler.get_selected_text(sleep_duration=0.15)
         
         if self.current_selected_text:
             logging.debug(f'Selected text: "{self.current_selected_text[:50]}..."')
-            # Text selected - show prompt selection popup
-            self.popup = PromptSelectionPopup(
+            # Text selected - show prompt selection popup via coordinator
+            GUICoordinator.get_instance().request_prompt_popup(
                 options=self._get_action_options(),
                 on_option_selected=self._on_option_selected,
-                on_close=self._on_popup_closed
+                on_close=self._on_popup_closed,
+                selected_text=self.current_selected_text
             )
-            self.popup.show(self.current_selected_text)
         else:
-            # No text selected - show simple input popup immediately
+            # No text selected - show simple input popup via coordinator
             logging.debug('No text selected, showing input popup')
-            self.popup = InputPopup(
+            GUICoordinator.get_instance().request_input_popup(
                 on_submit=self._on_direct_chat,
                 on_close=self._on_popup_closed
             )
-            self.popup.show()
     
     def _on_popup_closed(self):
         """Handle popup window close."""
