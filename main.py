@@ -75,11 +75,12 @@ def initialize():
     thinking = config.get('thinking_enabled', False)
     
     print("⚙️  Configuration")
-    print(f"    📡 Provider: {provider} → {base_url}")
-    print(f"    🤖 Model:    {model}")
-    stream_icon = "✓" if streaming else "✗"
-    think_icon = "✓" if thinking else "✗"
-    print(f"    🌊 Streaming: {stream_icon}   💭 Thinking: {think_icon}")
+    print(f"    📡 Provider:  {provider} → {base_url}")
+    print(f"    🤖 Model:     {model}")
+    stream_icon = "✅" if streaming else "✗"
+    think_icon = "✅" if thinking else "✗"
+    print(f"    🌊 Streaming: {stream_icon}")
+    print(f"    💭 Thinking:  {think_icon}")
     print()
     
     # ─── API Keys ─────────────────────────────────────────────────────────
@@ -89,7 +90,7 @@ def initialize():
         count = web_server.KEY_MANAGERS[p].get_key_count()
         if count > 0:
             marker = " ◄" if p == provider else ""
-            key_status.append(f"✓ {p} ({count}){marker}")
+            key_status.append(f"✅ {p} ({count}){marker}")
         else:
             key_status.append(f"✗ {p}")
     print(f"    {key_status[0]}   {key_status[1]}   {key_status[2]}")
@@ -166,7 +167,7 @@ def main():
         print("Creating example configuration file...")
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             f.write(generate_example_config())
-        print(f"✓ Created '{CONFIG_FILE}'")
+        print(f"✅ Created '{CONFIG_FILE}'")
         print("\nPlease edit the config file to add your API keys, then restart.")
         sys.exit(0)
     
@@ -185,7 +186,7 @@ def main():
     port = int(web_server.CONFIG.get('port', 5000))
     
     print(f"🚀 Server: http://{host}:{port}")
-    print(f"   📡 {len(endpoints)} endpoints registered")
+    print(f"   📡  {len(endpoints)} endpoints registered")
     
     # GUI status
     if HAVE_GUI:
@@ -195,7 +196,6 @@ def main():
     text_tool_result = initialize_text_edit_tool(config, ai_params)
     if text_tool_result:
         hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
-        print(f"   ⌨️  TextEditTool: {hotkey}")
     
     print()
     

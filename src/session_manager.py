@@ -160,7 +160,8 @@ def load_sessions():
                     if isinstance(session.session_id, int) and session.session_id > SESSION_COUNTER:
                         SESSION_COUNTER = session.session_id
             
-            print(f"  ✓ Loaded {len(CHAT_SESSIONS)} saved session(s) (counter: {SESSION_COUNTER})")
+            print(f"    ✅ Loaded {len(CHAT_SESSIONS)} saved session(s) (counter: {SESSION_COUNTER})")
+            print()
     except Exception as e:
         print(f"[Warning] Failed to load sessions: {e}")
 

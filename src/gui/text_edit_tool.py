@@ -125,7 +125,7 @@ class TextEditToolApp:
         )
         self.hotkey_listener.start()
         
-        print(f"  ✓ TextEditTool: Hotkey '{self.hotkey}' registered")
+        print(f"  ✅ TextEditTool: Hotkey '{self.hotkey}' registered")
     
     def stop(self):
         """Stop the TextEditTool application."""
@@ -447,9 +447,9 @@ class TextEditToolApp:
                     return
                 
                 if streaming_enabled:
-                    print(f"\n✓ Response streamed ({len(response) if response else 0} chars)")
+                    print(f"\n✅ Response streamed ({len(response) if response else 0} chars)")
                 else:
-                    print(f"\n✓ Response typed ({len(response) if response else 0} chars)")
+                    print(f"\n✅ Response typed ({len(response) if response else 0} chars)")
             
         except Exception as e:
             logging.error(f'Error in direct chat: {e}')

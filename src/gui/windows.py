@@ -509,7 +509,7 @@ class StandaloneChatWindow:
             config_key = f"{provider}_model"
             if save_config_value(config_key, selected):
                 web_server.CONFIG[config_key] = selected
-                self.status_label.configure(text=f"✓ Model: {selected}")
+                self.status_label.configure(text=f"✅ Model: {selected}")
             else:
                 self.status_label.configure(text=f"Model: {selected} (not saved)")
     
@@ -658,7 +658,7 @@ class StandaloneChatWindow:
                         usage_str = f" | {self.last_usage.get('total_tokens', 0)} tokens"
                     
                     self.status_label.configure(
-                        text=f"✓ Response received{usage_str}",
+                        text=f"✅ Response received{usage_str}",
                         fg=self.colors["accent_green"]
                     )
                     add_session(self.session, web_server.CONFIG.get("max_sessions", 50))
@@ -726,14 +726,14 @@ class StandaloneChatWindow:
     def _copy_all(self):
         text = self._get_conversation_text()
         if copy_to_clipboard(text, self.root):
-            self.status_label.configure(text="✓ Copied all!", fg=self.colors["accent_green"])
+            self.status_label.configure(text="✅ Copied all!", fg=self.colors["accent_green"])
         else:
             self.status_label.configure(text="✗ Failed to copy", fg=self.colors["accent_red"])
     
     def _copy_last(self):
         text = self.last_response
         if copy_to_clipboard(text, self.root):
-            self.status_label.configure(text="✓ Copied last response!", fg=self.colors["accent_green"])
+            self.status_label.configure(text="✅ Copied last response!", fg=self.colors["accent_green"])
         else:
             self.status_label.configure(text="✗ Failed to copy", fg=self.colors["accent_red"])
     
@@ -1554,7 +1554,7 @@ class AttachedChatWindow:
             config_key = f"{provider}_model"
             if save_config_value(config_key, selected):
                 web_server.CONFIG[config_key] = selected
-                self.status_label.configure(text=f"✓ Model: {selected}")
+                self.status_label.configure(text=f"✅ Model: {selected}")
             else:
                 self.status_label.configure(text=f"Model: {selected} (not saved)")
     
@@ -1682,7 +1682,7 @@ class AttachedChatWindow:
                         usage_str = f" | {self.last_usage.get('total_tokens', 0)} tokens"
                     
                     self.status_label.configure(
-                        text=f"✓ Response received{usage_str}",
+                        text=f"✅ Response received{usage_str}",
                         fg=self.colors["accent_green"]
                     )
                     add_session(self.session, web_server.CONFIG.get("max_sessions", 50))
@@ -1740,14 +1740,14 @@ class AttachedChatWindow:
     def _copy_all(self):
         text = self._get_conversation_text()
         if copy_to_clipboard(text, self.root):
-            self.status_label.configure(text="✓ Copied all!", fg=self.colors["accent_green"])
+            self.status_label.configure(text="✅ Copied all!", fg=self.colors["accent_green"])
         else:
             self.status_label.configure(text="✗ Failed to copy", fg=self.colors["accent_red"])
     
     def _copy_last(self):
         text = self.last_response
         if copy_to_clipboard(text, self.root):
-            self.status_label.configure(text="✓ Copied last response!", fg=self.colors["accent_green"])
+            self.status_label.configure(text="✅ Copied last response!", fg=self.colors["accent_green"])
         else:
             self.status_label.configure(text="✗ Failed to copy", fg=self.colors["accent_red"])
     

@@ -37,7 +37,7 @@ def print_commands_box():
     print("  COMMANDS                                       Ctrl+C to stop")
     print("─" * 64)
     print("  [L] 📋 Sessions      [P] 🔄 Provider     [T] 💭 Thinking")
-    print("  [O] 🖥️  Browser       [M] 🤖 Models       [R] 🌊 Streaming")
+    print("  [O] 🖥️ Browser       [M] 🤖 Models       [R] 🌊 Streaming")
     print("  [E] 📡 Endpoints     [S] 📊 Status       [H] ❓ Help")
     print("─" * 64)
     print()
@@ -122,8 +122,8 @@ def terminal_session_manager(endpoints=None):
                 print(f"\n{'─'*64}")
                 print(f"🖥️  GUI STATUS")
                 print(f"{'─'*64}")
-                available_icon = "✓" if status['available'] else "✗"
-                running_icon = "✓" if status['running'] else "✗"
+                available_icon = "✅" if status['available'] else "✗"
+                running_icon = "✅" if status['running'] else "✗"
                 print(f"   Available: {available_icon}")
                 print(f"   Running:   {running_icon}")
                 print(f"   Context:   {status['context_created']}")
@@ -172,7 +172,7 @@ def terminal_session_manager(endpoints=None):
                             config_key = f"{provider}_model"
                             if save_config_value(config_key, new_model):
                                 web_server.CONFIG[config_key] = new_model
-                                print(f"   ✓ Model: {new_model}")
+                                print(f"   ✅ Model: {new_model}")
                             else:
                                 print(f"   ✗ Failed to save")
                     except:
@@ -198,7 +198,7 @@ def terminal_session_manager(endpoints=None):
                 available = []
                 for p, km in web_server.KEY_MANAGERS.items():
                     key_count = km.get_key_count()
-                    key_icon = "✓" if key_count > 0 else "✗"
+                    key_icon = "✅" if key_count > 0 else "✗"
                     key_info = f"({key_count})" if key_count > 0 else "(no keys)"
                     available.append((p, key_count))
                     marker = " ◄" if p == current_provider else ""
@@ -222,7 +222,7 @@ def terminal_session_manager(endpoints=None):
                                 web_server.CONFIG["default_provider"] = new_provider
                                 new_base = get_base_url_for_status(web_server.CONFIG, new_provider)
                                 model = web_server.CONFIG.get(f"{new_provider}_model", "not set")
-                                print(f"   ✓ {new_provider} → {new_base}")
+                                print(f"   ✅ {new_provider} → {new_base}")
                                 print(f"     Model: {model}")
                             else:
                                 print(f"   ✗ Failed to save")
@@ -252,8 +252,8 @@ def terminal_session_manager(endpoints=None):
                 # Streaming/Thinking
                 streaming = web_server.CONFIG.get("streaming_enabled", True)
                 thinking = web_server.CONFIG.get("thinking_enabled", False)
-                stream_status = "✓ ON" if streaming else "✗ OFF"
-                think_status = "✓ ON" if thinking else "✗ OFF"
+                stream_status = "✅ ON" if streaming else "✗ OFF"
+                think_status = "✅ ON" if thinking else "✗ OFF"
                 print(f"\n   🌊 Streaming: {stream_status}")
                 print(f"   💭 Thinking:  {think_status}")
                 
@@ -281,7 +281,7 @@ def terminal_session_manager(endpoints=None):
                 print(f"\n   🔑 API Keys:")
                 for p, km in web_server.KEY_MANAGERS.items():
                     count = km.get_key_count()
-                    key_icon = "✓" if count > 0 else "✗"
+                    key_icon = "✅" if count > 0 else "✗"
                     marker = " ◄" if p == provider else ""
                     print(f"      {key_icon} {p}: {count} key{'s' if count != 1 else ''}{marker}")
                 
@@ -297,7 +297,7 @@ def terminal_session_manager(endpoints=None):
                 
                 if save_config_value("thinking_enabled", new_value):
                     web_server.CONFIG["thinking_enabled"] = new_value
-                    status = "✓ ON" if new_value else "✗ OFF"
+                    status = "✅ ON" if new_value else "✗ OFF"
                     print(f"\n💭 Thinking: {status}")
                     if new_value:
                         output_mode = web_server.CONFIG.get("thinking_output", "reasoning_content")
@@ -316,7 +316,7 @@ def terminal_session_manager(endpoints=None):
                 
                 if save_config_value("streaming_enabled", new_value):
                     web_server.CONFIG["streaming_enabled"] = new_value
-                    status = "✓ ON" if new_value else "✗ OFF"
+                    status = "✅ ON" if new_value else "✗ OFF"
                     print(f"\n🌊 Streaming: {status}\n")
                 else:
                     print("\n✗ Failed to toggle streaming\n")
@@ -360,7 +360,7 @@ def terminal_session_manager(endpoints=None):
                         if confirm == 'y':
                             if delete_session(session_id):
                                 save_sessions()
-                                print(f"✓ Session {session_id} deleted.\n")
+                                print(f"✅ Session {session_id} deleted.\n")
                     else:
                         print(f"✗ Session '{session_id}' not found.\n")
                 except:
@@ -372,7 +372,7 @@ def terminal_session_manager(endpoints=None):
                     if confirm == 'y':
                         clear_all_sessions()
                         save_sessions()
-                        print("✓ All sessions cleared.\n")
+                        print("✅ All sessions cleared.\n")
                 except:
                     pass
             
@@ -381,12 +381,12 @@ def terminal_session_manager(endpoints=None):
                 print("❓ HELP")
                 print(f"{'─'*64}")
                 print("   [L] 📋 Sessions      List recent saved sessions")
-                print("   [O] 🖥️  Browser       Open session browser GUI")
-                print("   [V] 👁️  View          View a session by ID")
-                print("   [D] 🗑️  Delete        Delete a session by ID")
+                print("   [O] 🖥️ Browser       Open session browser GUI")
+                print("   [V] 👁️ View          View a session by ID")
+                print("   [D] 🗑️ Delete        Delete a session by ID")
                 print("   [C] 🧹 Clear         Clear all sessions")
                 print("   [E] 📡 Endpoints     List registered endpoints")
-                print("   [G] 🖥️  GUI status    Show GUI state")
+                print("   [G] 🖥️ GUI status    Show GUI state")
                 print("   [M] 🤖 Models        List/set models from API")
                 print("   [P] 🔄 Provider      Switch API provider")
                 print("   [S] 📊 Status        Show current configuration")
