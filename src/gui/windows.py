@@ -2343,15 +2343,45 @@ class AttachedChatWindow:
         self.root.lift()
         self.root.focus_force()
     
-    def _safe_after(self, delay: int, func):
-        """Schedule a callback only if window still exists."""
+    def _run_on_gui_thread(self, func):
+        """
+        Run a callback on the GUI thread via coordinator's queue.
+        This is the only safe way to update UI from background threads
+        when using the centralized GUICoordinator.
+        """
         if self._destroyed:
             return
-        try:
-            if self.root and self.root.winfo_exists():
-                self.root.after(delay, func)
-        except Exception:
-            pass
+        from .core import GUICoordinator
+        
+        def safe_wrapper():
+            if not self._destroyed:
+                try:
+                    func()
+                except tk.TclError:
+                    pass  # Widget destroyed
+                except Exception as e:
+                    print(f"[AttachedChatWindow] Callback error: {e}")
+        
+        GUICoordinator.get_instance().run_on_gui_thread(safe_wrapper)
+    
+    def _safe_after(self, delay: int, func):
+        """
+        Schedule a callback only if window still exists.
+        For delay=0, uses coordinator's queue for thread safety.
+        For delay>0, uses root.after (must be called from GUI thread).
+        """
+        if self._destroyed:
+            return
+        if delay == 0:
+            # Use coordinator queue for immediate callbacks (thread-safe)
+            self._run_on_gui_thread(func)
+        else:
+            # For delayed callbacks, must be called from GUI thread
+            try:
+                if self.root and self.root.winfo_exists():
+                    self.root.after(delay, func)
+            except Exception:
+                pass
     
     def _update_chat_display(self, scroll_to_bottom: bool = False, preserve_scroll: bool = False):
         """Update the chat display."""
