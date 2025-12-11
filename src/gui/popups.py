@@ -177,6 +177,7 @@ class SegmentedToggle:
 class Tooltip:
     """
     A tooltip that appears after hovering over a widget for a specified delay.
+    Uses add='+' to not override existing event bindings (like hover effects).
     """
     
     DELAY_MS = 500  # Default delay before showing tooltip
@@ -189,9 +190,10 @@ class Tooltip:
         self.after_id: Optional[str] = None
         self.colors = get_colors()
         
-        self.widget.bind('<Enter>', self._on_enter)
-        self.widget.bind('<Leave>', self._on_leave)
-        self.widget.bind('<Button-1>', self._on_leave)  # Hide on click
+        # Use add='+' to add handlers without replacing existing ones (like hover effects)
+        self.widget.bind('<Enter>', self._on_enter, add='+')
+        self.widget.bind('<Leave>', self._on_leave, add='+')
+        self.widget.bind('<Button-1>', self._on_leave, add='+')  # Hide on click
     
     def _on_enter(self, event):
         """Schedule tooltip display."""
@@ -357,55 +359,94 @@ class CarouselButtonList:
         self._render_page()
     
     def _render_page(self):
-        """Render the current page of buttons."""
+        """Render the current page of buttons using grid layout for consistent alignment."""
         # Clear existing buttons and tooltips
         for widget in self.buttons_frame.winfo_children():
             widget.destroy()
         self.tooltips.clear()
+        
+        # Configure buttons_frame columns - icon column fixed, text column expands
+        self.buttons_frame.columnconfigure(0, weight=0, minsize=40)  # Icon column - fixed width
+        self.buttons_frame.columnconfigure(1, weight=1)  # Text column - expands
         
         # Get items for current page
         start_idx = self.current_page * self.items_per_page
         end_idx = start_idx + self.items_per_page
         page_items = self.items[start_idx:end_idx]
         
-        # Create buttons
+        # Create buttons using grid with separate icon and text columns
         for i, item in enumerate(page_items):
             key = item[0]
             display_text = item[1]
             icon = item[2] if len(item) > 2 else None
             tooltip_text = item[3] if len(item) > 3 else None
             
-            btn_frame = tk.Frame(self.buttons_frame, bg=self.colors.base)
-            btn_frame.pack(fill=tk.X, pady=1)
+            # Create a container frame for the entire row (for hover and click)
+            row_frame = tk.Frame(self.buttons_frame, bg=self.colors.surface0, cursor="hand2")
+            row_frame.grid(row=i, column=0, columnspan=2, sticky=tk.EW, pady=1)
             
-            # Use a fixed-width format for icon to ensure alignment
-            # All emojis take roughly 2 character widths, so we use consistent spacing
-            if icon:
-                text = f" {icon}   {display_text}"
-            else:
-                text = f"       {display_text}"  # 7 spaces to match icon width
+            # Configure row_frame columns
+            row_frame.columnconfigure(0, weight=0, minsize=40)  # Icon
+            row_frame.columnconfigure(1, weight=1)  # Text
             
-            btn = tk.Label(
-                btn_frame,
-                text=text,
+            # Icon label (fixed width)
+            icon_label = tk.Label(
+                row_frame,
+                text=icon if icon else "",
+                font=("Arial", 10),
+                bg=self.colors.surface0,
+                fg=self.colors.text,
+                width=3,  # Fixed character width for icons
+                anchor=tk.CENTER,
+                pady=10,
+                cursor="hand2"
+            )
+            icon_label.grid(row=0, column=0, sticky=tk.W, padx=(8, 0))
+            
+            # Text label (expands)
+            text_label = tk.Label(
+                row_frame,
+                text=display_text,
                 font=("Arial", 10),
                 bg=self.colors.surface0,
                 fg=self.colors.text,
                 anchor=tk.W,
-                padx=8,
                 pady=10,
                 cursor="hand2"
             )
-            btn.pack(fill=tk.X)
+            text_label.grid(row=0, column=1, sticky=tk.W, padx=(4, 8))
             
-            # Hover effects
-            btn.bind('<Enter>', lambda e, b=btn: b.config(bg=self.colors.surface1))
-            btn.bind('<Leave>', lambda e, b=btn: b.config(bg=self.colors.surface0))
-            btn.bind('<Button-1>', lambda e, k=key: self.on_click(k))
+            # Hover effects for the entire row
+            def make_enter_handler(frame, icon_lbl, text_lbl):
+                def handler(e):
+                    frame.config(bg=self.colors.surface1)
+                    icon_lbl.config(bg=self.colors.surface1)
+                    text_lbl.config(bg=self.colors.surface1)
+                return handler
             
-            # Add tooltip if provided
+            def make_leave_handler(frame, icon_lbl, text_lbl):
+                def handler(e):
+                    frame.config(bg=self.colors.surface0)
+                    icon_lbl.config(bg=self.colors.surface0)
+                    text_lbl.config(bg=self.colors.surface0)
+                return handler
+            
+            def make_click_handler(k):
+                return lambda e: self.on_click(k)
+            
+            enter_handler = make_enter_handler(row_frame, icon_label, text_label)
+            leave_handler = make_leave_handler(row_frame, icon_label, text_label)
+            click_handler = make_click_handler(key)
+            
+            # Bind to all three widgets
+            for widget in (row_frame, icon_label, text_label):
+                widget.bind('<Enter>', enter_handler)
+                widget.bind('<Leave>', leave_handler)
+                widget.bind('<Button-1>', click_handler)
+            
+            # Add tooltip to the text label (most useful target)
             if tooltip_text:
-                tooltip = Tooltip(btn, tooltip_text)
+                tooltip = Tooltip(text_label, tooltip_text)
                 self.tooltips.append(tooltip)
         
         # Update arrow and dot states

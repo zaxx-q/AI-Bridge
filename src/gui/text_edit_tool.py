@@ -172,8 +172,9 @@ class TextEditToolApp:
         if self.current_selected_text:
             logging.debug(f'Selected text: "{self.current_selected_text[:50]}..."')
             # Text selected - show prompt selection popup via coordinator
+            # Pass full options (including _settings for popup_items_per_page)
             GUICoordinator.get_instance().request_prompt_popup(
-                options=self._get_action_options(),
+                options=self.options,
                 on_option_selected=self._on_option_selected,
                 on_close=self._on_popup_closed,
                 selected_text=self.current_selected_text

@@ -8,7 +8,7 @@
     "popup_items_per_page": 6
   },
   "Proofread": {
-    "icon": "✏️",
+    "icon": "✏",
     "system_prompt": "You are a meticulous grammar proofreading assistant.\nMaintain the original text structure, formatting, and writing style.",
     "task": "Proofread and correct any grammar, spelling, or punctuation errors.",
     "show_chat_window_instead_of_replace": false
@@ -32,7 +32,7 @@
     "show_chat_window_instead_of_replace": false
   },
   "Concise": {
-    "icon": "✂️",
+    "icon": "✂",
     "system_prompt": "You are a concise writing assistant.\nPreserve essential information while eliminating unnecessary words.",
     "task": "Rewrite this text to be more concise without losing key information.",
     "show_chat_window_instead_of_replace": false
