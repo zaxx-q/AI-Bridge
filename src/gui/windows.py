@@ -683,6 +683,8 @@ class ChatWindow:
     
     def _close(self):
         unregister_window(self.window_tag)
+        # Explicitly release Tk variables to avoid __del__ on background thread
+        self.model_var = None
         self.root.destroy()
 
 
@@ -1700,6 +1702,10 @@ class StandaloneChatWindow:
         self._destroyed = True
         self.is_streaming = False
         unregister_window(self.window_tag)
+        
+        # Explicitly release Tk variables to avoid __del__ on background thread
+        self.model_var = None
+        
         try:
             if self.root:
                 self.root.destroy()
@@ -2709,6 +2715,10 @@ class AttachedChatWindow:
         self._destroyed = True
         self.is_streaming = False
         unregister_window(self.window_tag)
+        
+        # Explicitly release Tk variables to avoid __del__ on background thread
+        self.model_var = None
+        
         try:
             if self.root:
                 self.root.destroy()
