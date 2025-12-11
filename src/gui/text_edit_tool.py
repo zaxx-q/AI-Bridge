@@ -362,15 +362,24 @@ class TextEditToolApp:
             
             # Determine display mode based on hierarchy:
             # 1. Radio button (if not "default")
-            # 2. Config setting show_ai_response_in_chat_window
+            # 2. "Custom" action setting from text_edit_tool_options.json
+            # 3. Config setting show_ai_response_in_chat_window
             if response_mode == "show":
                 show_gui = True
             elif response_mode == "replace":
                 show_gui = False
-            else:  # "default" - use config setting
-                show_setting = self.config.get("show_ai_response_in_chat_window",
-                                               self.config.get("default_show", "no"))
-                show_gui = str(show_setting).lower() in ("yes", "true", "1")
+            else:  # "default"
+                # Check "Custom" option first
+                action_options = self._get_action_options()
+                custom_option = action_options.get("Custom", {})
+                
+                if "show_chat_window_instead_of_replace" in custom_option:
+                    show_gui = custom_option["show_chat_window_instead_of_replace"]
+                else:
+                    # Fallback to global config
+                    show_setting = self.config.get("show_ai_response_in_chat_window",
+                                                   self.config.get("default_show", "no"))
+                    show_gui = str(show_setting).lower() in ("yes", "true", "1")
             
             if show_gui:
                 # For GUI mode, stream to console then show window
