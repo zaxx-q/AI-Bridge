@@ -157,6 +157,10 @@ def main():
     # Suppress Flask/werkzeug logging (only show errors)
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
     
+    # Suppress Flask startup banner
+    import flask.cli
+    flask.cli.show_server_banner = lambda *args: None
+    
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)

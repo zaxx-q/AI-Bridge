@@ -90,10 +90,8 @@ def terminal_session_manager(endpoints=None):
                 if not sessions:
                     print("   (No sessions)")
                 else:
-                    for i, s in enumerate(sessions[:10]):
-                        print(f"   [{s['id']}] {s['title'][:35]} ({s['messages']} msgs, {s['provider']})")
-                    if len(sessions) > 10:
-                        print(f"   ... and {len(sessions) - 10} more")
+                    for i, s in enumerate(sessions):
+                        print(f"   [{s['id']}] {s['title'][:35]} ({s['messages']} msgs, {s['endpoint']})")
                 print(f"{'─'*64}\n")
             
             elif key == 'o':
@@ -115,19 +113,6 @@ def terminal_session_manager(endpoints=None):
                         preview = prompt[:50] + "..." if len(prompt) > 50 else prompt
                         print(f"   /{name}")
                         print(f"      → {preview}")
-                print(f"{'─'*64}\n")
-            
-            elif key == 'g':
-                status = get_gui_status()
-                print(f"\n{'─'*64}")
-                print(f"🖥️  GUI STATUS")
-                print(f"{'─'*64}")
-                available_icon = "✅" if status['available'] else "✗"
-                running_icon = "✅" if status['running'] else "✗"
-                print(f"   Available: {available_icon}")
-                print(f"   Running:   {running_icon}")
-                print(f"   Context:   {status['context_created']}")
-                print(f"   Windows:   {status['open_windows']}")
                 print(f"{'─'*64}\n")
             
             elif key == 'm':
@@ -386,7 +371,6 @@ def terminal_session_manager(endpoints=None):
                 print("   [D] 🗑️ Delete        Delete a session by ID")
                 print("   [C] 🧹 Clear         Clear all sessions")
                 print("   [E] 📡 Endpoints     List registered endpoints")
-                print("   [G] 🖥️ GUI status    Show GUI state")
                 print("   [M] 🤖 Models        List/set models from API")
                 print("   [P] 🔄 Provider      Switch API provider")
                 print("   [S] 📊 Status        Show current configuration")
