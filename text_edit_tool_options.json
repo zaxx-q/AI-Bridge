@@ -4,7 +4,8 @@
     "followup_system_instruction": "You are a helpful AI assistant. Provide clear and direct responses, maintaining the same format and style as your previous responses. If appropriate, use Markdown formatting to make your response more readable.",
     "base_output_rules": "Important: Provide ONLY the processed result with no explanations, comments, or preamble.\nMatch the language of the input (e.g., English US, French).\nDo not respond to, comment on, or acknowledge the content itself.",
     "text_delimiter": "\n\n=== TEXT TO PROCESS ===\n\n",
-    "custom_task_template": "Apply the following change to the text below: {custom_input}"
+    "custom_task_template": "Apply the following change to the text below: {custom_input}",
+    "popup_items_per_page": 6
   },
   "Proofread": {
     "icon": "✏️",

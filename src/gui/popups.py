@@ -174,31 +174,119 @@ class SegmentedToggle:
         self.frame.pack(**kwargs)
 
 
+class Tooltip:
+    """
+    A tooltip that appears after hovering over a widget for a specified delay.
+    """
+    
+    DELAY_MS = 500  # Default delay before showing tooltip
+    
+    def __init__(self, widget: tk.Widget, text: str, delay_ms: int = None):
+        self.widget = widget
+        self.text = text
+        self.delay_ms = delay_ms or self.DELAY_MS
+        self.tooltip_window: Optional[tk.Toplevel] = None
+        self.after_id: Optional[str] = None
+        self.colors = get_colors()
+        
+        self.widget.bind('<Enter>', self._on_enter)
+        self.widget.bind('<Leave>', self._on_leave)
+        self.widget.bind('<Button-1>', self._on_leave)  # Hide on click
+    
+    def _on_enter(self, event):
+        """Schedule tooltip display."""
+        self._cancel_scheduled()
+        self.after_id = self.widget.after(self.delay_ms, self._show_tooltip)
+    
+    def _on_leave(self, event=None):
+        """Cancel scheduled tooltip or hide if visible."""
+        self._cancel_scheduled()
+        self._hide_tooltip()
+    
+    def _cancel_scheduled(self):
+        """Cancel any scheduled tooltip display."""
+        if self.after_id:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+    
+    def _show_tooltip(self):
+        """Display the tooltip."""
+        if not self.text:
+            return
+        
+        self.after_id = None
+        
+        # Get widget position
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        
+        # Create tooltip window
+        self.tooltip_window = tk.Toplevel(self.widget)
+        self.tooltip_window.wm_overrideredirect(True)
+        self.tooltip_window.wm_attributes('-topmost', True)
+        
+        # Tooltip frame with border
+        frame = tk.Frame(
+            self.tooltip_window,
+            bg=self.colors.surface0,
+            highlightbackground=self.colors.surface2,
+            highlightthickness=1
+        )
+        frame.pack()
+        
+        # Tooltip label
+        label = tk.Label(
+            frame,
+            text=self.text,
+            font=("Arial", 9),
+            bg=self.colors.surface0,
+            fg=self.colors.text,
+            padx=8,
+            pady=4,
+            wraplength=300,
+            justify=tk.LEFT
+        )
+        label.pack()
+        
+        # Position tooltip
+        self.tooltip_window.wm_geometry(f"+{x}+{y}")
+    
+    def _hide_tooltip(self):
+        """Hide the tooltip."""
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+
+
 class CarouselButtonList:
     """
     A carousel-style list of buttons with pagination.
-    Shows a fixed number of items per page with navigation arrows.
+    Shows a configurable number of items per page with navigation arrows.
+    Supports continuous scrolling (wraps around at ends).
     """
     
-    ITEMS_PER_PAGE = 4
+    DEFAULT_ITEMS_PER_PAGE = 4
     
     def __init__(
         self,
         parent: tk.Frame,
-        items: List[Tuple[str, str, Optional[str]]],  # [(key, display_text, icon), ...]
-        on_click: Callable[[str], None]
+        items: List[Tuple[str, str, Optional[str], Optional[str]]],  # [(key, display_text, icon, tooltip), ...]
+        on_click: Callable[[str], None],
+        items_per_page: int = None
     ):
         self.parent = parent
         self.items = items
         self.on_click = on_click
+        self.items_per_page = items_per_page or self.DEFAULT_ITEMS_PER_PAGE
         
         self.colors = get_colors()
         self.current_page = 0
-        self.total_pages = max(1, math.ceil(len(items) / self.ITEMS_PER_PAGE))
+        self.total_pages = max(1, math.ceil(len(items) / self.items_per_page))
         
         self.buttons_frame: Optional[tk.Frame] = None
         self.nav_frame: Optional[tk.Frame] = None
         self.dot_labels: List[tk.Label] = []
+        self.tooltips: List[Tooltip] = []  # Keep references to prevent garbage collection
         
         self._create_widget()
     
@@ -210,7 +298,7 @@ class CarouselButtonList:
         self.content_frame = tk.Frame(self.frame, bg=self.colors.base)
         self.content_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Left arrow
+        # Left arrow (always show if multiple pages, for continuous navigation)
         if self.total_pages > 1:
             self.left_arrow = tk.Label(
                 self.content_frame,
@@ -224,7 +312,7 @@ class CarouselButtonList:
             self.left_arrow.pack(side=tk.LEFT, fill=tk.Y)
             self.left_arrow.bind('<Button-1>', lambda e: self._prev_page())
             self.left_arrow.bind('<Enter>', lambda e: self.left_arrow.config(fg=self.colors.text))
-            self.left_arrow.bind('<Leave>', lambda e: self.left_arrow.config(fg=self.colors.overlay0))
+            self.left_arrow.bind('<Leave>', lambda e: self._update_arrow_colors())
         
         # Buttons container
         self.buttons_frame = tk.Frame(self.content_frame, bg=self.colors.base)
@@ -244,7 +332,7 @@ class CarouselButtonList:
             self.right_arrow.pack(side=tk.RIGHT, fill=tk.Y)
             self.right_arrow.bind('<Button-1>', lambda e: self._next_page())
             self.right_arrow.bind('<Enter>', lambda e: self.right_arrow.config(fg=self.colors.text))
-            self.right_arrow.bind('<Leave>', lambda e: self.right_arrow.config(fg=self.colors.overlay0))
+            self.right_arrow.bind('<Leave>', lambda e: self._update_arrow_colors())
         
         # Page dots (only if multiple pages)
         if self.total_pages > 1:
@@ -270,22 +358,32 @@ class CarouselButtonList:
     
     def _render_page(self):
         """Render the current page of buttons."""
-        # Clear existing buttons
+        # Clear existing buttons and tooltips
         for widget in self.buttons_frame.winfo_children():
             widget.destroy()
+        self.tooltips.clear()
         
         # Get items for current page
-        start_idx = self.current_page * self.ITEMS_PER_PAGE
-        end_idx = start_idx + self.ITEMS_PER_PAGE
+        start_idx = self.current_page * self.items_per_page
+        end_idx = start_idx + self.items_per_page
         page_items = self.items[start_idx:end_idx]
         
         # Create buttons
-        for i, (key, display_text, icon) in enumerate(page_items):
+        for i, item in enumerate(page_items):
+            key = item[0]
+            display_text = item[1]
+            icon = item[2] if len(item) > 2 else None
+            tooltip_text = item[3] if len(item) > 3 else None
+            
             btn_frame = tk.Frame(self.buttons_frame, bg=self.colors.base)
             btn_frame.pack(fill=tk.X, pady=1)
             
-            # Button text with icon
-            text = f"{icon}  {display_text}" if icon else display_text
+            # Use a fixed-width format for icon to ensure alignment
+            # All emojis take roughly 2 character widths, so we use consistent spacing
+            if icon:
+                text = f" {icon}   {display_text}"
+            else:
+                text = f"       {display_text}"  # 7 spaces to match icon width
             
             btn = tk.Label(
                 btn_frame,
@@ -294,7 +392,7 @@ class CarouselButtonList:
                 bg=self.colors.surface0,
                 fg=self.colors.text,
                 anchor=tk.W,
-                padx=12,
+                padx=8,
                 pady=10,
                 cursor="hand2"
             )
@@ -304,27 +402,24 @@ class CarouselButtonList:
             btn.bind('<Enter>', lambda e, b=btn: b.config(bg=self.colors.surface1))
             btn.bind('<Leave>', lambda e, b=btn: b.config(bg=self.colors.surface0))
             btn.bind('<Button-1>', lambda e, k=key: self.on_click(k))
+            
+            # Add tooltip if provided
+            if tooltip_text:
+                tooltip = Tooltip(btn, tooltip_text)
+                self.tooltips.append(tooltip)
         
-        # Update arrow states
-        self._update_arrows()
+        # Update arrow and dot states
+        self._update_arrow_colors()
         self._update_dots()
     
-    def _update_arrows(self):
-        """Update arrow visibility/state."""
+    def _update_arrow_colors(self):
+        """Update arrow colors (always active for continuous navigation)."""
         if self.total_pages <= 1:
             return
         
-        # Left arrow
-        if self.current_page == 0:
-            self.left_arrow.config(fg=self.colors.surface2)
-        else:
-            self.left_arrow.config(fg=self.colors.overlay0)
-        
-        # Right arrow
-        if self.current_page >= self.total_pages - 1:
-            self.right_arrow.config(fg=self.colors.surface2)
-        else:
-            self.right_arrow.config(fg=self.colors.overlay0)
+        # Arrows are always active in continuous mode
+        self.left_arrow.config(fg=self.colors.overlay0)
+        self.right_arrow.config(fg=self.colors.overlay0)
     
     def _update_dots(self):
         """Update dot indicators."""
@@ -335,16 +430,14 @@ class CarouselButtonList:
                 dot.config(text="○", fg=self.colors.overlay0)
     
     def _next_page(self):
-        """Go to next page."""
-        if self.current_page < self.total_pages - 1:
-            self.current_page += 1
-            self._render_page()
+        """Go to next page (wraps around to first page)."""
+        self.current_page = (self.current_page + 1) % self.total_pages
+        self._render_page()
     
     def _prev_page(self):
-        """Go to previous page."""
-        if self.current_page > 0:
-            self.current_page -= 1
-            self._render_page()
+        """Go to previous page (wraps around to last page)."""
+        self.current_page = (self.current_page - 1) % self.total_pages
+        self._render_page()
     
     def _go_to_page(self, page: int):
         """Go to specific page."""
@@ -1203,19 +1296,26 @@ class AttachedPromptPopup:
     
     def _create_carousel(self, parent: tk.Frame):
         """Create the carousel with action buttons."""
-        # Build items list: (key, display_text, icon)
+        # Get items per page from settings
+        settings = self.options.get("_settings", {})
+        items_per_page = settings.get("popup_items_per_page", CarouselButtonList.DEFAULT_ITEMS_PER_PAGE)
+        
+        # Build items list: (key, display_text, icon, tooltip)
         items = []
         for key, option in self.options.items():
             if key == "Custom" or key.startswith("_"):
                 continue
             icon = option.get("icon", None)
-            items.append((key, key, icon))
+            # Use the task description as tooltip
+            tooltip = option.get("task", None)
+            items.append((key, key, icon, tooltip))
         
         if items:
             carousel = CarouselButtonList(
                 parent,
                 items=items,
-                on_click=self._on_option_click
+                on_click=self._on_option_click,
+                items_per_page=items_per_page
             )
             carousel.pack(fill=tk.X)
     
