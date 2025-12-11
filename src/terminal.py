@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Terminal interactive session manager
+Terminal interactive session manager with enhanced console UI
 """
 
 import sys
@@ -11,19 +11,42 @@ from .session_manager import (
     CHAT_SESSIONS, SESSION_LOCK, clear_all_sessions
 )
 from .gui.core import show_session_browser, get_gui_status, HAVE_GUI
+from .config import OPENROUTER_URL
 
 
-def terminal_session_manager():
+def get_base_url_for_status(config, provider):
+    """Get the base URL for a provider (for status display)"""
+    if provider == "custom":
+        url = config.get("custom_url", "")
+        if url:
+            # Extract base URL (remove /chat/completions if present)
+            if "/chat/completions" in url:
+                url = url.replace("/chat/completions", "")
+            return url
+        return "Not configured"
+    elif provider == "openrouter":
+        return "openrouter.ai/api/v1"
+    elif provider == "google":
+        return "generativelanguage.googleapis.com"
+    return "Unknown"
+
+
+def print_commands_box():
+    """Print the terminal commands box"""
+    print("─" * 64)
+    print("  COMMANDS                                       Ctrl+C to stop")
+    print("─" * 64)
+    print("  [L] 📋 Sessions      [P] 🔄 Provider     [T] 💭 Thinking")
+    print("  [O] 🖥️  Browser       [M] 🤖 Models       [R] 🌊 Streaming")
+    print("  [E] 📡 Endpoints     [S] 📊 Status       [H] ❓ Help")
+    print("─" * 64)
+    print()
+
+
+def terminal_session_manager(endpoints=None):
     """Interactive terminal session manager"""
-    print("\n" + "─"*60)
-    print("TERMINAL COMMANDS (press key anytime):")
-    print("  [L] List sessions       [O] Open session browser (GUI)")
-    print("  [V] View session        [D] Delete session")
-    print("  [C] Clear all sessions  [H] Help")
-    print("  [G] Toggle GUI status   [M] Manage models")
-    print("  [P] Change provider     [S] Status")
-    print("  [T] Toggle thinking     [R] Toggle streaming")
-    print("─"*60 + "\n")
+    # Print the commands box
+    print_commands_box()
     
     def get_input_nonblocking():
         """Get keyboard input without blocking"""
@@ -52,40 +75,60 @@ def terminal_session_manager():
                         pass
             return None
     
+    # Store endpoints reference
+    _endpoints = endpoints or {}
+    
     while True:
         try:
             key = get_input_nonblocking()
             
             if key == 'l':
                 sessions = list_sessions()
-                print(f"\n{'─'*60}")
-                print(f"SAVED SESSIONS ({len(sessions)} total):")
-                print(f"{'─'*60}")
+                print(f"\n{'─'*64}")
+                print(f"📋 SESSIONS ({len(sessions)} total)")
+                print(f"{'─'*64}")
                 if not sessions:
-                    print("  (No sessions)")
+                    print("   (No sessions)")
                 else:
                     for i, s in enumerate(sessions[:10]):
-                        print(f"  [{s['id']}] {s['title'][:40]} ({s['messages']} msgs, {s['provider']})")
+                        print(f"   [{s['id']}] {s['title'][:35]} ({s['messages']} msgs, {s['provider']})")
                     if len(sessions) > 10:
-                        print(f"  ... and {len(sessions) - 10} more")
-                print(f"{'─'*60}\n")
+                        print(f"   ... and {len(sessions) - 10} more")
+                print(f"{'─'*64}\n")
             
             elif key == 'o':
                 if HAVE_GUI:
-                    print("\n[Opening session browser...]\n")
+                    print("\n🖥️  Opening session browser...\n")
                     show_session_browser()
                 else:
-                    print("\n[GUI not available]\n")
+                    print("\n✗ GUI not available\n")
+            
+            elif key == 'e':
+                # List endpoints
+                print(f"\n{'─'*64}")
+                print(f"📡 ENDPOINTS ({len(_endpoints)} registered)")
+                print(f"{'─'*64}")
+                if not _endpoints:
+                    print("   (No endpoints)")
+                else:
+                    for name, prompt in _endpoints.items():
+                        preview = prompt[:50] + "..." if len(prompt) > 50 else prompt
+                        print(f"   /{name}")
+                        print(f"      → {preview}")
+                print(f"{'─'*64}\n")
             
             elif key == 'g':
                 status = get_gui_status()
-                print(f"\n{'─'*60}")
-                print(f"GUI STATUS:")
-                print(f"  Available: {status['available']}")
-                print(f"  Running: {status['running']}")
-                print(f"  Context Created: {status['context_created']}")
-                print(f"  Open Windows: {status['open_windows']}")
-                print(f"{'─'*60}\n")
+                print(f"\n{'─'*64}")
+                print(f"🖥️  GUI STATUS")
+                print(f"{'─'*64}")
+                available_icon = "✓" if status['available'] else "✗"
+                running_icon = "✓" if status['running'] else "✗"
+                print(f"   Available: {available_icon}")
+                print(f"   Running:   {running_icon}")
+                print(f"   Context:   {status['context_created']}")
+                print(f"   Windows:   {status['open_windows']}")
+                print(f"{'─'*64}\n")
             
             elif key == 'm':
                 # Model management
@@ -93,28 +136,30 @@ def terminal_session_manager():
                 from .api_client import fetch_models
                 from .config import save_config_value
                 
-                print(f"\n{'─'*60}")
-                print("MODEL MANAGEMENT")
-                print(f"{'─'*60}")
+                print(f"\n{'─'*64}")
+                print("🤖 MODEL MANAGEMENT")
+                print(f"{'─'*64}")
                 provider = web_server.CONFIG.get("default_provider", "custom")
                 current_model = web_server.CONFIG.get(f"{provider}_model", "not set")
-                print(f"  Provider: {provider}")
-                print(f"  Current model: {current_model}")
-                print(f"\n  Fetching available models...")
+                print(f"   Provider: {provider}")
+                print(f"   Current:  {current_model}")
+                print(f"\n   Fetching available models...")
                 
                 models, error = fetch_models(web_server.CONFIG, web_server.KEY_MANAGERS)
                 if error:
-                    print(f"  [Error] {error}")
+                    print(f"   ✗ {error}")
                 elif models:
-                    print(f"\n  Available models ({len(models)}):")
-                    for i, m in enumerate(models):
-                        print(f"    [{i+1}] {m['id']}")
+                    print(f"\n   Available ({len(models)}):")
+                    for i, m in enumerate(models[:15]):
+                        marker = " ◄" if m['id'] == current_model else ""
+                        print(f"      [{i+1:2}] {m['id']}{marker}")
+                    if len(models) > 15:
+                        print(f"      ... and {len(models) - 15} more")
                     
-                    print("\n  Enter model number or full name (or 'q' to cancel): ", end='', flush=True)
+                    print("\n   Enter number or model name (q = cancel): ", end='', flush=True)
                     try:
                         choice = input().strip()
                         if choice.lower() != 'q':
-                            # Try to parse as number
                             try:
                                 idx = int(choice) - 1
                                 if 0 <= idx < len(models):
@@ -124,44 +169,45 @@ def terminal_session_manager():
                             except ValueError:
                                 new_model = choice
                             
-                            # Update config
                             config_key = f"{provider}_model"
                             if save_config_value(config_key, new_model):
                                 web_server.CONFIG[config_key] = new_model
-                                print(f"  ✓ Model set to: {new_model}")
+                                print(f"   ✓ Model: {new_model}")
                             else:
-                                print(f"  ✗ Failed to save to config")
+                                print(f"   ✗ Failed to save")
                     except:
                         pass
                 else:
-                    print("  No models available")
-                print(f"{'─'*60}\n")
+                    print("   No models available")
+                print(f"{'─'*64}\n")
             
             elif key == 'p':
                 # Provider management
                 from . import web_server
                 from .config import save_config_value
                 
-                print(f"\n{'─'*60}")
-                print("PROVIDER MANAGEMENT")
-                print(f"{'─'*60}")
+                print(f"\n{'─'*64}")
+                print("🔄 PROVIDER")
+                print(f"{'─'*64}")
                 current_provider = web_server.CONFIG.get("default_provider", "google")
-                print(f"  Current provider: {current_provider}")
+                base_url = get_base_url_for_status(web_server.CONFIG, current_provider)
+                print(f"   Current: {current_provider} → {base_url}")
+                print()
                 
                 # List available providers
                 available = []
                 for p, km in web_server.KEY_MANAGERS.items():
                     key_count = km.get_key_count()
-                    status = f"({key_count} key{'s' if key_count != 1 else ''})" if key_count > 0 else "(no keys)"
+                    key_icon = "✓" if key_count > 0 else "✗"
+                    key_info = f"({key_count})" if key_count > 0 else "(no keys)"
                     available.append((p, key_count))
                     marker = " ◄" if p == current_provider else ""
-                    print(f"    [{len(available)}] {p} {status}{marker}")
+                    print(f"      [{len(available)}] {key_icon} {p} {key_info}{marker}")
                 
-                print("\n  Enter provider number or name (or 'q' to cancel): ", end='', flush=True)
+                print("\n   Enter number or name (q = cancel): ", end='', flush=True)
                 try:
                     choice = input().strip()
                     if choice.lower() != 'q' and choice:
-                        # Try to parse as number
                         try:
                             idx = int(choice) - 1
                             if 0 <= idx < len(available):
@@ -171,70 +217,75 @@ def terminal_session_manager():
                         except ValueError:
                             new_provider = choice.lower()
                         
-                        # Validate provider
                         if new_provider in web_server.KEY_MANAGERS:
                             if save_config_value("default_provider", new_provider):
                                 web_server.CONFIG["default_provider"] = new_provider
+                                new_base = get_base_url_for_status(web_server.CONFIG, new_provider)
                                 model = web_server.CONFIG.get(f"{new_provider}_model", "not set")
-                                print(f"  ✓ Provider set to: {new_provider}")
-                                print(f"    Current model: {model}")
+                                print(f"   ✓ {new_provider} → {new_base}")
+                                print(f"     Model: {model}")
                             else:
-                                print(f"  ✗ Failed to save to config")
+                                print(f"   ✗ Failed to save")
                         else:
-                            print(f"  ✗ Unknown provider: {new_provider}")
+                            print(f"   ✗ Unknown: {new_provider}")
                 except:
                     pass
-                print(f"{'─'*60}\n")
+                print(f"{'─'*64}\n")
             
             elif key == 's':
-                # Status command
+                # Status command - enhanced with base_url
                 from . import web_server
                 
-                print(f"\n{'─'*60}")
-                print("CURRENT STATUS")
-                print(f"{'─'*60}")
+                print(f"\n{'─'*64}")
+                print("📊 STATUS")
+                print(f"{'─'*64}")
                 
-                # Provider/Model
+                # Provider/Model with base URL
                 provider = web_server.CONFIG.get("default_provider", "google")
                 model = web_server.CONFIG.get(f"{provider}_model", "not set")
-                print(f"  Provider:  {provider}")
-                print(f"  Model:     {model}")
+                base_url = get_base_url_for_status(web_server.CONFIG, provider)
+                
+                print(f"   📡 Provider:  {provider}")
+                print(f"      Base URL:  {base_url}")
+                print(f"   🤖 Model:     {model}")
                 
                 # Streaming/Thinking
                 streaming = web_server.CONFIG.get("streaming_enabled", True)
                 thinking = web_server.CONFIG.get("thinking_enabled", False)
-                print(f"\n  Streaming: {'ON' if streaming else 'OFF'}")
-                print(f"  Thinking:  {'ON' if thinking else 'OFF'}")
+                stream_status = "✓ ON" if streaming else "✗ OFF"
+                think_status = "✓ ON" if thinking else "✗ OFF"
+                print(f"\n   🌊 Streaming: {stream_status}")
+                print(f"   💭 Thinking:  {think_status}")
                 
                 if thinking:
                     thinking_output = web_server.CONFIG.get("thinking_output", "reasoning_content")
-                    print(f"    Output: {thinking_output}")
+                    print(f"      Output: {thinking_output}")
                     if provider == "google":
                         budget = web_server.CONFIG.get("thinking_budget", -1)
                         level = web_server.CONFIG.get("thinking_level", "high")
-                        print(f"    Budget: {budget} | Level: {level}")
+                        print(f"      Budget: {budget} | Level: {level}")
                     else:
                         effort = web_server.CONFIG.get("reasoning_effort", "high")
-                        print(f"    Effort: {effort}")
+                        print(f"      Effort: {effort}")
                 
                 # Server
                 host = web_server.CONFIG.get("host", "127.0.0.1")
                 port = web_server.CONFIG.get("port", 5000)
-                print(f"\n  Server:    http://{host}:{port}")
+                print(f"\n   🚀 Server:    http://{host}:{port}")
                 
                 # Sessions
                 sessions = list_sessions()
-                print(f"  Sessions:  {len(sessions)} saved")
+                print(f"   📂 Sessions:  {len(sessions)} saved")
                 
                 # API Keys
-                print(f"\n  API Keys:")
+                print(f"\n   🔑 API Keys:")
                 for p, km in web_server.KEY_MANAGERS.items():
                     count = km.get_key_count()
-                    if count > 0:
-                        marker = " ◄" if p == provider else ""
-                        print(f"    {p}: {count} key{'s' if count != 1 else ''}{marker}")
+                    key_icon = "✓" if count > 0 else "✗"
+                    marker = " ◄" if p == provider else ""
+                    print(f"      {key_icon} {p}: {count} key{'s' if count != 1 else ''}{marker}")
                 
-                print(f"{'─'*60}\n")
+                print(f"{'─'*64}\n")
             
             elif key == 't':
                 # Toggle thinking mode
@@ -246,13 +297,13 @@ def terminal_session_manager():
                 
                 if save_config_value("thinking_enabled", new_value):
                     web_server.CONFIG["thinking_enabled"] = new_value
-                    print(f"\n✓ Thinking mode: {'ENABLED' if new_value else 'DISABLED'}")
-                    
-                    # Also show current output mode
-                    output_mode = web_server.CONFIG.get("thinking_output", "reasoning_content")
-                    print(f"  Output mode: {output_mode}")
+                    status = "✓ ON" if new_value else "✗ OFF"
+                    print(f"\n💭 Thinking: {status}")
+                    if new_value:
+                        output_mode = web_server.CONFIG.get("thinking_output", "reasoning_content")
+                        print(f"   Output: {output_mode}")
                 else:
-                    print("\n✗ Failed to toggle thinking mode")
+                    print("\n✗ Failed to toggle thinking")
                 print()
             
             elif key == 'r':
@@ -265,9 +316,10 @@ def terminal_session_manager():
                 
                 if save_config_value("streaming_enabled", new_value):
                     web_server.CONFIG["streaming_enabled"] = new_value
-                    print(f"\n✓ Streaming: {'ENABLED' if new_value else 'DISABLED'}\n")
+                    status = "✓ ON" if new_value else "✗ OFF"
+                    print(f"\n🌊 Streaming: {status}\n")
                 else:
-                    print("\n✗ Failed to toggle streaming mode\n")
+                    print("\n✗ Failed to toggle streaming\n")
             
             elif key == 'v':
                 print("\nEnter session ID: ", end='', flush=True)
@@ -275,25 +327,27 @@ def terminal_session_manager():
                     session_id = input().strip()
                     session = get_session(session_id)
                     if session:
-                        print(f"\n{'─'*60}")
-                        print(f"SESSION: {session.session_id}")
-                        print(f"Title: {session.title}")
-                        print(f"Endpoint: {session.endpoint}")
-                        print(f"Created: {session.created_at}")
-                        print(f"{'─'*60}")
+                        print(f"\n{'─'*64}")
+                        print(f"📋 SESSION: {session.session_id}")
+                        print(f"{'─'*64}")
+                        print(f"   Title:    {session.title}")
+                        print(f"   Endpoint: {session.endpoint}")
+                        print(f"   Created:  {session.created_at}")
+                        print(f"{'─'*64}")
                         for msg in session.messages:
-                            role = "USER" if msg["role"] == "user" else "ASSISTANT"
-                            print(f"\n[{role}]")
+                            role_icon = "👤" if msg["role"] == "user" else "🤖"
+                            role = "USER" if msg["role"] == "user" else "AI"
+                            print(f"\n{role_icon} [{role}]")
                             print(msg['content'][:500] + ('...' if len(msg['content']) > 500 else ''))
-                        print(f"{'─'*60}\n")
+                        print(f"{'─'*64}\n")
                         
                         if HAVE_GUI:
-                            open_gui = input("Open in chat GUI? [y/N]: ").strip().lower()
+                            open_gui = input("Open in GUI? [y/N]: ").strip().lower()
                             if open_gui == 'y':
                                 from .gui.core import show_chat_gui
                                 show_chat_gui(session)
                     else:
-                        print(f"Session '{session_id}' not found.\n")
+                        print(f"✗ Session '{session_id}' not found.\n")
                 except:
                     pass
             
@@ -302,42 +356,44 @@ def terminal_session_manager():
                 try:
                     session_id = input().strip()
                     if get_session(session_id):
-                        confirm = input(f"Delete session {session_id}? [y/N]: ").strip().lower()
+                        confirm = input(f"Delete {session_id}? [y/N]: ").strip().lower()
                         if confirm == 'y':
                             if delete_session(session_id):
                                 save_sessions()
-                                print(f"Session {session_id} deleted.\n")
+                                print(f"✓ Session {session_id} deleted.\n")
                     else:
-                        print(f"Session '{session_id}' not found.\n")
+                        print(f"✗ Session '{session_id}' not found.\n")
                 except:
                     pass
             
             elif key == 'c':
                 try:
-                    confirm = input("\nClear ALL sessions? This cannot be undone. [y/N]: ").strip().lower()
+                    confirm = input("\n⚠️  Clear ALL sessions? [y/N]: ").strip().lower()
                     if confirm == 'y':
                         clear_all_sessions()
                         save_sessions()
-                        print("All sessions cleared.\n")
+                        print("✓ All sessions cleared.\n")
                 except:
                     pass
             
             elif key == 'h':
-                print("\n" + "─"*60)
-                print("TERMINAL COMMANDS:")
-                print("  [L] List sessions       - Show recent saved sessions")
-                print("  [O] Open browser        - Open session browser GUI")
-                print("  [V] View session        - Display a session by ID")
-                print("  [D] Delete session      - Delete a session by ID")
-                print("  [C] Clear all           - Delete all sessions")
-                print("  [G] GUI status          - Show GUI state information")
-                print("  [M] Manage models       - List/set models from API")
-                print("  [P] Change provider     - Switch API provider")
-                print("  [S] Status              - Show current configuration")
-                print("  [T] Toggle thinking     - Enable/disable thinking mode")
-                print("  [R] Toggle streaming    - Enable/disable streaming")
-                print("  [H] Help                - Show this help")
-                print("─"*60 + "\n")
+                print(f"\n{'─'*64}")
+                print("❓ HELP")
+                print(f"{'─'*64}")
+                print("   [L] 📋 Sessions      List recent saved sessions")
+                print("   [O] 🖥️  Browser       Open session browser GUI")
+                print("   [V] 👁️  View          View a session by ID")
+                print("   [D] 🗑️  Delete        Delete a session by ID")
+                print("   [C] 🧹 Clear         Clear all sessions")
+                print("   [E] 📡 Endpoints     List registered endpoints")
+                print("   [G] 🖥️  GUI status    Show GUI state")
+                print("   [M] 🤖 Models        List/set models from API")
+                print("   [P] 🔄 Provider      Switch API provider")
+                print("   [S] 📊 Status        Show current configuration")
+                print("   [T] 💭 Thinking      Toggle thinking mode")
+                print("   [R] 🌊 Streaming     Toggle streaming")
+                print("   [H] ❓ Help          Show this help")
+                print(f"{'─'*64}\n")
             
             time.sleep(0.1)
         

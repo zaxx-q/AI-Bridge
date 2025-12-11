@@ -5,14 +5,15 @@ Main entry point
 """
 
 import sys
+import logging
 import threading
 import signal
 from pathlib import Path
 
-from src.config import load_config, generate_example_config, CONFIG_FILE
+from src.config import load_config, generate_example_config, CONFIG_FILE, OPENROUTER_URL
 from src.key_manager import KeyManager
-from src.session_manager import load_sessions
-from src.terminal import terminal_session_manager
+from src.session_manager import load_sessions, list_sessions
+from src.terminal import terminal_session_manager, print_commands_box
 from src.gui.core import HAVE_GUI
 from src import web_server
 
@@ -23,16 +24,38 @@ try:
     HAVE_TEXT_EDIT_TOOL = True
 except ImportError as e:
     HAVE_TEXT_EDIT_TOOL = False
-    print(f"[Note] TextEditTool not available: {e}")
+    # Silent - will show in startup
+
+
+def get_base_url(config, provider):
+    """Get the base URL for a provider"""
+    if provider == "custom":
+        url = config.get("custom_url", "")
+        if url:
+            # Extract base URL (remove /chat/completions if present)
+            if "/chat/completions" in url:
+                url = url.replace("/chat/completions", "")
+            return url
+        return "Not configured"
+    elif provider == "openrouter":
+        return "openrouter.ai/api/v1"
+    elif provider == "google":
+        return "generativelanguage.googleapis.com"
+    return "Unknown"
 
 
 def initialize():
-    """Initialize the server"""
-    print("=" * 60)
-    print("AI Bridge - Multi-modal AI Assistant Server")
-    print("=" * 60)
+    """Initialize the server with compact, informative output"""
     
-    print(f"\nLoading configuration from '{CONFIG_FILE}'...")
+    # ─── Banner ───────────────────────────────────────────────────────────
+    print()
+    print("┌" + "─" * 62 + "┐")
+    print("│  🌉 AI Bridge                                                 │")
+    print("│  Multi-modal AI Assistant Server                              │")
+    print("└" + "─" * 62 + "┘")
+    print()
+    
+    # Load configuration
     config, ai_params, endpoints, keys = load_config()
     
     # Set global configuration
@@ -43,42 +66,45 @@ def initialize():
     # Initialize key managers
     for provider in ["custom", "openrouter", "google"]:
         web_server.KEY_MANAGERS[provider] = KeyManager(keys[provider], provider)
-        count = len(keys[provider])
+    
+    # ─── Configuration Summary ────────────────────────────────────────────
+    provider = config.get('default_provider', 'google')
+    model = config.get(f'{provider}_model', 'not set')
+    base_url = get_base_url(config, provider)
+    streaming = config.get('streaming_enabled', True)
+    thinking = config.get('thinking_enabled', False)
+    
+    print("⚙️  Configuration")
+    print(f"    📡 Provider: {provider} → {base_url}")
+    print(f"    🤖 Model:    {model}")
+    stream_icon = "✓" if streaming else "✗"
+    think_icon = "✓" if thinking else "✗"
+    print(f"    🌊 Streaming: {stream_icon}   💭 Thinking: {think_icon}")
+    print()
+    
+    # ─── API Keys ─────────────────────────────────────────────────────────
+    print("🔑 API Keys")
+    key_status = []
+    for p in ["custom", "openrouter", "google"]:
+        count = web_server.KEY_MANAGERS[p].get_key_count()
         if count > 0:
-            print(f"  ✓ {provider}: {count} API key(s) loaded")
+            marker = " ◄" if p == provider else ""
+            key_status.append(f"✓ {p} ({count}){marker}")
         else:
-            print(f"  ✗ {provider}: No API keys")
+            key_status.append(f"✗ {p}")
+    print(f"    {key_status[0]}   {key_status[1]}   {key_status[2]}")
+    print()
     
-    print(f"\nLoading saved sessions...")
+    # ─── Sessions ─────────────────────────────────────────────────────────
     load_sessions()
+    sessions = list_sessions()
+    print(f"📂 Sessions: {len(sessions)} loaded")
+    print()
     
-    print(f"\nServer Configuration:")
-    print(f"  Host: {config.get('host', '127.0.0.1')}")
-    print(f"  Port: {config.get('port', 5000)}")
-    print(f"  Default Provider: {config.get('default_provider', 'google')}")
-    show_setting = config.get('show_ai_response_in_chat_window', config.get('default_show', 'no'))
-    print(f"  Show Response in Chat: {show_setting}")
-    print(f"  GUI Available: {HAVE_GUI}")
-    print(f"  GUI Mode: On-demand (starts when needed)")
-    print(f"  Max Sessions: {config.get('max_sessions', 50)}")
-    
-    if ai_params:
-        print(f"\nAI Parameters:")
-        for k, v in ai_params.items():
-            print(f"  {k}: {v}")
-    
-    print(f"\nRegistering {len(endpoints)} endpoint(s):")
-    for endpoint_name, prompt in endpoints.items():
-        prompt_preview = prompt[:60] + "..." if len(prompt) > 60 else prompt
-        print(f"  /{endpoint_name}")
-        print(f"      → {prompt_preview}")
-    
-    # Initialize web server with config and endpoints
+    # Initialize web server (silent)
     web_server.init_web_server(config, ai_params, endpoints, web_server.KEY_MANAGERS)
     
-    print("\n" + "=" * 60)
-    
-    return config, ai_params
+    return config, ai_params, endpoints
 
 
 def initialize_text_edit_tool(config, ai_params):
@@ -127,6 +153,9 @@ def signal_handler(signum, frame):
 
 def main():
     """Main entry point"""
+    # Suppress Flask/werkzeug logging (only show errors)
+    logging.getLogger('werkzeug').setLevel(logging.ERROR)
+    
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -141,49 +170,45 @@ def main():
         print("\nPlease edit the config file to add your API keys, then restart.")
         sys.exit(0)
     
-    # Initialize
-    config, ai_params = initialize()
+    # Initialize (new compact output)
+    config, ai_params, endpoints = initialize()
     
     # Check for API keys
     has_any_keys = any(km.has_keys() for km in web_server.KEY_MANAGERS.values())
     if not has_any_keys:
-        print("\n⚠️  WARNING: No API keys configured!")
-        print("Please add your API keys to config.ini\n")
+        print("⚠️  WARNING: No API keys configured!")
+        print("   Please add your API keys to config.ini")
+        print()
     
-    # NOTE: GUI is NOT started at startup - it will be started on-demand
-    # when a GUI window is requested (via ?show=gui, ?show=chatgui, or pressing 'O')
-    if HAVE_GUI:
-        print("✓ GUI available (Tkinter, will start on-demand when needed)")
-    else:
-        print("✗ GUI not available")
-    
-    # Initialize TextEditTool
-    initialize_text_edit_tool(config, ai_params)
-    
-    # Start terminal session manager
-    terminal_thread = threading.Thread(target=terminal_session_manager, daemon=True)
-    terminal_thread.start()
-    
-    # Start server
+    # ─── Server Info ──────────────────────────────────────────────────────
     host = web_server.CONFIG.get('host', '127.0.0.1')
     port = int(web_server.CONFIG.get('port', 5000))
     
-    print(f"\n🚀 Starting server at http://{host}:{port}")
-    print(f"   Endpoints: {', '.join('/' + e for e in web_server.ENDPOINTS.keys())}")
-    print(f"\n   Show modes:")
-    print(f"     ?show=no      - Return text only (default)")
-    print(f"     ?show=yes     - Display result in chat GUI window")
+    print(f"🚀 Server: http://{host}:{port}")
+    print(f"   📡 {len(endpoints)} endpoints registered")
     
-    if TEXT_EDIT_TOOL_APP:
+    # GUI status
+    if HAVE_GUI:
+        print("   🖥️  GUI available (on-demand)")
+    
+    # TextEditTool
+    text_tool_result = initialize_text_edit_tool(config, ai_params)
+    if text_tool_result:
         hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
-        print(f"\n   TextEditTool:")
-        print(f"     Press '{hotkey}' to activate")
-        print(f"     Options in text_edit_tool_options.json")
+        print(f"   ⌨️  TextEditTool: {hotkey}")
     
-    print("\nPress Ctrl+C to stop\n")
+    print()
+    
+    # Start terminal session manager (also prints commands box)
+    terminal_thread = threading.Thread(
+        target=lambda: terminal_session_manager(endpoints),
+        daemon=True
+    )
+    terminal_thread.start()
     
     try:
-        web_server.app.run(host=host, port=port)
+        # Run Flask with minimal output
+        web_server.app.run(host=host, port=port, use_reloader=False)
     finally:
         cleanup()
 
