@@ -6,19 +6,64 @@ Threading Note:
     Popups are shown from hotkey threads and create their own Tk roots.
     To avoid conflicts with other Tk instances (like session browser),
     we use a polling update loop instead of blocking mainloop().
+
+Design:
+    Modern Catppuccin-inspired color scheme with:
+    - Segmented toggle for response mode selection
+    - Carousel-based action buttons with pagination
+    - Icon support for action buttons
 """
 
 import logging
+import math
 import time
 import tkinter as tk
 from tkinter import ttk
-from typing import Callable, Optional, Dict
+from typing import Callable, Optional, Dict, List, Tuple
 
 try:
     import darkdetect
     HAVE_DARKDETECT = True
 except ImportError:
     HAVE_DARKDETECT = False
+
+
+# =============================================================================
+# Color Palettes (Catppuccin-inspired)
+# =============================================================================
+
+class CatppuccinMocha:
+    """Dark mode color palette (Catppuccin Mocha)"""
+    base = "#1e1e2e"           # Primary background
+    mantle = "#181825"         # Deeper background
+    surface0 = "#313244"       # Elevated surfaces
+    surface1 = "#45475a"       # Hover states
+    surface2 = "#585b70"       # Borders
+    overlay0 = "#6c7086"       # Muted text
+    text = "#cdd6f4"           # Primary text
+    subtext0 = "#a6adc8"       # Secondary text
+    blue = "#89b4fa"           # Accent
+    lavender = "#b4befe"       # Hover accent
+    green = "#a6e3a1"          # Success
+    peach = "#fab387"          # Warning
+    red = "#f38ba8"            # Error
+
+
+class CatppuccinLatte:
+    """Light mode color palette (Catppuccin Latte)"""
+    base = "#eff1f5"           # Primary background
+    mantle = "#e6e9ef"         # Deeper background
+    surface0 = "#ccd0da"       # Elevated surfaces
+    surface1 = "#bcc0cc"       # Hover states
+    surface2 = "#acb0be"       # Borders
+    overlay0 = "#9ca0b0"       # Muted text
+    text = "#4c4f69"           # Primary text
+    subtext0 = "#6c6f85"       # Secondary text
+    blue = "#1e66f5"           # Accent
+    lavender = "#7287fd"       # Hover accent
+    green = "#40a02b"          # Success
+    peach = "#fe640b"          # Warning
+    red = "#d20f39"            # Error
 
 
 def is_dark_mode() -> bool:
@@ -31,32 +76,310 @@ def is_dark_mode() -> bool:
     return False
 
 
+def get_colors():
+    """Get the appropriate color palette based on system theme."""
+    return CatppuccinMocha if is_dark_mode() else CatppuccinLatte
+
+
+# =============================================================================
+# Custom UI Components
+# =============================================================================
+
+class SegmentedToggle:
+    """
+    A segmented control for selecting between options.
+    Similar to iOS/macOS segmented controls.
+    """
+    
+    def __init__(
+        self,
+        parent: tk.Frame,
+        options: List[Tuple[str, str]],  # [(display_text, value), ...]
+        default_value: str = None,
+        on_change: Optional[Callable[[str], None]] = None
+    ):
+        self.parent = parent
+        self.options = options
+        self.on_change = on_change
+        self.current_value = default_value or options[0][1]
+        
+        self.colors = get_colors()
+        self.segments: List[tk.Label] = []
+        
+        self._create_widget()
+    
+    def _create_widget(self):
+        """Create the segmented toggle widget."""
+        # Container frame with rounded appearance
+        self.frame = tk.Frame(
+            self.parent,
+            bg=self.colors.surface0,
+            highlightbackground=self.colors.surface2,
+            highlightthickness=1
+        )
+        
+        for i, (display_text, value) in enumerate(self.options):
+            is_selected = value == self.current_value
+            
+            segment = tk.Label(
+                self.frame,
+                text=display_text,
+                font=("Arial", 9),
+                bg=self.colors.blue if is_selected else self.colors.surface0,
+                fg="#ffffff" if is_selected else self.colors.text,
+                padx=12,
+                pady=4,
+                cursor="hand2"
+            )
+            segment.pack(side=tk.LEFT)
+            segment.bind('<Button-1>', lambda e, v=value: self._on_click(v))
+            segment.bind('<Enter>', lambda e, seg=segment, v=value: self._on_hover(seg, v, True))
+            segment.bind('<Leave>', lambda e, seg=segment, v=value: self._on_hover(seg, v, False))
+            
+            self.segments.append(segment)
+    
+    def _on_click(self, value: str):
+        """Handle segment click."""
+        if value != self.current_value:
+            self.current_value = value
+            self._update_segments()
+            if self.on_change:
+                self.on_change(value)
+    
+    def _on_hover(self, segment: tk.Label, value: str, entering: bool):
+        """Handle hover effect."""
+        if value == self.current_value:
+            return  # Don't change selected segment
+        
+        if entering:
+            segment.config(bg=self.colors.surface1)
+        else:
+            segment.config(bg=self.colors.surface0)
+    
+    def _update_segments(self):
+        """Update segment appearance based on current value."""
+        for segment, (_, value) in zip(self.segments, self.options):
+            is_selected = value == self.current_value
+            segment.config(
+                bg=self.colors.blue if is_selected else self.colors.surface0,
+                fg="#ffffff" if is_selected else self.colors.text
+            )
+    
+    def get(self) -> str:
+        """Get current value."""
+        return self.current_value
+    
+    def pack(self, **kwargs):
+        """Pack the widget."""
+        self.frame.pack(**kwargs)
+
+
+class CarouselButtonList:
+    """
+    A carousel-style list of buttons with pagination.
+    Shows a fixed number of items per page with navigation arrows.
+    """
+    
+    ITEMS_PER_PAGE = 4
+    
+    def __init__(
+        self,
+        parent: tk.Frame,
+        items: List[Tuple[str, str, Optional[str]]],  # [(key, display_text, icon), ...]
+        on_click: Callable[[str], None]
+    ):
+        self.parent = parent
+        self.items = items
+        self.on_click = on_click
+        
+        self.colors = get_colors()
+        self.current_page = 0
+        self.total_pages = max(1, math.ceil(len(items) / self.ITEMS_PER_PAGE))
+        
+        self.buttons_frame: Optional[tk.Frame] = None
+        self.nav_frame: Optional[tk.Frame] = None
+        self.dot_labels: List[tk.Label] = []
+        
+        self._create_widget()
+    
+    def _create_widget(self):
+        """Create the carousel widget."""
+        self.frame = tk.Frame(self.parent, bg=self.colors.base)
+        
+        # Main container with navigation arrows
+        self.content_frame = tk.Frame(self.frame, bg=self.colors.base)
+        self.content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Left arrow
+        if self.total_pages > 1:
+            self.left_arrow = tk.Label(
+                self.content_frame,
+                text="◀",
+                font=("Arial", 12),
+                bg=self.colors.base,
+                fg=self.colors.overlay0,
+                padx=8,
+                cursor="hand2"
+            )
+            self.left_arrow.pack(side=tk.LEFT, fill=tk.Y)
+            self.left_arrow.bind('<Button-1>', lambda e: self._prev_page())
+            self.left_arrow.bind('<Enter>', lambda e: self.left_arrow.config(fg=self.colors.text))
+            self.left_arrow.bind('<Leave>', lambda e: self.left_arrow.config(fg=self.colors.overlay0))
+        
+        # Buttons container
+        self.buttons_frame = tk.Frame(self.content_frame, bg=self.colors.base)
+        self.buttons_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Right arrow
+        if self.total_pages > 1:
+            self.right_arrow = tk.Label(
+                self.content_frame,
+                text="▶",
+                font=("Arial", 12),
+                bg=self.colors.base,
+                fg=self.colors.overlay0,
+                padx=8,
+                cursor="hand2"
+            )
+            self.right_arrow.pack(side=tk.RIGHT, fill=tk.Y)
+            self.right_arrow.bind('<Button-1>', lambda e: self._next_page())
+            self.right_arrow.bind('<Enter>', lambda e: self.right_arrow.config(fg=self.colors.text))
+            self.right_arrow.bind('<Leave>', lambda e: self.right_arrow.config(fg=self.colors.overlay0))
+        
+        # Page dots (only if multiple pages)
+        if self.total_pages > 1:
+            self.nav_frame = tk.Frame(self.frame, bg=self.colors.base)
+            self.nav_frame.pack(pady=(8, 0))
+            
+            for i in range(self.total_pages):
+                dot = tk.Label(
+                    self.nav_frame,
+                    text="●" if i == 0 else "○",
+                    font=("Arial", 8),
+                    bg=self.colors.base,
+                    fg=self.colors.blue if i == 0 else self.colors.overlay0,
+                    padx=2,
+                    cursor="hand2"
+                )
+                dot.pack(side=tk.LEFT)
+                dot.bind('<Button-1>', lambda e, page=i: self._go_to_page(page))
+                self.dot_labels.append(dot)
+        
+        # Render initial page
+        self._render_page()
+    
+    def _render_page(self):
+        """Render the current page of buttons."""
+        # Clear existing buttons
+        for widget in self.buttons_frame.winfo_children():
+            widget.destroy()
+        
+        # Get items for current page
+        start_idx = self.current_page * self.ITEMS_PER_PAGE
+        end_idx = start_idx + self.ITEMS_PER_PAGE
+        page_items = self.items[start_idx:end_idx]
+        
+        # Create buttons
+        for i, (key, display_text, icon) in enumerate(page_items):
+            btn_frame = tk.Frame(self.buttons_frame, bg=self.colors.base)
+            btn_frame.pack(fill=tk.X, pady=1)
+            
+            # Button text with icon
+            text = f"{icon}  {display_text}" if icon else display_text
+            
+            btn = tk.Label(
+                btn_frame,
+                text=text,
+                font=("Arial", 10),
+                bg=self.colors.surface0,
+                fg=self.colors.text,
+                anchor=tk.W,
+                padx=12,
+                pady=10,
+                cursor="hand2"
+            )
+            btn.pack(fill=tk.X)
+            
+            # Hover effects
+            btn.bind('<Enter>', lambda e, b=btn: b.config(bg=self.colors.surface1))
+            btn.bind('<Leave>', lambda e, b=btn: b.config(bg=self.colors.surface0))
+            btn.bind('<Button-1>', lambda e, k=key: self.on_click(k))
+        
+        # Update arrow states
+        self._update_arrows()
+        self._update_dots()
+    
+    def _update_arrows(self):
+        """Update arrow visibility/state."""
+        if self.total_pages <= 1:
+            return
+        
+        # Left arrow
+        if self.current_page == 0:
+            self.left_arrow.config(fg=self.colors.surface2)
+        else:
+            self.left_arrow.config(fg=self.colors.overlay0)
+        
+        # Right arrow
+        if self.current_page >= self.total_pages - 1:
+            self.right_arrow.config(fg=self.colors.surface2)
+        else:
+            self.right_arrow.config(fg=self.colors.overlay0)
+    
+    def _update_dots(self):
+        """Update dot indicators."""
+        for i, dot in enumerate(self.dot_labels):
+            if i == self.current_page:
+                dot.config(text="●", fg=self.colors.blue)
+            else:
+                dot.config(text="○", fg=self.colors.overlay0)
+    
+    def _next_page(self):
+        """Go to next page."""
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+            self._render_page()
+    
+    def _prev_page(self):
+        """Go to previous page."""
+        if self.current_page > 0:
+            self.current_page -= 1
+            self._render_page()
+    
+    def _go_to_page(self, page: int):
+        """Go to specific page."""
+        if 0 <= page < self.total_pages:
+            self.current_page = page
+            self._render_page()
+    
+    def pack(self, **kwargs):
+        """Pack the widget."""
+        self.frame.pack(**kwargs)
+
+
+# =============================================================================
+# Base Popup Class
+# =============================================================================
+
 class BasePopup:
     """Base class for popup windows"""
     
     def __init__(self):
         self.root: Optional[tk.Tk] = None
         self.dark_mode = is_dark_mode()
+        self.colors = get_colors()
         self._setup_colors()
     
     def _setup_colors(self):
-        """Setup color scheme based on dark/light mode."""
-        if self.dark_mode:
-            self.bg_color = "#2d2d2d"
-            self.fg_color = "#ffffff"
-            self.button_bg = "#444444"
-            self.button_hover = "#555555"
-            self.input_bg = "#333333"
-            self.border_color = "#666666"
-            self.accent_color = "#2196F3"  # Blue send button
-        else:
-            self.bg_color = "#f5f5f5"
-            self.fg_color = "#333333"
-            self.button_bg = "#ffffff"
-            self.button_hover = "#e8e8e8"
-            self.input_bg = "#ffffff"
-            self.border_color = "#cccccc"
-            self.accent_color = "#1e66f5"  # Blue send button
+        """Setup color scheme based on dark/light mode (legacy compatibility)."""
+        c = self.colors
+        self.bg_color = c.base
+        self.fg_color = c.text
+        self.button_bg = c.surface0
+        self.button_hover = c.surface1
+        self.input_bg = c.surface0
+        self.border_color = c.surface2
+        self.accent_color = c.blue
     
     def _close(self):
         """Close the popup window."""
@@ -537,14 +860,18 @@ class PromptSelectionPopup(BasePopup):
             self.on_close_callback()
 
 
-# Attached popup creation functions for GUICoordinator
+# =============================================================================
+# Attached Popups for GUICoordinator
+# =============================================================================
 # These create Toplevel windows attached to the coordinator's hidden root
 
 class AttachedInputPopup:
     """
     Input popup as Toplevel attached to coordinator's root.
-    Used for centralized GUI threading.
+    Modern Catppuccin-styled with segmented toggle for response mode.
     """
+    
+    PLACEHOLDER = "Ask AI anything..."
     
     def __init__(
         self,
@@ -560,124 +887,124 @@ class AttachedInputPopup:
         self.x = x
         self.y = y
         
-        self.dark_mode = is_dark_mode()
-        self._setup_colors()
-        
+        self.colors = get_colors()
         self.root: Optional[tk.Toplevel] = None
         self.input_var: Optional[tk.StringVar] = None
-        self.response_mode_var: Optional[tk.StringVar] = None
+        self.response_toggle: Optional[SegmentedToggle] = None
         
         self._create_window()
     
-    def _setup_colors(self):
-        if self.dark_mode:
-            self.bg_color = "#2d2d2d"
-            self.fg_color = "#ffffff"
-            self.button_bg = "#444444"
-            self.button_hover = "#555555"
-            self.input_bg = "#333333"
-            self.border_color = "#666666"
-            self.accent_color = "#2196F3"
-        else:
-            self.bg_color = "#f5f5f5"
-            self.fg_color = "#333333"
-            self.button_bg = "#ffffff"
-            self.button_hover = "#e8e8e8"
-            self.input_bg = "#ffffff"
-            self.border_color = "#cccccc"
-            self.accent_color = "#1e66f5"
-    
     def _create_window(self):
+        """Create the styled input popup window."""
         self.root = tk.Toplevel(self.parent_root)
         self.root.title("AI Chat")
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
-        self.root.configure(bg=self.bg_color)
+        self.root.configure(bg=self.colors.base)
         
+        # Main frame with subtle border
         main_frame = tk.Frame(
             self.root,
-            bg=self.bg_color,
-            highlightbackground=self.border_color,
+            bg=self.colors.base,
+            highlightbackground=self.colors.surface2,
             highlightthickness=1
         )
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        content_frame = tk.Frame(main_frame, bg=self.bg_color)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        content_frame = tk.Frame(main_frame, bg=self.colors.base)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         
-        # Close button
-        top_bar = tk.Frame(content_frame, bg=self.bg_color)
-        top_bar.pack(fill=tk.X, pady=(0, 5))
+        # Top bar with close button
+        top_bar = tk.Frame(content_frame, bg=self.colors.base)
+        top_bar.pack(fill=tk.X, pady=(0, 8))
         
-        close_btn = tk.Button(
-            top_bar, text="×", font=("Arial", 14, "bold"),
-            bg=self.bg_color, fg=self.fg_color,
-            activebackground=self.button_hover,
-            relief=tk.FLAT, bd=0, command=self._close
+        close_btn = tk.Label(
+            top_bar,
+            text="×",
+            font=("Arial", 16, "bold"),
+            bg=self.colors.base,
+            fg=self.colors.overlay0,
+            cursor="hand2"
         )
         close_btn.pack(side=tk.RIGHT)
+        close_btn.bind('<Button-1>', lambda e: self._close())
+        close_btn.bind('<Enter>', lambda e: close_btn.config(fg=self.colors.red))
+        close_btn.bind('<Leave>', lambda e: close_btn.config(fg=self.colors.overlay0))
         
-        # Response mode radio buttons
-        mode_frame = tk.Frame(content_frame, bg=self.bg_color)
-        mode_frame.pack(fill=tk.X, pady=(0, 8))
+        # Response mode toggle (segmented control)
+        toggle_frame = tk.Frame(content_frame, bg=self.colors.base)
+        toggle_frame.pack(fill=tk.X, pady=(0, 12))
         
-        tk.Label(
-            mode_frame, text="Response:", font=("Arial", 9),
-            bg=self.bg_color, fg=self.fg_color
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        self.response_toggle = SegmentedToggle(
+            toggle_frame,
+            options=[("Default", "default"), ("Replace", "replace"), ("Show", "show")],
+            default_value="default"
+        )
+        self.response_toggle.pack(anchor=tk.CENTER)
         
-        self.response_mode_var = tk.StringVar(master=self.root, value="default")
-        
-        for mode_text, mode_value in [("Default", "default"), ("Replace", "replace"), ("Show", "show")]:
-            rb = tk.Radiobutton(
-                mode_frame, text=mode_text, variable=self.response_mode_var,
-                value=mode_value, font=("Arial", 9), bg=self.bg_color,
-                fg=self.fg_color, selectcolor=self.input_bg,
-                activebackground=self.bg_color, activeforeground=self.fg_color,
-                highlightthickness=0, indicatoron=True
-            )
-            rb.pack(side=tk.LEFT, padx=2)
-        
-        # Input area
-        input_frame = tk.Frame(content_frame, bg=self.bg_color)
+        # Input area with modern styling
+        input_frame = tk.Frame(content_frame, bg=self.colors.base)
         input_frame.pack(fill=tk.X)
         
+        # Input container with border
+        input_container = tk.Frame(
+            input_frame,
+            bg=self.colors.surface0,
+            highlightbackground=self.colors.surface2,
+            highlightthickness=1
+        )
+        input_container.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        
         self.input_var = tk.StringVar(master=self.root)
-        placeholder = "Ask your AI..."
         
         self.input_entry = tk.Entry(
-            input_frame, textvariable=self.input_var, font=("Arial", 11),
-            bg=self.input_bg, fg=self.fg_color, insertbackground=self.fg_color,
-            relief=tk.FLAT, highlightbackground=self.border_color,
-            highlightthickness=1, width=40
+            input_container,
+            textvariable=self.input_var,
+            font=("Arial", 11),
+            bg=self.colors.surface0,
+            fg=self.colors.text,
+            insertbackground=self.colors.text,
+            relief=tk.FLAT,
+            bd=0,
+            width=35
         )
-        self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5), ipady=8)
-        self.input_entry.insert(0, placeholder)
-        self.input_entry.config(fg='gray')
+        self.input_entry.pack(fill=tk.X, padx=10, pady=10)
+        self.input_entry.insert(0, self.PLACEHOLDER)
+        self.input_entry.config(fg=self.colors.overlay0)
         
-        def on_focus_in(event):
-            if self.input_entry.get() == placeholder:
-                self.input_entry.delete(0, tk.END)
-                self.input_entry.config(fg=self.fg_color)
-        
-        def on_focus_out(event):
-            if not self.input_entry.get():
-                self.input_entry.insert(0, placeholder)
-                self.input_entry.config(fg='gray')
-        
-        self.input_entry.bind('<FocusIn>', on_focus_in)
-        self.input_entry.bind('<FocusOut>', on_focus_out)
+        self.input_entry.bind('<FocusIn>', self._on_focus_in)
+        self.input_entry.bind('<FocusOut>', self._on_focus_out)
         self.input_entry.bind('<Return>', lambda e: self._submit())
         
-        send_btn = tk.Button(
-            input_frame, text="➤", font=("Arial", 12),
-            bg=self.accent_color, fg="#ffffff",
-            activebackground="#1976D2", relief=tk.FLAT, bd=0,
-            padx=10, pady=5, command=self._submit
+        # Send button
+        send_btn = tk.Label(
+            input_frame,
+            text="➤",
+            font=("Arial", 14),
+            bg=self.colors.blue,
+            fg="#ffffff",
+            padx=14,
+            pady=8,
+            cursor="hand2"
         )
         send_btn.pack(side=tk.RIGHT)
+        send_btn.bind('<Button-1>', lambda e: self._submit())
+        send_btn.bind('<Enter>', lambda e: send_btn.config(bg=self.colors.lavender))
+        send_btn.bind('<Leave>', lambda e: send_btn.config(bg=self.colors.blue))
         
         # Position window
+        self._position_window()
+        
+        # Bindings
+        self.root.bind('<Escape>', lambda e: self._close())
+        
+        # Focus
+        self.root.lift()
+        self.root.focus_force()
+        self.input_entry.focus_set()
+    
+    def _position_window(self):
+        """Position the window near the cursor."""
         self.root.update_idletasks()
         
         x = self.x
@@ -697,21 +1024,29 @@ class AttachedInputPopup:
             y = y - window_height - 30
         
         self.root.geometry(f"+{x}+{y}")
-        
-        self.root.bind('<Escape>', lambda e: self._close())
-        
-        self.root.lift()
-        self.root.focus_force()
-        self.input_entry.focus_set()
+    
+    def _on_focus_in(self, event):
+        """Handle input focus in."""
+        if self.input_entry.get() == self.PLACEHOLDER:
+            self.input_entry.delete(0, tk.END)
+            self.input_entry.config(fg=self.colors.text)
+    
+    def _on_focus_out(self, event):
+        """Handle input focus out."""
+        if not self.input_entry.get():
+            self.input_entry.insert(0, self.PLACEHOLDER)
+            self.input_entry.config(fg=self.colors.overlay0)
     
     def _submit(self):
+        """Handle form submission."""
         text = self.input_var.get().strip()
-        if text and text != "Ask your AI...":
-            response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
+        if text and text != self.PLACEHOLDER:
+            response_mode = self.response_toggle.get() if self.response_toggle else "default"
             self._close()
             self.on_submit(text, response_mode)
     
     def _close(self):
+        """Close the popup."""
         if self.root:
             try:
                 self.root.destroy()
@@ -725,8 +1060,10 @@ class AttachedInputPopup:
 class AttachedPromptPopup:
     """
     Prompt selection popup as Toplevel attached to coordinator's root.
-    Used for centralized GUI threading.
+    Modern Catppuccin-styled with segmented toggle and carousel buttons.
     """
+    
+    PLACEHOLDER = "Describe your change..."
     
     def __init__(
         self,
@@ -746,125 +1083,144 @@ class AttachedPromptPopup:
         self.x = x
         self.y = y
         
-        self.dark_mode = is_dark_mode()
-        self._setup_colors()
-        
+        self.colors = get_colors()
         self.root: Optional[tk.Toplevel] = None
         self.input_var: Optional[tk.StringVar] = None
-        self.response_mode_var: Optional[tk.StringVar] = None
+        self.response_toggle: Optional[SegmentedToggle] = None
         
         self._create_window()
     
-    def _setup_colors(self):
-        if self.dark_mode:
-            self.bg_color = "#2d2d2d"
-            self.fg_color = "#ffffff"
-            self.button_bg = "#444444"
-            self.button_hover = "#555555"
-            self.input_bg = "#333333"
-            self.border_color = "#666666"
-            self.accent_color = "#2196F3"
-        else:
-            self.bg_color = "#f5f5f5"
-            self.fg_color = "#333333"
-            self.button_bg = "#ffffff"
-            self.button_hover = "#e8e8e8"
-            self.input_bg = "#ffffff"
-            self.border_color = "#cccccc"
-            self.accent_color = "#1e66f5"
-    
     def _create_window(self):
+        """Create the styled prompt popup window."""
         self.root = tk.Toplevel(self.parent_root)
         self.root.title("Text Edit Tool")
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
-        self.root.configure(bg=self.bg_color)
+        self.root.configure(bg=self.colors.base)
         
+        # Main frame with subtle border
         main_frame = tk.Frame(
-            self.root, bg=self.bg_color,
-            highlightbackground=self.border_color, highlightthickness=1
-        )
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
-        
-        content_frame = tk.Frame(main_frame, bg=self.bg_color)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Close button
-        top_bar = tk.Frame(content_frame, bg=self.bg_color)
-        top_bar.pack(fill=tk.X, pady=(0, 5))
-        
-        close_btn = tk.Button(
-            top_bar, text="×", font=("Arial", 14, "bold"),
-            bg=self.bg_color, fg=self.fg_color,
-            activebackground=self.button_hover,
-            relief=tk.FLAT, bd=0, command=self._close
-        )
-        close_btn.pack(side=tk.RIGHT)
-        
-        # Response mode radio buttons
-        mode_frame = tk.Frame(content_frame, bg=self.bg_color)
-        mode_frame.pack(fill=tk.X, pady=(0, 8))
-        
-        tk.Label(
-            mode_frame, text="Response:", font=("Arial", 9),
-            bg=self.bg_color, fg=self.fg_color
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        
-        self.response_mode_var = tk.StringVar(master=self.root, value="default")
-        
-        for mode_text, mode_value in [("Default", "default"), ("Replace", "replace"), ("Show", "show")]:
-            rb = tk.Radiobutton(
-                mode_frame, text=mode_text, variable=self.response_mode_var,
-                value=mode_value, font=("Arial", 9), bg=self.bg_color,
-                fg=self.fg_color, selectcolor=self.input_bg,
-                activebackground=self.bg_color, activeforeground=self.fg_color,
-                highlightthickness=0, indicatoron=True
-            )
-            rb.pack(side=tk.LEFT, padx=2)
-        
-        # Input area
-        input_frame = tk.Frame(content_frame, bg=self.bg_color)
-        input_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.input_var = tk.StringVar(master=self.root)
-        placeholder = "Describe your change..."
-        
-        self.input_entry = tk.Entry(
-            input_frame, textvariable=self.input_var, font=("Arial", 11),
-            bg=self.input_bg, fg=self.fg_color, insertbackground=self.fg_color,
-            relief=tk.FLAT, highlightbackground=self.border_color,
+            self.root,
+            bg=self.colors.base,
+            highlightbackground=self.colors.surface2,
             highlightthickness=1
         )
-        self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5), ipady=8)
-        self.input_entry.insert(0, placeholder)
-        self.input_entry.config(fg='gray')
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        def on_focus_in(event):
-            if self.input_entry.get() == placeholder:
-                self.input_entry.delete(0, tk.END)
-                self.input_entry.config(fg=self.fg_color)
+        content_frame = tk.Frame(main_frame, bg=self.colors.base)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         
-        def on_focus_out(event):
-            if not self.input_entry.get():
-                self.input_entry.insert(0, placeholder)
-                self.input_entry.config(fg='gray')
+        # Top bar with close button
+        top_bar = tk.Frame(content_frame, bg=self.colors.base)
+        top_bar.pack(fill=tk.X, pady=(0, 8))
         
-        self.input_entry.bind('<FocusIn>', on_focus_in)
-        self.input_entry.bind('<FocusOut>', on_focus_out)
+        close_btn = tk.Label(
+            top_bar,
+            text="×",
+            font=("Arial", 16, "bold"),
+            bg=self.colors.base,
+            fg=self.colors.overlay0,
+            cursor="hand2"
+        )
+        close_btn.pack(side=tk.RIGHT)
+        close_btn.bind('<Button-1>', lambda e: self._close())
+        close_btn.bind('<Enter>', lambda e: close_btn.config(fg=self.colors.red))
+        close_btn.bind('<Leave>', lambda e: close_btn.config(fg=self.colors.overlay0))
+        
+        # Response mode toggle (segmented control)
+        toggle_frame = tk.Frame(content_frame, bg=self.colors.base)
+        toggle_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        self.response_toggle = SegmentedToggle(
+            toggle_frame,
+            options=[("Default", "default"), ("Replace", "replace"), ("Show", "show")],
+            default_value="default"
+        )
+        self.response_toggle.pack(anchor=tk.CENTER)
+        
+        # Input area with modern styling
+        input_frame = tk.Frame(content_frame, bg=self.colors.base)
+        input_frame.pack(fill=tk.X, pady=(0, 12))
+        
+        # Input container with border
+        input_container = tk.Frame(
+            input_frame,
+            bg=self.colors.surface0,
+            highlightbackground=self.colors.surface2,
+            highlightthickness=1
+        )
+        input_container.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        
+        self.input_var = tk.StringVar(master=self.root)
+        
+        self.input_entry = tk.Entry(
+            input_container,
+            textvariable=self.input_var,
+            font=("Arial", 11),
+            bg=self.colors.surface0,
+            fg=self.colors.text,
+            insertbackground=self.colors.text,
+            relief=tk.FLAT,
+            bd=0
+        )
+        self.input_entry.pack(fill=tk.X, padx=10, pady=10)
+        self.input_entry.insert(0, self.PLACEHOLDER)
+        self.input_entry.config(fg=self.colors.overlay0)
+        
+        self.input_entry.bind('<FocusIn>', self._on_focus_in)
+        self.input_entry.bind('<FocusOut>', self._on_focus_out)
         self.input_entry.bind('<Return>', lambda e: self._on_custom_submit())
         
-        send_btn = tk.Button(
-            input_frame, text="➤", font=("Arial", 12),
-            bg=self.accent_color, fg="#ffffff",
-            activebackground="#1976D2", relief=tk.FLAT, bd=0,
-            padx=10, pady=5, command=self._on_custom_submit
+        # Send button
+        send_btn = tk.Label(
+            input_frame,
+            text="➤",
+            font=("Arial", 14),
+            bg=self.colors.blue,
+            fg="#ffffff",
+            padx=14,
+            pady=8,
+            cursor="hand2"
         )
         send_btn.pack(side=tk.RIGHT)
+        send_btn.bind('<Button-1>', lambda e: self._on_custom_submit())
+        send_btn.bind('<Enter>', lambda e: send_btn.config(bg=self.colors.lavender))
+        send_btn.bind('<Leave>', lambda e: send_btn.config(bg=self.colors.blue))
         
-        # Option buttons
-        self._create_option_buttons(content_frame)
+        # Action buttons carousel
+        self._create_carousel(content_frame)
         
         # Position window
+        self._position_window()
+        
+        # Bindings
+        self.root.bind('<Escape>', lambda e: self._close())
+        
+        # Focus
+        self.root.lift()
+        self.root.focus_force()
+        self.input_entry.focus_set()
+    
+    def _create_carousel(self, parent: tk.Frame):
+        """Create the carousel with action buttons."""
+        # Build items list: (key, display_text, icon)
+        items = []
+        for key, option in self.options.items():
+            if key == "Custom" or key.startswith("_"):
+                continue
+            icon = option.get("icon", None)
+            items.append((key, key, icon))
+        
+        if items:
+            carousel = CarouselButtonList(
+                parent,
+                items=items,
+                on_click=self._on_option_click
+            )
+            carousel.pack(fill=tk.X)
+    
+    def _position_window(self):
+        """Position the window near the cursor."""
         self.root.update_idletasks()
         
         x = self.x
@@ -884,61 +1240,39 @@ class AttachedPromptPopup:
             y = y - window_height - 30
         
         self.root.geometry(f"+{x}+{y}")
-        
-        self.root.bind('<Escape>', lambda e: self._close())
-        
-        self.root.lift()
-        self.root.focus_force()
-        self.input_entry.focus_set()
     
-    def _create_option_buttons(self, parent: tk.Frame):
-        buttons_frame = tk.Frame(parent, bg=self.bg_color)
-        buttons_frame.pack(fill=tk.BOTH, expand=True)
-        
-        row = 0
-        col = 0
-        
-        for key, option in self.options.items():
-            if key == "Custom":
-                continue
-            
-            btn = tk.Button(
-                buttons_frame, text=key, font=("Arial", 10),
-                bg=self.button_bg, fg=self.fg_color,
-                activebackground=self.button_hover,
-                relief=tk.FLAT, bd=0, padx=15, pady=8, width=12, anchor=tk.W,
-                command=lambda k=key: self._on_option_click(k)
-            )
-            btn.grid(row=row, column=col, padx=3, pady=3, sticky=tk.EW)
-            
-            btn.bind('<Enter>', lambda e, b=btn: b.config(bg=self.button_hover))
-            btn.bind('<Leave>', lambda e, b=btn: b.config(bg=self.button_bg))
-            
-            col += 1
-            if col > 1:
-                col = 0
-                row += 1
-        
-        buttons_frame.columnconfigure(0, weight=1)
-        buttons_frame.columnconfigure(1, weight=1)
+    def _on_focus_in(self, event):
+        """Handle input focus in."""
+        if self.input_entry.get() == self.PLACEHOLDER:
+            self.input_entry.delete(0, tk.END)
+            self.input_entry.config(fg=self.colors.text)
+    
+    def _on_focus_out(self, event):
+        """Handle input focus out."""
+        if not self.input_entry.get():
+            self.input_entry.insert(0, self.PLACEHOLDER)
+            self.input_entry.config(fg=self.colors.overlay0)
     
     def _on_option_click(self, option_key: str):
+        """Handle action button click."""
         logging.debug(f'Option selected: {option_key}')
-        response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
+        response_mode = self.response_toggle.get() if self.response_toggle else "default"
         self._close()
         self.on_option_selected(option_key, self.selected_text, None, response_mode)
     
     def _on_custom_submit(self):
+        """Handle custom input submission."""
         custom_text = self.input_var.get().strip()
-        if not custom_text or custom_text == "Describe your change...":
+        if not custom_text or custom_text == self.PLACEHOLDER:
             return
         
         logging.debug(f'Custom input submitted: {custom_text[:50]}...')
-        response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
+        response_mode = self.response_toggle.get() if self.response_toggle else "default"
         self._close()
         self.on_option_selected("Custom", self.selected_text, custom_text, response_mode)
     
     def _close(self):
+        """Close the popup."""
         if self.root:
             try:
                 self.root.destroy()
