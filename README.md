@@ -4,19 +4,23 @@
 
 ## Features
 
-*   **⚡ ShareX Integration**: seamless image processing endpoints (OCR, translation, summarization) compatible with ShareX custom uploaders.
+*   **⚡ ShareX Integration**: Seamless image processing endpoints (OCR, translation, summarization) compatible with ShareX custom uploaders.
 *   **⌨️ TextEditTool**: Global hotkey (default: `Ctrl+Space`) to invoke AI on selected text in *any* application.
     *   **Proofread/Rewrite**: Instant text improvement.
     *   **Replace or Chat**: Choose to replace text in-place or open a chat window.
     *   **Streaming Typing**: Simulates natural typing for direct text insertion.
-*   **🖥️ Native GUI**: Lightweight, threaded Tkinter-based interface for chat sessions and history browsing.
+*   **🖥️ Modern Native GUI**: Tkinter-based interface with Catppuccin theme, thread-safe window management via GUICoordinator.
+    *   **Chat Windows**: Interactive sessions with markdown rendering.
+    *   **Session Browser**: Browse and restore chat history.
+    *   **Modern UI Components**: Segmented toggles, carousel buttons, tooltips.
 *   **🧠 Advanced AI Features**:
-    *   **Streaming**: Real-time text generation.
-    *   **Thinking/Reasoning**: Support for reasoning models (e.g., Gemini 2.0 Flash Thinking) with collapsible thought process display.
-    *   **Multi-Provider**: Built-in support for Google Gemini, OpenRouter, and custom OpenAI-compatible endpoints.
+    *   **Streaming**: Real-time text generation with buffered typing.
+    *   **Thinking/Reasoning**: Provider-specific thinking configuration.
+    *   **Multi-Provider**: Unified provider abstraction for Google Gemini (Native), OpenRouter, and custom OpenAI-compatible endpoints.
 *   **🛡️ Robust Architecture**:
-    *   **Smart Key Rotation**: Automatically rotates API keys on rate limits.
-    *   **Session Management**: Auto-saves chat history to JSON.
+    *   **Request Pipeline**: Unified request processing with consistent logging and token tracking.
+    *   **Smart Key Rotation**: Automatic key rotation on rate limits with exhaustion detection.
+    *   **Session Management**: Sequential session IDs with auto-save to JSON.
     *   **Terminal Control**: Interactive terminal commands for server management.
 
 ## Project Structure
@@ -29,23 +33,35 @@ AI-Bridge/
 ├── requirements.txt            # Python dependencies
 ├── config.ini                  # Configuration (auto-generated on first run)
 ├── chat_sessions.json          # Saved chat sessions
-├── text_edit_tool_options.json # TextEditTool prompts configuration
+├── text_edit_tool_options.json # TextEditTool prompts/settings
+├── LICENSE
+├── README.md
+├── AGENTS.md                   # AI agent guidance (not in git)
 └── src/
-    ├── config.py               # Configuration management
-    ├── web_server.py           # Flask web server and API endpoints
-    ├── request_pipeline.py     # Unified request processing pipeline
-    ├── session_manager.py      # Session persistence
+    ├── __init__.py
+    ├── api_client.py           # Unified API interface using providers
+    ├── config.py               # Custom INI parser, configuration management
+    ├── key_manager.py          # API key rotation with exhaustion tracking
+    ├── request_pipeline.py     # Unified request processing with logging
+    ├── session_manager.py      # Session persistence with sequential IDs
     ├── terminal.py             # Interactive terminal commands
+    ├── utils.py                # Utility functions (strip_markdown, etc.)
+    ├── web_server.py           # Flask server and API endpoints
     ├── gui/                    # GUI Package (Tkinter)
-    │   ├── core.py             # GUI threading and initialization
-    │   ├── windows.py          # Chat and Browser windows
+    │   ├── __init__.py
+    │   ├── core.py             # GUICoordinator singleton for thread-safe GUI
+    │   ├── hotkey.py           # Global hotkey listener (pynput)
+    │   ├── options.py          # Default options and settings constants
+    │   ├── popups.py           # Modern Catppuccin-styled popups
     │   ├── text_edit_tool.py   # TextEditTool application controller
-    │   ├── popups.py           # Quick action popups
-    │   └── hotkey.py           # Global hotkey listener
+    │   ├── text_handler.py     # Text selection and replacement
+    │   ├── utils.py            # GUI utilities (clipboard, markdown render)
+    │   └── windows.py          # Chat and Browser windows
     └── providers/              # AI Provider Implementations
-        ├── base.py             # Abstract base provider & retry logic
-        ├── gemini_native.py    # Google Gemini native API
-        └── openai_compatible.py # OpenRouter & Custom endpoints
+        ├── __init__.py         # Provider exports and factory
+        ├── base.py             # Abstract base provider, retry logic, ProviderResult
+        ├── gemini_native.py    # Native Gemini API with full feature support
+        └── openai_compatible.py # OpenRouter, Custom, Google OpenAI-compat
 ```
 
 ## Installation
@@ -91,14 +107,22 @@ The server starts at `http://127.0.0.1:5000` by default.
 
 ### Terminal Commands
 While the server is running, you can use these keyboard commands in the terminal:
-*   `L` - List saved sessions
-*   `O` - Open session browser GUI
-*   `G` - Show GUI status
-*   `M` - List available models
-*   `T` - Toggle thinking/reasoning mode
-*   `R` - Toggle streaming mode
-*   `H` - Help menu
-*   `Ctrl+C` - Shutdown
+
+| Key | Command | Description |
+|-----|---------|-------------|
+| `L` | Sessions | List saved sessions |
+| `O` | Browser | Open session browser GUI |
+| `E` | Endpoints | List registered API endpoints |
+| `M` | Models | List available models from API |
+| `P` | Provider | Switch API provider |
+| `S` | Status | Show comprehensive system status |
+| `T` | Thinking | Toggle thinking/reasoning mode |
+| `R` | Streaming | Toggle streaming mode |
+| `V` | View | View a session by ID |
+| `D` | Delete | Delete a session by ID |
+| `C` | Clear | Clear all sessions |
+| `H` | Help | Show help menu |
+| `Ctrl+C` | Shutdown | Shutdown server |
 
 ### TextEditTool (Global Hotkey)
 1.  Select text in any application (Notepad, Browser, IDE, etc.).
@@ -139,17 +163,65 @@ The `config.ini` file allows extensive customization:
 
 *   **Providers**: Switch between `google`, `openrouter`, or `custom`.
 *   **Models**: Set specific models (e.g., `gemini-2.0-flash`, `gpt-4o`).
-*   **Streaming**: Enable/disable `streaming_enabled`.
-*   **Thinking**: Enable `thinking_enabled` to see the AI's reasoning process (for supported models).
-*   **TextEditTool**: Customize the `text_edit_tool_hotkey` and `text_edit_tool_response_mode`.
+*   **Streaming**: Enable/disable with `streaming_enabled`.
+*   **Thinking**: Enable with `thinking_enabled` to see the AI's reasoning process.
+*   **TextEditTool**: Customize `text_edit_tool_hotkey` and `text_edit_tool_response_mode`.
+
+### Thinking Configuration per Provider
+
+Different providers have different thinking/reasoning configurations:
+
+| Provider | Config Key | Values | Description |
+|----------|-----------|--------|-------------|
+| OpenAI-compatible | `reasoning_effort` | `low`, `medium`, `high` | Reasoning effort level |
+| Gemini 2.5 | `thinking_budget` | integer (`-1` = auto) | Token budget for thinking |
+| Gemini 3.x | `thinking_level` | `low`, `high` | Thinking level |
+
+**Note**: The configuration parser supports multiline values with `\` continuation.
+
+## Architecture
+
+### Provider System
+
+All API calls flow through the unified provider system in `src/providers/`:
+
+- **BaseProvider**: Abstract base class with common retry logic and `ProviderResult` dataclass
+- **OpenAICompatibleProvider**: Handles Custom endpoints, OpenRouter, and Google OpenAI-compatible
+- **GeminiNativeProvider**: Native Gemini API with full feature support (thinking, tools, etc.)
+
+Use `get_provider_for_type()` from `src/api_client.py` to get the appropriate provider.
+
+### Request Pipeline
+
+All AI requests flow through `RequestPipeline` in `src/request_pipeline.py`:
+
+- Consistent console logging for ALL requests
+- Token usage tracking
+- Origin tracking (CHAT_WINDOW, POPUP_INPUT, ENDPOINT_OCR, etc.)
+
+### GUI Threading Model
+
+The GUI uses `GUICoordinator` singleton in `src/gui/core.py`:
+
+- Single `tk.Tk()` root with queue-based window creation
+- All windows created as `tk.Toplevel` children
+- Thread-safe window creation via request queue
+- Standalone windows use polling loop instead of `mainloop()`
+
+### Key Rotation
+
+`KeyManager` in `src/key_manager.py` handles automatic key rotation:
+
+- Rotates on 429 (rate limit), 401/402/403 (auth errors)
+- Tracks exhausted keys to avoid re-trying
+- Configurable delays based on error type
 
 ## Known Issues & Limitations
 
 As this project is in active development, please be aware:
 - Some edge cases in TextEditTool text replacement may not work perfectly across all applications
-- GUI windows may occasionally have threading-related issues on some systems
 - Not all AI models support thinking/reasoning mode
-- Error handling is still being improved
+- pynput keyboard typing needs 5ms delay per character for Unicode stability
 
 ## Contributing
 
