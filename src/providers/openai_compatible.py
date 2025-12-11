@@ -325,28 +325,33 @@ class OpenAICompatibleProvider(BaseProvider):
                 
                 try:
                     data = json.loads(line[6:])
-                    choice = data.get("choices", [{}])[0]
-                    delta = choice.get("delta", {})
                     
-                    # Handle regular content
-                    content = delta.get("content", "")
-                    if content:
-                        accumulated_content += content
-                        callback(CallbackType.TEXT, content)
-                    
-                    # Handle reasoning_content (DeepSeek/thinking style)
-                    reasoning = delta.get("reasoning_content", "")
-                    if reasoning:
-                        accumulated_thinking += reasoning
-                        callback(CallbackType.THINKING, reasoning)
-                    
-                    # Handle tool calls
-                    tool_calls = delta.get("tool_calls")
-                    if tool_calls:
-                        accumulated_tool_calls.extend(tool_calls)
-                        callback(CallbackType.TOOL_CALLS, tool_calls)
+                    # Get choices array - may be empty in usage-only chunks
+                    choices = data.get("choices", [])
+                    if choices:
+                        choice = choices[0]
+                        delta = choice.get("delta", {})
+                        
+                        # Handle regular content
+                        content = delta.get("content", "")
+                        if content:
+                            accumulated_content += content
+                            callback(CallbackType.TEXT, content)
+                        
+                        # Handle reasoning_content (DeepSeek/thinking style)
+                        reasoning = delta.get("reasoning_content", "")
+                        if reasoning:
+                            accumulated_thinking += reasoning
+                            callback(CallbackType.THINKING, reasoning)
+                        
+                        # Handle tool calls
+                        tool_calls = delta.get("tool_calls")
+                        if tool_calls:
+                            accumulated_tool_calls.extend(tool_calls)
+                            callback(CallbackType.TOOL_CALLS, tool_calls)
                     
                     # Handle usage data (comes with stream_options.include_usage)
+                    # This may come in a chunk with empty choices array
                     if "usage" in data:
                         usage = data["usage"]
                         usage_data = UsageData(
