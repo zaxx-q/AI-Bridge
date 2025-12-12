@@ -9,6 +9,7 @@ import sys
 import subprocess
 import ctypes
 from pathlib import Path
+import threading
 
 # Try to import infi.systray
 HAVE_SYSTRAY = False
@@ -59,45 +60,64 @@ def is_console_visible():
     return True
 
 
-# ─── Console Window Control (Windows) ─────────────────────────────────────────
-
-# Console close handler type
-HANDLER_ROUTINE = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
-
-def _console_close_handler(ctrl_type):
+def disable_console_close_button():
     """
-    Handle console close events.
-    When user clicks X on console, hide instead of killing the app.
-    
-    ctrl_type values:
-        0 = CTRL_C_EVENT
-        1 = CTRL_BREAK_EVENT
-        2 = CTRL_CLOSE_EVENT (user clicked X)
-        5 = CTRL_LOGOFF_EVENT
-        6 = CTRL_SHUTDOWN_EVENT
+    Disable the close button (X) on the console window.
+    This prevents users from accidentally closing the app via the console.
+    They should use the tray icon's Quit option instead.
     """
-    if ctrl_type == 2:  # CTRL_CLOSE_EVENT - user clicked X
-        # Hide console instead of closing
-        # We need to run this asynchronously or ensure it doesn't block
-        # But ShowWindow is usually fine.
-        hide_console()
-        return True  # Handled - don't close
+    if sys.platform != 'win32':
+        return False
     
-    # For other events (Ctrl+C, shutdown, etc.), let them through
+    try:
+        hwnd = get_console_window()
+        if not hwnd:
+            return False
+        
+        # Get the system menu (window menu)
+        # GetSystemMenu(hwnd, bRevert) - bRevert=False gets the current menu
+        user32 = ctypes.windll.user32
+        hmenu = user32.GetSystemMenu(hwnd, False)
+        
+        if hmenu:
+            # SC_CLOSE = 0xF060
+            # MF_BYCOMMAND = 0x0000
+            # MF_GRAYED = 0x0001
+            # DeleteMenu or EnableMenuItem to disable close
+            SC_CLOSE = 0xF060
+            MF_BYCOMMAND = 0x0000
+            MF_GRAYED = 0x0001
+            
+            # Disable (gray out) the close menu item
+            user32.EnableMenuItem(hmenu, SC_CLOSE, MF_BYCOMMAND | MF_GRAYED)
+            
+            # Also remove it entirely (optional - comment out if you just want grayed)
+            # user32.DeleteMenu(hmenu, SC_CLOSE, MF_BYCOMMAND)
+            
+            return True
+    except Exception as e:
+        print(f"[Warning] Could not disable console close button: {e}")
+    
     return False
 
-# Keep a reference to prevent garbage collection
-_console_handler = HANDLER_ROUTINE(_console_close_handler)
 
-def setup_console_close_handler():
-    """Set up the console close event handler"""
-    if sys.platform == 'win32':
-        try:
-            # SetConsoleCtrlHandler(handler, True) -> True adds it
-            ctypes.windll.kernel32.SetConsoleCtrlHandler(_console_handler, True)
-            return True
-        except Exception as e:
-            print(f"[Warning] Could not set console handler: {e}")
+def enable_console_close_button():
+    """Re-enable the close button on the console window."""
+    if sys.platform != 'win32':
+        return False
+    
+    try:
+        hwnd = get_console_window()
+        if not hwnd:
+            return False
+        
+        user32 = ctypes.windll.user32
+        # GetSystemMenu with bRevert=True resets to default
+        user32.GetSystemMenu(hwnd, True)
+        return True
+    except Exception:
+        pass
+    
     return False
 
 
@@ -162,26 +182,37 @@ class TrayApp:
         
         # Ensure console is shown before restart
         show_console()
+        enable_console_close_button()  # Re-enable close button before restart
         
-        # Stop the tray
-        if self.systray:
-            self.systray.shutdown()
-        
-        # Restart the process
+        # Start the new process FIRST, before doing anything that might fail
         if sys.platform == 'win32':
-            # Use subprocess to start new process in a new console
-            # This is more robust than os.system('start ...')
-            if script.endswith('.py'):
-                subprocess.Popen([sys.executable, script] + args,
-                               creationflags=subprocess.CREATE_NEW_CONSOLE)
-            else:
-                # Frozen executable
-                subprocess.Popen([script] + args,
-                               creationflags=subprocess.CREATE_NEW_CONSOLE)
+            try:
+                # DETACHED_PROCESS = 0x00000008
+                # CREATE_NEW_CONSOLE = 0x00000010
+                # CREATE_NEW_PROCESS_GROUP = 0x00000200
+                flags = subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP
+                
+                if script.endswith('.py'):
+                    subprocess.Popen(
+                        [sys.executable, script] + args,
+                        creationflags=flags,
+                        start_new_session=True
+                    )
+                else:
+                    # Frozen executable
+                    subprocess.Popen(
+                        [script] + args,
+                        creationflags=flags,
+                        start_new_session=True
+                    )
+            except Exception as e:
+                print(f"[Error] Failed to start new process: {e}")
+                return  # Don't exit if we couldn't start new process
         else:
             os.execv(sys.executable, [sys.executable, script] + args)
         
-        # Exit current process
+        # Don't call systray.shutdown() - it causes "cannot join current thread" error
+        # Just force exit. The tray icon will disappear when the process dies.
         os._exit(0)
     
     def _on_session_browser(self, systray):
@@ -227,6 +258,7 @@ class TrayApp:
         
         # Show console before exit so user sees the message
         show_console()
+        enable_console_close_button()  # Re-enable close button before exit
         
         # Call the exit callback if provided
         if self.on_exit_callback:
@@ -249,8 +281,9 @@ class TrayApp:
         if not self.icon_path:
             print("[Warning] Icon file not found - using default icon")
         
-        # Set up console close handler (X button hides instead of closes)
-        setup_console_close_handler()
+        # Disable the console close button (X) to prevent accidental closure
+        # Users should use tray icon's Quit option instead
+        disable_console_close_button()
         
         # Define menu options
         # Format: (text, icon, callback)

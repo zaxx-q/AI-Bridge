@@ -135,11 +135,9 @@ def terminal_session_manager(endpoints=None):
                     print(f"   ✗ {error}")
                 elif models:
                     print(f"\n   Available ({len(models)}):")
-                    for i, m in enumerate(models[:15]):
+                    for i, m in enumerate(models):
                         marker = " ◄" if m['id'] == current_model else ""
                         print(f"      [{i+1:2}] {m['id']}{marker}")
-                    if len(models) > 15:
-                        print(f"      ... and {len(models) - 15} more")
                     
                     print("\n   Enter number or model name (q = cancel): ", end='', flush=True)
                     try:
