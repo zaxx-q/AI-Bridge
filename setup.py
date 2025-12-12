@@ -12,8 +12,50 @@ Output:
 """
 
 import sys
+import os
+import shutil
 from pathlib import Path
 from cx_Freeze import setup, Executable
+from cx_Freeze.command.build_exe import build_exe
+
+# ─── Custom Build Command ─────────────────────────────────────────────────────
+
+class CustomBuildExe(build_exe):
+    """Custom build_exe command to clean up unnecessary Tcl/Tk files"""
+    
+    def run(self):
+        # Run the standard build process
+        super().run()
+        
+        # Cleanup Tcl/Tk directories
+        self._cleanup_tcl_tk()
+    
+    def _cleanup_tcl_tk(self):
+        print("Cleaning up unnecessary Tcl/Tk files...")
+        build_dir = self.build_exe
+        share_dir = os.path.join(build_dir, "share")
+        
+        if not os.path.exists(share_dir):
+            return
+
+        # List of paths to remove relative to share/
+        # Note: Versions (tcl8.6) might change, so we walk or use wildcards if needed,
+        # but hardcoding current version is safer for now.
+        paths_to_remove = [
+            os.path.join(share_dir, "tcl8", "tcl8.6", "tzdata"), # Timezone data
+            os.path.join(share_dir, "tcl8", "tcl8.6", "msgs"),   # Tcl messages
+            os.path.join(share_dir, "tk8.6", "demos"),           # Tk demos
+            os.path.join(share_dir, "tk8.6", "msgs"),            # Tk messages
+            os.path.join(share_dir, "tk8.6", "images"),          # Tk images
+        ]
+        
+        for path in paths_to_remove:
+            if os.path.exists(path):
+                print(f"  Removing: {path}")
+                try:
+                    shutil.rmtree(path)
+                except Exception as e:
+                    print(f"  Warning: Failed to remove {path}: {e}")
 
 # ─── Build Options ────────────────────────────────────────────────────────────
 
@@ -89,9 +131,10 @@ executables = [
 
 setup(
     name="AI Bridge",
-    version="1.0.9",
+    version="1.0.10",
     description="Multi-modal AI Assistant Server with TextEditTool",
     author="AI Bridge",
     options={"build_exe": build_exe_options},
     executables=executables,
+    cmdclass={"build_exe": CustomBuildExe},
 )
