@@ -19,8 +19,8 @@ DEFAULT_CONFIG = {
     # Google-specific behavior is automatically applied
     "custom_url": None,
     "custom_model": None,
-    "openrouter_model": "google/gemini-2.5-flash-preview",
-    "google_model": "gemini-2.0-flash",
+    "openrouter_model": "openai/gpt-oss-120b:free",
+    "google_model": "gemma-3-27b-it",
     "max_retries": 3,
     "retry_delay": 5,
     "request_timeout": 120,
@@ -258,19 +258,19 @@ show_ai_response_in_chat_window = no
 
 # Custom API configuration
 # custom_url = https://api.openai.com/v1/chat/completions
-# custom_model = gpt-4o
+# custom_model = gpt-5.1
 #
 # NOTE: If custom_url contains "google" or "googleapis.com", the system will
 # automatically apply Google-specific settings (safety_settings, thinking_config).
 # Example for Google's OpenAI-compatible endpoint:
 # custom_url = https://generativelanguage.googleapis.com/v1beta/openai
-# custom_model = gemini-2.0-flash-thinking-exp
+# custom_model = gemini-2.5-flash
 
 # OpenRouter model (see https://openrouter.ai/models for options)
-openrouter_model = google/gemini-2.5-flash-preview
+openrouter_model = openai/gpt-oss-120b:free
 
 # Google Gemini model
-google_model = gemini-2.0-flash
+google_model = gemma-3-27b-it
 
 # Retry settings
 max_retries = 3

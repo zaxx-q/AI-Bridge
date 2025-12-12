@@ -1,0 +1,210 @@
+# Architecture
+
+This document describes the technical architecture of AI Bridge.
+
+## Overview
+
+AI Bridge is a Windows application consisting of:
+
+1. **Flask Web Server** - REST API endpoints for image/text processing
+2. **System Tray Application** - Background process management with `infi.systray`
+3. **Tkinter GUI** - Chat windows, session browser, popups with Catppuccin theme
+4. **TextEditTool** - Global hotkey integration with `pynput`
+5. **AI Provider System** - Unified abstraction for multiple AI backends
+
+## Component Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         main.py                                  │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────────┐ │
+│  │ System Tray │  │ Flask Server │  │ TextEditTool (Hotkey)   │ │
+│  │  (tray.py)  │  │(web_server)  │  │  (text_edit_tool.py)    │ │
+│  └──────┬──────┘  └──────┬───────┘  └───────────┬─────────────┘ │
+│         │                │                       │               │
+│         └────────────────┼───────────────────────┘               │
+│                          │                                       │
+│                          ▼                                       │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                   Request Pipeline                         │  │
+│  │              (request_pipeline.py)                         │  │
+│  │   • Logging  • Token tracking  • Origin tracking           │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                          │                                       │
+│                          ▼                                       │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                     API Client                             │  │
+│  │                  (api_client.py)                           │  │
+│  │            get_provider_for_type()                         │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                          │                                       │
+│          ┌───────────────┼───────────────┐                      │
+│          ▼               ▼               ▼                      │
+│  ┌──────────────┐ ┌─────────────┐ ┌──────────────┐             │
+│  │ OpenAI-compat│ │Gemini Native│ │   Custom     │             │
+│  │   Provider   │ │  Provider   │ │  Endpoint    │             │
+│  └──────────────┘ └─────────────┘ └──────────────┘             │
+│                                                                  │
+│                          │                                       │
+│                          ▼                                       │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                    Key Manager                             │  │
+│  │                 (key_manager.py)                           │  │
+│  │   • Multiple keys per provider  • Auto-rotation on error   │  │
+│  │   • Exhaustion detection        • Retry with backoff       │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Provider System
+
+All AI API calls flow through the unified provider system in `src/providers/`.
+
+### Provider Interface
+
+```python
+class BaseProvider:
+    def call_api(messages, config, ai_params, key_manager) -> ProviderResult
+    def call_api_streaming(messages, config, ai_params, key_manager, callback) -> ProviderResult
+    def get_model_list(config, key_manager) -> List[str]
+```
+
+### Available Providers
+
+| Provider | Class | Use Case |
+|----------|-------|----------|
+| `google` | `GeminiNativeProvider` | Native Gemini API with thinking, tools |
+| `openrouter` | `OpenAICompatibleProvider` | OpenRouter.ai models |
+| `custom` | `OpenAICompatibleProvider` | Any OpenAI-compatible endpoint |
+
+### Retry Logic
+
+The provider system includes automatic retry with key rotation:
+
+| Error | Action | Delay |
+|-------|--------|-------|
+| 429 Rate Limit | Rotate to next key | None |
+| 401/402/403 Auth | Rotate to next key | None |
+| 5xx Server Error | Retry same key | 2 seconds |
+| Empty Response | Rotate to next key | 2 seconds |
+| Network Error | Rotate to next key | 1 second |
+
+## GUI Threading Model
+
+The GUI uses a singleton `GUICoordinator` to ensure thread safety with Tkinter.
+
+### Rules
+
+1. **Single tk.Tk() root** - Only one Tk root exists, created by GUICoordinator
+2. **Queue-based window creation** - All windows requested via `GUICoordinator.request_window()`
+3. **Toplevel children** - All windows are `tk.Toplevel`, not new roots
+4. **Polling loop** - Standalone windows use `_polling_loop()` instead of `mainloop()`
+
+### Window Types
+
+| Window | Purpose |
+|--------|---------|
+| `ChatWindow` | Interactive AI chat with streaming |
+| `SessionBrowserWindow` | Browse and restore saved sessions |
+| `PopupWindow` | TextEditTool selection/input dialogs |
+
+## Request Pipeline
+
+All AI requests flow through `RequestPipeline` for consistent observability:
+
+```python
+pipeline = RequestPipeline(
+    origin=RequestOrigin.CHAT_WINDOW,  # or POPUP_INPUT, ENDPOINT_OCR, etc.
+    session_id=session.id
+)
+result = pipeline.execute(provider, messages, config, ai_params, key_manager)
+```
+
+### Features
+
+- Console logging with origin context
+- Token usage tracking (input/output/total)
+- Timing information
+- Error categorization
+
+## Session Management
+
+Sessions are stored in `chat_sessions.json` with sequential IDs.
+
+### Session Structure
+
+```json
+{
+  "1": {
+    "id": 1,
+    "title": "First message preview...",
+    "messages": [
+      {"role": "user", "content": "..."},
+      {"role": "assistant", "content": "..."}
+    ],
+    "thinking_content": "...",
+    "created_at": "2024-01-01T00:00:00",
+    "updated_at": "2024-01-01T00:01:00"
+  }
+}
+```
+
+### Design Decision
+
+Sessions do NOT store provider/model. This allows:
+- Hot-switching providers mid-conversation
+- No migration needed when changing default provider
+- Current config is always used at request time
+
+## System Tray (Windows)
+
+The tray application (`src/tray.py`) manages:
+
+- Console show/hide (console X button is disabled in tray mode)
+- Application restart (spawns new process, exits current)
+- Quick access to session browser
+- Config file editing
+
+### Console Window Behavior
+
+| Action | Result |
+|--------|--------|
+| Click X on console | Button disabled (grayed out) |
+| Tray → Hide Console | Hides console window |
+| Tray → Show Console | Shows and focuses console |
+| Tray → Quit | Clean shutdown |
+
+## Thinking/Reasoning Configuration
+
+Different providers have different thinking mechanisms:
+
+| Provider | Config Key | Values |
+|----------|-----------|--------|
+| OpenAI-compatible | `reasoning_effort` | `low`, `medium`, `high` |
+| Gemini 2.5 | `thinking_budget` | Integer (tokens, -1 = auto) |
+| Gemini 3.x | `thinking_level` | `low`, `high` |
+
+## Configuration System
+
+The config parser (`src/config.py`) is a custom INI parser, NOT Python's `configparser`.
+
+### Special Features
+
+- Multiline values with `\` continuation
+- Type coercion (bool, int, float, string)
+- API keys are one per line in their section
+- Comments with `#` or `;`
+
+### Example
+
+```ini
+[settings]
+streaming_enabled = true
+thinking_enabled = false
+default_provider = google
+google_model = gemini-2.5-flash
+
+[google]
+# API keys, one per line
+AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+AIzaSyYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY

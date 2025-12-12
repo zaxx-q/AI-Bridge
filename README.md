@@ -1,243 +1,191 @@
 # AI Bridge
 
-**AI Bridge** is a versatile multi-modal AI assistant server that bridges the gap between your operating system and powerful AI models. It features hotkey-triggered text editing, image processing (via ShareX integration), and interactive chat assistance, all accessible through a lightweight local server and native GUI.
+<p align="center">
+  <strong>v1.0.0</strong> • Windows Desktop AI Assistant
+</p>
 
-## Features
+**AI Bridge** is a Windows desktop application that brings AI assistance to your fingertips. Use global hotkeys to edit text in any application, process screenshots with OCR, and chat with AI models—all from a lightweight system tray app.
 
-*   **⚡ ShareX Integration**: Seamless image processing endpoints (OCR, translation, summarization) compatible with ShareX custom uploaders.
-*   **⌨️ TextEditTool**: Global hotkey (default: `Ctrl+Space`) to invoke AI on selected text in *any* application.
-    *   **Proofread/Rewrite**: Instant text improvement.
-    *   **Replace or Chat**: Choose to replace text in-place or open a chat window.
-    *   **Streaming Typing**: Simulates natural typing for direct text insertion.
-*   **🖥️ Modern Native GUI**: Tkinter-based interface with Catppuccin theme, thread-safe window management via GUICoordinator.
-    *   **Chat Windows**: Interactive sessions with markdown rendering.
-    *   **Session Browser**: Browse and restore chat history.
-    *   **Modern UI Components**: Segmented toggles, carousel buttons, tooltips.
-*   **🧠 Advanced AI Features**:
-    *   **Streaming**: Real-time text generation with buffered typing.
-    *   **Thinking/Reasoning**: Provider-specific thinking configuration.
-    *   **Multi-Provider**: Unified provider abstraction for Google Gemini (Native), OpenRouter, and custom OpenAI-compatible endpoints.
-*   **🛡️ Robust Architecture**:
-    *   **Request Pipeline**: Unified request processing with consistent logging and token tracking.
-    *   **Smart Key Rotation**: Automatic key rotation on rate limits with exhaustion detection.
-    *   **Session Management**: Sequential session IDs with auto-save to JSON.
-    *   **Terminal Control**: Interactive terminal commands for server management.
+## ✨ Features
 
-## Project Structure
+### 🎯 TextEditTool
+Press **Ctrl+Space** anywhere to invoke AI on selected text:
+- **Proofread** - Fix grammar and spelling
+- **Rewrite** - Improve clarity and style  
+- **Translate** - Convert to another language
+- **Custom prompts** - Define your own actions
 
-The project follows a modular architecture separating the web server, GUI, and AI providers:
+Works in any application: browsers, IDEs, Notepad, Word, everywhere.
 
-```
-AI-Bridge/
-├── main.py                     # Main entry point
-├── requirements.txt            # Python dependencies
-├── config.ini                  # Configuration (auto-generated on first run)
-├── chat_sessions.json          # Saved chat sessions
-├── text_edit_tool_options.json # TextEditTool prompts/settings
-├── LICENSE
-├── README.md
-├── AGENTS.md                   # AI agent guidance (not in git)
-└── src/
-    ├── __init__.py
-    ├── api_client.py           # Unified API interface using providers
-    ├── config.py               # Custom INI parser, configuration management
-    ├── key_manager.py          # API key rotation with exhaustion tracking
-    ├── request_pipeline.py     # Unified request processing with logging
-    ├── session_manager.py      # Session persistence with sequential IDs
-    ├── terminal.py             # Interactive terminal commands
-    ├── utils.py                # Utility functions (strip_markdown, etc.)
-    ├── web_server.py           # Flask server and API endpoints
-    ├── gui/                    # GUI Package (Tkinter)
-    │   ├── __init__.py
-    │   ├── core.py             # GUICoordinator singleton for thread-safe GUI
-    │   ├── hotkey.py           # Global hotkey listener (pynput)
-    │   ├── options.py          # Default options and settings constants
-    │   ├── popups.py           # Modern Catppuccin-styled popups
-    │   ├── text_edit_tool.py   # TextEditTool application controller
-    │   ├── text_handler.py     # Text selection and replacement
-    │   ├── utils.py            # GUI utilities (clipboard, markdown render)
-    │   └── windows.py          # Chat and Browser windows
-    └── providers/              # AI Provider Implementations
-        ├── __init__.py         # Provider exports and factory
-        ├── base.py             # Abstract base provider, retry logic, ProviderResult
-        ├── gemini_native.py    # Native Gemini API with full feature support
-        └── openai_compatible.py # OpenRouter, Custom, Google OpenAI-compat
+### 📸 ShareX Integration
+Process screenshots with AI:
+- **OCR** - Extract text from images
+- **Translation** - Translate foreign text
+- **Code extraction** - Convert code screenshots to text
+- **Description** - Get AI descriptions of images
+
+Results copy to clipboard automatically. See [ShareX Setup Guide](docs/SHAREX_SETUP.md).
+
+### 💬 Chat Interface
+Modern chat windows with:
+- Streaming responses (real-time typing)
+- Markdown rendering
+- Session history (browse and restore)
+- Catppuccin-themed UI
+
+### 🔄 Robust Backend
+- **Multi-provider support** - Google Gemini, OpenRouter, custom endpoints
+- **Automatic key rotation** - Switch API keys on rate limits
+- **Smart retry logic** - Handles errors gracefully
+- **Streaming support** - Real-time responses
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+git clone https://github.com/yourusername/AI-Bridge.git
+cd AI-Bridge
+pip install -r requirements.txt
 ```
 
-## Installation
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/yourusername/AI-Bridge.git
-    cd AI-Bridge
-    ```
-
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **First Run (Generate Config):**
-    Run the server once to generate the default configuration file.
-    ```bash
-    python main.py
-    ```
-    The server will create `config.ini` and exit or prompt you to configure it.
-
-4.  **Configuration:**
-    Edit `config.ini` and add your API keys:
-    ```ini
-    [google]
-    # Add your Gemini API keys here
-    AIzaSy...
-
-    [openrouter]
-    # Add OpenRouter keys here
-    sk-or-v1...
-    ```
-
-## Usage
-
-### Starting the Server
+### First Run
 
 ```bash
 python main.py
 ```
-The server starts at `http://127.0.0.1:5000` by default.
 
-### Terminal Commands
-While the server is running, you can use these keyboard commands in the terminal:
+On first run, AI Bridge creates `config.ini` and exits. Edit this file to add your API keys:
 
-| Key | Command | Description |
-|-----|---------|-------------|
-| `L` | Sessions | List saved sessions |
-| `O` | Browser | Open session browser GUI |
-| `E` | Endpoints | List registered API endpoints |
-| `M` | Models | List available models from API |
-| `P` | Provider | Switch API provider |
-| `S` | Status | Show comprehensive system status |
-| `T` | Thinking | Toggle thinking/reasoning mode |
-| `R` | Streaming | Toggle streaming mode |
-| `V` | View | View a session by ID |
-| `D` | Delete | Delete a session by ID |
-| `C` | Clear | Clear all sessions |
-| `H` | Help | Show help menu |
-| `Ctrl+C` | Shutdown | Shutdown server |
+```ini
+[google]
+AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-### TextEditTool (Global Hotkey)
-1.  Select text in any application (Notepad, Browser, IDE, etc.).
-2.  Press **Ctrl+Space** (configurable).
-3.  A popup will appear offering options like "Proofread", "Summarize", or "Custom".
-4.  **Without selection**: Pressing the hotkey opens a quick input bar for asking the AI a question directly.
+[openrouter]
+sk-or-v1-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
 
-### ShareX Integration
+### Run Again
 
-To set up ShareX as an OCR/image processing tool:
+```bash
+python main.py
+```
 
-1.  **Create Custom Uploader**: Go to `Custom uploader settings → New`.
-2.  **Configure Request**:
-    *   **Name**: `OCR` (or any name)
-    *   **Destination type**: `Image uploader`
-    *   **Method**: `POST`
-    *   **Request URL**: `http://127.0.0.1:5000/ocr` (or `/describe`, `/code`, etc.)
-    *   **Body**: `Form data (multipart/form-data)`
-    *   **File form name**: `image` (Required)
-3.  **Configure Response**: Set the **URL** field to `{response}`.
-4.  **Create Workflow/Hotkey**:
-    *   Go to `Hotkey settings → Add...`
-    *   Task: `Capture region` (or any other capture methods)
-    *   Hotkey: Set to any
-    *   Click the **Gear icon** (Task settings) for this hotkey:
-        *   **Override after capture tasks**: Check `Upload image to host`.
-        *   **Override after upload tasks**: Check `Copy URL to clipboard`.
-        *   **Override destinations**: Check `Image uploader` → Select `Custom image uploader`.
-        *   **Override default custom uploader**: Check and select your `OCR` custom uploader.
+The app starts minimized to system tray. The console hides automatically.
 
-**Usage**: Press your hotkey, select a region, and the extracted text will be copied to your clipboard automatically. You can also activate by right clicking tray → Workflows → Select workflow
+## 📋 Usage
 
-> 💡 **Tip**: Add `?show=yes` to the URL to open results in a chat window for follow-up questions.
+### System Tray
 
-## Configuration Options
+Right-click the tray icon for:
+- **Show/Hide Console** - Toggle console visibility
+- **Session Browser** - View chat history
+- **Edit config.ini** - Open configuration
+- **Restart** - Restart the application
+- **Quit** - Exit completely
 
-The `config.ini` file allows extensive customization:
+### TextEditTool
 
-*   **Providers**: Switch between `google`, `openrouter`, or `custom`.
-*   **Models**: Set specific models (e.g., `gemini-2.0-flash`, `gpt-4o`).
-*   **Streaming**: Enable/disable with `streaming_enabled`.
-*   **Thinking**: Enable with `thinking_enabled` to see the AI's reasoning process.
-*   **TextEditTool**: Customize `text_edit_tool_hotkey` and `text_edit_tool_response_mode`.
+1. Select text in any application
+2. Press **Ctrl+Space**
+3. Choose an action (Proofread, Rewrite, etc.)
+4. Text is replaced or opened in chat
 
-### Thinking Configuration per Provider
+**Without selection**: Opens a quick input bar for direct questions.
 
-Different providers have different thinking/reasoning configurations:
+### Console Commands
 
-| Provider | Config Key | Values | Description |
-|----------|-----------|--------|-------------|
-| OpenAI-compatible | `reasoning_effort` | `low`, `medium`, `high` | Reasoning effort level |
-| Gemini 2.5 | `thinking_budget` | integer (`-1` = auto) | Token budget for thinking |
-| Gemini 3.x | `thinking_level` | `low`, `high` | Thinking level |
+When console is visible, press these keys:
 
-**Note**: The configuration parser supports multiline values with `\` continuation.
+| Key | Action |
+|-----|--------|
+| `S` | Show system status |
+| `O` | Open session browser |
+| `M` | List available models |
+| `P` | Switch AI provider |
+| `T` | Toggle thinking mode |
+| `R` | Toggle streaming mode |
+| `H` | Show help |
 
-## Architecture
+## ⚙️ Configuration
 
-### Provider System
+### Providers
 
-All API calls flow through the unified provider system in `src/providers/`:
+Set your preferred provider in `config.ini`:
 
-- **BaseProvider**: Abstract base class with common retry logic and `ProviderResult` dataclass
-- **OpenAICompatibleProvider**: Handles Custom endpoints, OpenRouter, and Google OpenAI-compatible
-- **GeminiNativeProvider**: Native Gemini API with full feature support (thinking, tools, etc.)
+```ini
+[settings]
+default_provider = google
+google_model = gemini-2.5-flash
+```
 
-Use `get_provider_for_type()` from `src/api_client.py` to get the appropriate provider.
+Available providers:
+- `google` - Native Gemini API (recommended)
+- `openrouter` - OpenRouter.ai models
+- `custom` - Any OpenAI-compatible endpoint
 
-### Request Pipeline
+### TextEditTool Options
 
-All AI requests flow through `RequestPipeline` in `src/request_pipeline.py`:
+Customize prompts in `text_edit_tool_options.json`:
 
-- Consistent console logging for ALL requests
-- Token usage tracking
-- Origin tracking (CHAT_WINDOW, POPUP_INPUT, ENDPOINT_OCR, etc.)
+```json
+{
+  "prompts": {
+    "proofread": "Proofread and correct this text...",
+    "rewrite": "Rewrite this text to be clearer..."
+  }
+}
+```
 
-### GUI Threading Model
+## 💡 Tips
 
-The GUI uses `GUICoordinator` singleton in `src/gui/core.py`:
+### For Faster Responses
+- Use non-reasoning models (e.g., `gemini-2.0-flash` instead of `gemini-2.5-pro`)
+- Disable thinking mode: Press `T` in console or set `thinking_enabled = false`
+- Keep streaming enabled for perceived faster responses
 
-- Single `tk.Tk()` root with queue-based window creation
-- All windows created as `tk.Toplevel` children
-- Thread-safe window creation via request queue
-- Standalone windows use polling loop instead of `mainloop()`
+### For Better Results
+- Enable thinking mode for complex tasks
+- Use specific prompts in TextEditTool
+- Add context when asking questions
 
-### Key Rotation
+### API Key Management
+- Add multiple API keys (one per line) for automatic rotation
+- If one key hits rate limits, the next one is used automatically
+- The system tracks exhausted keys and skips them
 
-`KeyManager` in `src/key_manager.py` handles automatic key rotation:
+## 🔧 Command Line Options
 
-- Rotates on 429 (rate limit), 401/402/403 (auth errors)
-- Tracks exhausted keys to avoid re-trying
-- Configurable delays based on error type
+```bash
+python main.py                  # Normal start (tray mode, console hidden)
+python main.py --no-tray        # No tray icon, console stays visible
+python main.py --show-console   # Tray mode but keep console visible
+```
 
-## Known Issues & Limitations
+## 📖 Documentation
 
-As this project is in active development, please be aware:
-- Some edge cases in TextEditTool text replacement may not work perfectly across all applications
-- Not all AI models support thinking/reasoning mode
-- pynput keyboard typing needs 5ms delay per character for Unicode stability
+- [Project Structure](docs/PROJECT_STRUCTURE.md) - File organization
+- [Architecture](docs/ARCHITECTURE.md) - Technical details
+- [ShareX Setup](docs/SHAREX_SETUP.md) - Screenshot integration
 
-## Contributing
+## 🗺️ Roadmap
 
-Contributions are welcome! If you encounter bugs or have feature suggestions:
-1. Check existing issues on GitHub
-2. Open a new issue with detailed information
-3. Pull requests for bug fixes are appreciated
+- [ ] **Localization** - Multi-language support for UI
+- [ ] **Prompt Editor** - GUI for editing text_edit_tool_options.json
+- [ ] **Colored Emoji** - Proper emoji rendering in console, chat, and popups
 
-## Roadmap
+## 📝 Requirements
 
-- [ ] Improve error handling and user feedback
-- [ ] Add more TextEditTool preset options
-- [ ] Support for additional AI providers
-- [ ] Better session management UI
-- [ ] Comprehensive testing suite
+- **Windows 10/11** (uses Windows-specific APIs for tray and console)
+- **Python 3.14+**
+- API keys for at least one provider (Google Gemini recommended)
 
-## License
+## 📄 License
 
 [MIT License](LICENSE)
+
+---
+
+<p align="center">
+  Made with ❤️ for productivity
+</p>

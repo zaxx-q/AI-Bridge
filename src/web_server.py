@@ -73,9 +73,9 @@ def create_endpoint_handler(endpoint_name, prompt_template):
         if model_override:
             effective_model = model_override
         elif provider == "openrouter":
-            effective_model = CONFIG.get("openrouter_model", "google/gemini-2.5-flash-preview")
+            effective_model = CONFIG.get("openrouter_model", "openai/gpt-oss-120b:free")
         elif provider == "google":
-            effective_model = CONFIG.get("google_model", "gemini-2.0-flash")
+            effective_model = CONFIG.get("google_model", "gemini-2.5-flash")
         elif provider == "custom":
             effective_model = CONFIG.get("custom_model", "not configured")
         else:

@@ -157,7 +157,7 @@ class OpenAICompatibleProvider(BaseProvider):
         
         # OpenRouter requires HTTP-Referer header
         if self.endpoint_type == self.ENDPOINT_OPENROUTER:
-            headers["HTTP-Referer"] = "http://localhost"
+            headers["HTTP-Referer"] = "https://github.com/zaxx-q/AI-Bridge"
             headers["X-Title"] = "AI Bridge"
             
         return headers

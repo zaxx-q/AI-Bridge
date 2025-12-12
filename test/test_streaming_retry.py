@@ -398,7 +398,7 @@ class TestStreamingRetry(unittest.TestCase):
         
         provider.generate_stream(
             messages=[{"role": "user", "content": "Test"}],
-            model="gemini-3.0-flash",  # 3.x model
+            model="gemini-3-pro-preview",  # 3.x model
             params={},
             callback=MagicMock(),
             thinking_enabled=True

@@ -383,9 +383,9 @@ def call_api_with_retry(provider, messages, model_override, config, ai_params, k
     if model_override:
         model = model_override
     elif provider == "openrouter":
-        model = config.get("openrouter_model", "google/gemini-2.5-flash-preview")
+        model = config.get("openrouter_model", "openai/gpt-oss-120b:free")
     elif provider == "google":
-        model = config.get("google_model", "gemini-2.0-flash")
+        model = config.get("google_model", "gemini-2.5-flash")
     elif provider == "custom":
         model = config.get("custom_model")
     else:
@@ -460,9 +460,9 @@ def call_api_chat_stream(session, config, ai_params, key_managers, callback, pro
         if provider == "custom":
             model = config.get("custom_model")
         elif provider == "openrouter":
-            model = config.get("openrouter_model", "google/gemini-2.5-flash-preview")
+            model = config.get("openrouter_model", "openai/gpt-oss-120b:free")
         elif provider == "google":
-            model = config.get("google_model", "gemini-2.0-flash")
+            model = config.get("google_model", "gemini-2.5-flash")
     
     if not model:
         error = "No model configured"
