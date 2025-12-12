@@ -20,9 +20,10 @@ Works in any application: browsers, IDEs, Notepad, Word, everywhere.
 ### 📸 ShareX Integration
 Process screenshots with AI:
 - **OCR** - Extract text from images
-- **Translation** - Translate foreign text
+- **Translation** - Translate foreign text (with dynamic `?lang=` parameter)
 - **Code extraction** - Convert code screenshots to text
 - **Description** - Get AI descriptions of images
+- **Custom endpoints** - Create your own prompts
 
 Results copy to clipboard automatically. See [ShareX Setup Guide](docs/SHAREX_SETUP.md).
 
@@ -35,27 +36,32 @@ Modern chat windows with:
 
 ### 🔄 Robust Backend
 - **Multi-provider support** - Google Gemini, OpenRouter, custom endpoints
-- **Automatic key rotation** - Switch API keys on rate limits
-- **Smart retry logic** - Handles errors gracefully
+- **Automatic key rotation** - Switch API keys on rate limits (429, 401, 403)
+- **Smart retry logic** - Handles errors gracefully with configurable delays
+- **Empty response detection** - Automatically retries with next key
 - **Streaming support** - Real-time responses
 
 ## 🚀 Quick Start
 
-### Installation
+### Download (Recommended)
+
+1. Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases)
+2. Run it - on first launch, it creates `config.ini` and exits
+3. Edit `config.ini` to add your API keys
+4. Run again - the app starts minimized to system tray
+
+### From Source (Alternative)
 
 ```bash
-git clone https://github.com/yourusername/AI-Bridge.git
+git clone https://github.com/zaxx-q/AI-Bridge.git
 cd AI-Bridge
 pip install -r requirements.txt
-```
-
-### First Run
-
-```bash
 python main.py
 ```
 
-On first run, AI Bridge creates `config.ini` and exits. Edit this file to add your API keys:
+### Configuration
+
+Edit `config.ini` to add your API keys:
 
 ```ini
 [google]
@@ -65,13 +71,7 @@ AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 sk-or-v1-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 ```
 
-### Run Again
-
-```bash
-python main.py
-```
-
-The app starts minimized to system tray. The console hides automatically.
+> 💡 **Tip**: Add multiple keys (one per line) for automatic rotation when rate limits are hit.
 
 ## 📋 Usage
 
@@ -92,6 +92,31 @@ Right-click the tray icon for:
 4. Text is replaced or opened in chat
 
 **Without selection**: Opens a quick input bar for direct questions.
+
+### API Endpoints
+
+Access AI via HTTP POST:
+
+```bash
+# Basic OCR
+curl -X POST -F "image=@screenshot.png" http://127.0.0.1:5000/ocr
+
+# OCR with translation
+curl -X POST -F "image=@screenshot.png" "http://127.0.0.1:5000/ocr_translate?lang=Japanese"
+
+# With chat window
+curl -X POST -F "image=@screenshot.png" "http://127.0.0.1:5000/describe?show=yes"
+```
+
+#### Query Parameters
+
+| Parameter | Example | Effect |
+|-----------|---------|--------|
+| `?show=yes` | Open result in chat window |
+| `?lang=XX` | Target language (for `ocr_translate`) |
+| `?prompt=...` | Override the endpoint prompt |
+| `?model=...` | Override the model |
+| `?provider=...` | Override the provider |
 
 ### Console Commands
 
@@ -114,7 +139,7 @@ When console is visible, press these keys:
 Set your preferred provider in `config.ini`:
 
 ```ini
-[settings]
+[config]
 default_provider = google
 google_model = gemini-2.5-flash
 ```
@@ -124,15 +149,38 @@ Available providers:
 - `openrouter` - OpenRouter.ai models
 - `custom` - Any OpenAI-compatible endpoint
 
+### Custom Endpoints
+
+Add your own endpoints in `config.ini`:
+
+```ini
+[endpoints]
+# Simple custom endpoint
+my_analyzer = Analyze this image and list all objects found.
+
+# Dynamic language endpoint using {lang} placeholder
+my_translator = Translate to {lang}. Keep formatting.
+```
+
+Access via `http://127.0.0.1:5000/my_analyzer` or `http://127.0.0.1:5000/my_translator?lang=French`
+
 ### TextEditTool Options
 
 Customize prompts in `text_edit_tool_options.json`:
 
 ```json
 {
-  "prompts": {
-    "proofread": "Proofread and correct this text...",
-    "rewrite": "Rewrite this text to be clearer..."
+  "Proofread": {
+    "icon": "✏",
+    "system_prompt": "You are a meticulous proofreader...",
+    "task": "Proofread the following text...",
+    "show_chat_window_instead_of_replace": false
+  },
+  "Rewrite": {
+    "icon": "📝",
+    "system_prompt": "You are an expert editor...",
+    "task": "Rewrite this text to improve clarity...",
+    "show_chat_window_instead_of_replace": false
   }
 }
 ```
@@ -153,13 +201,14 @@ Customize prompts in `text_edit_tool_options.json`:
 - Add multiple API keys (one per line) for automatic rotation
 - If one key hits rate limits, the next one is used automatically
 - The system tracks exhausted keys and skips them
+- Keys rotate on: 429 (rate limit), 401/402/403 (auth errors), empty responses
 
 ## 🔧 Command Line Options
 
 ```bash
-python main.py                  # Normal start (tray mode, console hidden)
-python main.py --no-tray        # No tray icon, console stays visible
-python main.py --show-console   # Tray mode but keep console visible
+AIBridge.exe                    # Normal start (tray mode, console hidden)
+AIBridge.exe --no-tray          # No tray icon, console stays visible
+AIBridge.exe --show-console     # Tray mode but keep console visible
 ```
 
 ## 📖 Documentation
@@ -177,7 +226,7 @@ python main.py --show-console   # Tray mode but keep console visible
 ## 📝 Requirements
 
 - **Windows 10/11** (uses Windows-specific APIs for tray and console)
-- **Python 3.14+**
+- **Python 3.14+** (if running from source)
 - API keys for at least one provider (Google Gemini recommended)
 
 ## 📄 License

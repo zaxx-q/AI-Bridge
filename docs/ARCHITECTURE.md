@@ -14,46 +14,42 @@ AI Bridge is a Windows application consisting of:
 
 ## Component Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         main.py                                  │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────────┐ │
-│  │ System Tray │  │ Flask Server │  │ TextEditTool (Hotkey)   │ │
-│  │  (tray.py)  │  │(web_server)  │  │  (text_edit_tool.py)    │ │
-│  └──────┬──────┘  └──────┬───────┘  └───────────┬─────────────┘ │
-│         │                │                       │               │
-│         └────────────────┼───────────────────────┘               │
-│                          │                                       │
-│                          ▼                                       │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                   Request Pipeline                         │  │
-│  │              (request_pipeline.py)                         │  │
-│  │   • Logging  • Token tracking  • Origin tracking           │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                          │                                       │
-│                          ▼                                       │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                     API Client                             │  │
-│  │                  (api_client.py)                           │  │
-│  │            get_provider_for_type()                         │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                          │                                       │
-│          ┌───────────────┼───────────────┐                      │
-│          ▼               ▼               ▼                      │
-│  ┌──────────────┐ ┌─────────────┐ ┌──────────────┐             │
-│  │ OpenAI-compat│ │Gemini Native│ │   Custom     │             │
-│  │   Provider   │ │  Provider   │ │  Endpoint    │             │
-│  └──────────────┘ └─────────────┘ └──────────────┘             │
-│                                                                  │
-│                          │                                       │
-│                          ▼                                       │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                    Key Manager                             │  │
-│  │                 (key_manager.py)                           │  │
-│  │   • Multiple keys per provider  • Auto-rotation on error   │  │
-│  │   • Exhaustion detection        • Retry with backoff       │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Main["main.py"]
+        Tray["System Tray<br/>(tray.py)"]
+        Flask["Flask Server<br/>(web_server.py)"]
+        TET["TextEditTool<br/>(text_edit_tool.py)"]
+    end
+    
+    subgraph Pipeline["Request Pipeline"]
+        RP["request_pipeline.py<br/>• Logging<br/>• Token tracking<br/>• Origin tracking"]
+    end
+    
+    subgraph APIClient["API Client"]
+        AC["api_client.py<br/>get_provider_for_type()"]
+    end
+    
+    subgraph Providers["Providers"]
+        OAI["OpenAI-compatible<br/>Provider"]
+        Gemini["Gemini Native<br/>Provider"]
+        Custom["Custom<br/>Endpoint"]
+    end
+    
+    subgraph KeyMgr["Key Manager"]
+        KM["key_manager.py<br/>• Multiple keys per provider<br/>• Auto-rotation on error<br/>• Exhaustion detection<br/>• Retry with backoff"]
+    end
+    
+    Tray --> Pipeline
+    Flask --> Pipeline
+    TET --> Pipeline
+    Pipeline --> APIClient
+    APIClient --> OAI
+    APIClient --> Gemini
+    APIClient --> Custom
+    OAI --> KM
+    Gemini --> KM
+    Custom --> KM
 ```
 
 ## Provider System
@@ -91,7 +87,30 @@ The provider system includes automatic retry with key rotation:
 
 ## GUI Threading Model
 
-The GUI uses a singleton `GUICoordinator` to ensure thread safety with Tkinter.
+```mermaid
+flowchart LR
+    subgraph MainThread["Main Thread"]
+        GC["GUICoordinator<br/>(singleton)"]
+        Root["tk.Tk()<br/>(single root)"]
+    end
+    
+    subgraph Windows["Windows (Toplevel)"]
+        Chat["ChatWindow"]
+        Browser["SessionBrowser"]
+        Popup["PopupWindow"]
+    end
+    
+    subgraph OtherThreads["Other Threads"]
+        Flask["Flask Thread"]
+        Hotkey["Hotkey Thread"]
+    end
+    
+    OtherThreads -->|"request_window()"| GC
+    GC -->|"queue-based creation"| Root
+    Root --> Chat
+    Root --> Browser
+    Root --> Popup
+```
 
 ### Rules
 
@@ -194,6 +213,7 @@ The config parser (`src/config.py`) is a custom INI parser, NOT Python's `config
 - Type coercion (bool, int, float, string)
 - API keys are one per line in their section
 - Comments with `#` or `;`
+- `{lang}` placeholder support for dynamic language in prompts
 
 ### Example
 
@@ -208,3 +228,7 @@ google_model = gemini-2.5-flash
 # API keys, one per line
 AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 AIzaSyYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
+
+[endpoints]
+# Use {lang} placeholder for dynamic language
+ocr_translate = Extract and translate to {lang}. Return only translated text.

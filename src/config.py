@@ -52,6 +52,7 @@ DEFAULT_CONFIG = {
 # Default endpoint definitions
 DEFAULT_ENDPOINTS = {
     "ocr": "Extract the text from this image. Preserve the original formatting, including line breaks, spacing, and layout, as accurately as possible. Return only the extracted text.",
+    "ocr_translate": "Extract all text from this image and translate it to {lang}. Preserve the original formatting as much as possible. Return only the translated text.",
     "translate": "Translate all text in this image to English. Preserve the original formatting as much as possible. Return only the translated text.",
     "summarize": "Summarize the content shown in this image concisely. Focus on the main points.",
     "describe": "Describe this image in detail, including all visible elements, text, and context.",
@@ -347,7 +348,10 @@ text_edit_tool_hotkey = ctrl+space
 # ============================================================
 
 [endpoints]
+# Use {lang} placeholder for dynamic language - pass ?lang=Japanese, ?lang=Indonesian, etc.
 ocr = Extract the text from this image. Preserve the original formatting, including line breaks, spacing, and layout, as accurately as possible. Return only the extracted text.
+
+ocr_translate = Extract all text from this image and translate it to {lang}. Preserve the original formatting as much as possible. Return only the translated text.
 
 translate = Translate all text in this image to English. Preserve the original formatting as much as possible. Return only the translated text.
 

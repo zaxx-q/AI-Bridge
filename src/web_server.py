@@ -62,6 +62,12 @@ def create_endpoint_handler(endpoint_name, prompt_template):
         elif request.headers.get('X-Custom-Prompt'):
             prompt = request.headers.get('X-Custom-Prompt')
         
+        # Parse lang parameter and substitute {lang} placeholder
+        lang = request.args.get('lang', 'English')
+        if request.headers.get('X-Target-Language'):
+            lang = request.headers.get('X-Target-Language')
+        prompt = prompt.replace('{lang}', lang)
+        
         # Parse model override
         model_override = None
         if request.args.get('model'):

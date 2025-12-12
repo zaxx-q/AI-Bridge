@@ -7,7 +7,9 @@ This guide explains how to set up ShareX to work with AI Bridge for image proces
 ## Prerequisites
 
 - [ShareX](https://getsharex.com/) installed
-- AI Bridge running (`python main.py`)
+- AI Bridge running:
+  - **Recommended**: Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases) - just double-click to run
+  - **Alternative**: `python main.py` (requires Python environment)
 
 ## Step 1: Create Custom Uploader
 
@@ -32,29 +34,52 @@ Fill in the following settings:
 
 ![Uploader configuration](images/sharex-2-config.png)
 
-### Available Endpoints
+## Available Endpoints
 
-Choose the endpoint based on your use case:
+AI Bridge comes with these default endpoints:
 
 | Endpoint | Purpose |
 |----------|---------|
 | `/ocr` | Extract text from image |
-| `/ocr_translate` | Extract and translate text |
+| `/ocr_translate` | Extract and translate text (use `?lang=` parameter) |
+| `/translate` | Translate image text to English |
 | `/describe` | Describe image content |
+| `/summarize` | Summarize image content |
 | `/code` | Extract and format code from image |
+| `/explain` | Analyze and explain image content |
+| `/latex` | Convert equations to LaTeX |
+| `/markdown` | Convert content to Markdown |
+| `/proofread` | Extract and proofread text |
 
-### Query Parameters
+### Custom Endpoints
+
+You can add your own endpoints by editing `config.ini`:
+
+```ini
+[endpoints]
+my_custom = Your custom prompt here. The AI will process the image with this prompt.
+```
+
+Then access it at `http://127.0.0.1:5000/my_custom`
+
+## Query Parameters
 
 Add these to the URL for additional behavior:
 
-| Parameter | Values | Effect |
-|-----------|--------|--------|
-| `?show=yes` | `yes`, `no` | Open result in chat window |
-| `?lang=XX` | Language code | Target language for translation |
+| Parameter | Example | Effect |
+|-----------|---------|--------|
+| `?show=yes` | `/ocr?show=yes` | Open result in chat window for follow-up |
+| `?show=no` | `/ocr?show=no` | Return text only (default) |
+| `?lang=XX` | `/ocr_translate?lang=Japanese` | Target language for translation |
+| `?prompt=...` | `/ocr?prompt=Extract+only+numbers` | Override the endpoint prompt |
+| `?model=...` | `/ocr?model=gemini-2.5-pro` | Override the model |
+| `?provider=...` | `/ocr?provider=openrouter` | Override the provider |
 
 **Examples:**
 - `http://127.0.0.1:5000/ocr?show=yes` - OCR with chat follow-up
-- `http://127.0.0.1:5000/ocr_translate?lang=en` - Translate to English
+- `http://127.0.0.1:5000/ocr_translate?lang=English` - Translate to English
+- `http://127.0.0.1:5000/ocr_translate?lang=Indonesian` - Translate to Indonesian
+- `http://127.0.0.1:5000/describe?show=yes&model=gemini-2.5-pro` - Describe with specific model
 
 ## Step 3: Configure Response
 
@@ -109,33 +134,39 @@ You can also access workflows by:
 
 ### "Connection refused" Error
 
-- Make sure AI Bridge is running (`python main.py`)
+- Make sure AI Bridge is running (check system tray for the icon)
 - Check the port matches your config (default: 5000)
+- Try opening `http://127.0.0.1:5000/` in your browser
 
 ### Empty Response
 
-- Check AI Bridge console for errors
+- Check AI Bridge console for errors (right-click tray → Show Console)
 - Verify your API keys are configured in `config.ini`
 
 ### Slow Processing
 
-- Use a faster model (e.g., `gpt-oss-120b` or `gemma-3-27b-it`)
-- Disable thinking mode if enabled
+- Use a faster model (e.g., `gemini-2.5-flash` instead of `gemini-2.5-pro`)
+- Disable thinking mode: Set `thinking_enabled = false` in config.ini
+- Use non-reasoning models for simple tasks
 
-## Multiple Workflows
+## Example Workflows
 
 Create multiple custom uploaders for different tasks:
 
 | Workflow | URL | Use Case |
 |----------|-----|----------|
 | Quick OCR | `/ocr` | Fast text extraction |
-| OCR + Chat | `/ocr?show=yes` | Text with follow-up |
-| Translate | `/ocr_translate?lang=en` | Foreign text |
-| Describe | `/describe?show=yes` | Image description |
-| Code | `/code` | Screenshot to code |
+| OCR + Chat | `/ocr?show=yes` | Text with follow-up questions |
+| Translate to English | `/ocr_translate?lang=English` | Any language → English |
+| Translate to Japanese | `/ocr_translate?lang=Japanese` | Any language → Japanese |
+| Describe Image | `/describe?show=yes` | Image description with chat |
+| Extract Code | `/code` | Screenshot to code |
+| Explain Code | `/explain_code?show=yes` | Code explanation |
 
 ## Tips
 
 - Use `?show=yes` when you want to ask follow-up questions about the image
 - Create separate hotkeys for different workflows (e.g., `Ctrl+1` for OCR, `Ctrl+2` for translate)
 - The response is plain text - it works with any application that accepts paste
+- Add your own custom endpoints in `config.ini` for specialized prompts
+- Use the `{lang}` placeholder in custom endpoints for dynamic language selection
