@@ -477,6 +477,7 @@ class TextEditToolApp:
                    {base_output_rules}
                    {text_delimiter}
                    {selected_text}
+                   {text_delimiter_close}
         """
         try:
             action_options = self._get_action_options()
@@ -499,7 +500,8 @@ class TextEditToolApp:
             
             # Get shared settings
             base_output_rules = self._get_setting("base_output_rules", "")
-            text_delimiter = self._get_setting("text_delimiter", "\n\n")
+            text_delimiter = self._get_setting("text_delimiter", "\n\n<text_to_process>\n")
+            text_delimiter_close = self._get_setting("text_delimiter_close", "\n</text_to_process>")
             
             # Handle Custom action - use template for task
             if option_key == "Custom" and custom_input:
@@ -517,7 +519,7 @@ class TextEditToolApp:
                 user_message_parts.append(base_output_rules)
             
             user_message = "\n\n".join(user_message_parts)
-            user_message += text_delimiter + selected_text
+            user_message += text_delimiter + selected_text + text_delimiter_close
             
             logging.debug(f'Getting AI response for {option_key}')
             
