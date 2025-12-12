@@ -6,3 +6,9 @@ python-dotenv
 pynput
 pyperclip
 darkdetect
+
+# System tray (Windows)
+infi.systray
+
+# Build tool (optional, for creating executables)
+# cx-Freeze

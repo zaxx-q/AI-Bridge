@@ -2,12 +2,18 @@
 """
 AI Bridge - Multi-modal AI Assistant Server
 Main entry point
+
+Usage:
+    python main.py              # Start with tray (console hidden)
+    python main.py --no-tray    # Start in terminal mode (no tray)
+    python main.py --show-console   # Start with tray + console visible
 """
 
 import sys
 import logging
 import threading
 import signal
+import argparse
 from pathlib import Path
 
 from src.config import load_config, generate_example_config, CONFIG_FILE, OPENROUTER_URL
@@ -16,6 +22,14 @@ from src.session_manager import load_sessions, list_sessions
 from src.terminal import terminal_session_manager, print_commands_box
 from src.gui.core import HAVE_GUI
 from src import web_server
+
+# System tray support
+HAVE_TRAY = False
+try:
+    from src.tray import TrayApp, hide_console, show_console, HAVE_SYSTRAY
+    HAVE_TRAY = HAVE_SYSTRAY
+except ImportError:
+    pass
 
 # TextEditTool - now part of gui module
 TEXT_EDIT_TOOL_APP = None
@@ -152,8 +166,48 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="AI Bridge - Multi-modal AI Assistant Server",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py                  Start with tray (console hidden by default)
+  python main.py --no-tray        Start in terminal mode (no tray icon)
+  python main.py --show-console   Start with tray and console visible
+        """
+    )
+    parser.add_argument(
+        '--no-tray',
+        action='store_true',
+        help='Run in terminal mode without system tray'
+    )
+    parser.add_argument(
+        '--show-console',
+        action='store_true',
+        help='Start with console visible (when using tray mode)'
+    )
+    return parser.parse_args()
+
+
+def run_server(config, ai_params, endpoints):
+    """Run the Flask server (used by both tray and terminal modes)"""
+    host = web_server.CONFIG.get('host', '127.0.0.1')
+    port = int(web_server.CONFIG.get('port', 5000))
+    
+    try:
+        # Run Flask with minimal output
+        web_server.app.run(host=host, port=port, use_reloader=False, threaded=True)
+    finally:
+        cleanup()
+
+
 def main():
     """Main entry point"""
+    # Parse command line arguments
+    args = parse_args()
+    
     # Suppress Flask/werkzeug logging (only show errors)
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
     
@@ -203,18 +257,53 @@ def main():
     
     print()
     
-    # Start terminal session manager (also prints commands box)
-    terminal_thread = threading.Thread(
-        target=lambda: terminal_session_manager(endpoints),
-        daemon=True
-    )
-    terminal_thread.start()
+    # ─── Tray Mode vs Terminal Mode ───────────────────────────────────────
+    use_tray = HAVE_TRAY and not args.no_tray and sys.platform == 'win32'
     
-    try:
-        # Run Flask with minimal output
-        web_server.app.run(host=host, port=port, use_reloader=False)
-    finally:
-        cleanup()
+    if use_tray:
+        # Tray mode: hide console by default, run server in background
+        print("🔲 Starting in tray mode...")
+        print("   Right-click tray icon for menu")
+        print("   Double-click tray icon to show console")
+        print()
+        
+        # Start terminal session manager
+        terminal_thread = threading.Thread(
+            target=lambda: terminal_session_manager(endpoints),
+            daemon=True
+        )
+        terminal_thread.start()
+        
+        # Start Flask server in background thread
+        server_thread = threading.Thread(
+            target=lambda: run_server(config, ai_params, endpoints),
+            daemon=True
+        )
+        server_thread.start()
+        
+        # Start tray (this blocks until exit)
+        tray = TrayApp(on_exit_callback=cleanup)
+        hide_on_start = not args.show_console
+        tray.start(hide_console_on_start=hide_on_start)
+        
+    else:
+        # Terminal mode: normal behavior
+        if args.no_tray:
+            print("📟 Running in terminal mode (--no-tray)")
+        elif not HAVE_TRAY:
+            print("📟 Running in terminal mode (tray not available)")
+            print("   Install with: pip install infi.systray")
+        print()
+        
+        # Start terminal session manager
+        terminal_thread = threading.Thread(
+            target=lambda: terminal_session_manager(endpoints),
+            daemon=True
+        )
+        terminal_thread.start()
+        
+        # Run server in main thread
+        run_server(config, ai_params, endpoints)
 
 
 if __name__ == '__main__':
