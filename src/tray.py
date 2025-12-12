@@ -195,10 +195,8 @@ class TrayApp:
         menu_options = (
             ("Show Console", None, self._on_show_console),
             ("Hide Console", None, self._on_hide_console),
-            (None, None, None),  # Separator
             ("Edit config.ini", None, self._on_edit_config),
             ("Edit text_edit_tool_options.json", None, self._on_edit_options),
-            (None, None, None),  # Separator
             ("Restart", None, self._on_restart),
         )
         
