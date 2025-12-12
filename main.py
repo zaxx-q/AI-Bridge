@@ -16,6 +16,18 @@ import signal
 import argparse
 from pathlib import Path
 
+# Rich console for beautiful output
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich import print as rprint
+    HAVE_RICH = True
+    console = Console()
+except ImportError:
+    HAVE_RICH = False
+    console = None
+
 from src.config import load_config, generate_example_config, CONFIG_FILE, OPENROUTER_URL
 from src.key_manager import KeyManager
 from src.session_manager import load_sessions, list_sessions
@@ -62,12 +74,20 @@ def initialize():
     """Initialize the server with compact, informative output"""
     
     # ─── Banner ───────────────────────────────────────────────────────────
-    print()
-    print("┌" + "─" * 62 + "┐")
-    print("│  🌉 AI Bridge                                                 │")
-    print("│  Multi-modal AI Assistant Server                              │")
-    print("└" + "─" * 62 + "┘")
-    print()
+    if HAVE_RICH:
+        console.print()
+        console.print(Panel.fit(
+            "[bold cyan]🌉 AI Bridge[/bold cyan]\n[dim]Multi-modal AI Assistant Server[/dim]",
+            border_style="cyan"
+        ))
+        console.print()
+    else:
+        print()
+        print("┌" + "─" * 62 + "┐")
+        print("│  🌉 AI Bridge                                                 │")
+        print("│  Multi-modal AI Assistant Server                              │")
+        print("└" + "─" * 62 + "┘")
+        print()
     
     # Load configuration
     config, ai_params, endpoints, keys = load_config()
@@ -88,33 +108,66 @@ def initialize():
     streaming = config.get('streaming_enabled', True)
     thinking = config.get('thinking_enabled', False)
     
-    print("⚙️  Configuration")
-    print(f"    📡 Provider:  {provider} → {base_url}")
-    print(f"    🤖 Model:     {model}")
-    stream_icon = "✅" if streaming else "✗"
-    think_icon = "✅" if thinking else "✗"
-    print(f"    🌊 Streaming: {stream_icon}")
-    print(f"    💭 Thinking:  {think_icon}")
-    print()
+    if HAVE_RICH:
+        # Create a nice table for configuration
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Key", style="dim")
+        table.add_column("Value")
+        
+        table.add_row("📡 Provider", f"[cyan]{provider}[/cyan] → [dim]{base_url}[/dim]")
+        table.add_row("🤖 Model", f"[green]{model}[/green]")
+        stream_icon = "[green]✓[/green]" if streaming else "[red]✗[/red]"
+        think_icon = "[green]✓[/green]" if thinking else "[red]✗[/red]"
+        table.add_row("🌊 Streaming", stream_icon)
+        table.add_row("💭 Thinking", think_icon)
+        
+        console.print("[bold]⚙️  Configuration[/bold]")
+        console.print(table)
+        console.print()
+    else:
+        print("⚙️  Configuration")
+        print(f"    📡 Provider:  {provider} → {base_url}")
+        print(f"    🤖 Model:     {model}")
+        stream_icon = "✓" if streaming else "✗"
+        think_icon = "✓" if thinking else "✗"
+        print(f"    🌊 Streaming: {stream_icon}")
+        print(f"    💭 Thinking:  {think_icon}")
+        print()
     
     # ─── API Keys ─────────────────────────────────────────────────────────
-    print("🔑 API Keys")
-    key_status = []
-    for p in ["custom", "openrouter", "google"]:
-        count = web_server.KEY_MANAGERS[p].get_key_count()
-        if count > 0:
-            marker = " ◄" if p == provider else ""
-            key_status.append(f"✅ {p} ({count}){marker}")
-        else:
-            key_status.append(f"✗ {p}")
-    print(f"    {key_status[0]}   {key_status[1]}   {key_status[2]}")
-    print()
+    if HAVE_RICH:
+        key_parts = []
+        for p in ["custom", "openrouter", "google"]:
+            count = web_server.KEY_MANAGERS[p].get_key_count()
+            if count > 0:
+                marker = " ◄" if p == provider else ""
+                key_parts.append(f"[green]✓[/green] {p} ({count}){marker}")
+            else:
+                key_parts.append(f"[red]✗[/red] {p}")
+        console.print(f"[bold]🔑 API Keys[/bold]  {key_parts[0]}  {key_parts[1]}  {key_parts[2]}")
+        console.print()
+    else:
+        print("🔑 API Keys")
+        key_status = []
+        for p in ["custom", "openrouter", "google"]:
+            count = web_server.KEY_MANAGERS[p].get_key_count()
+            if count > 0:
+                marker = " ◄" if p == provider else ""
+                key_status.append(f"✓ {p} ({count}){marker}")
+            else:
+                key_status.append(f"✗ {p}")
+        print(f"    {key_status[0]}   {key_status[1]}   {key_status[2]}")
+        print()
     
     # ─── Sessions ─────────────────────────────────────────────────────────
     load_sessions()
     sessions = list_sessions()
-    print(f"📂 Sessions: {len(sessions)} loaded")
-    print()
+    if HAVE_RICH:
+        console.print(f"[bold]📂 Sessions[/bold]  {len(sessions)} loaded")
+        console.print()
+    else:
+        print(f"📂 Sessions: {len(sessions)} loaded")
+        print()
     
     # Initialize web server (silent)
     web_server.init_web_server(config, ai_params, endpoints, web_server.KEY_MANAGERS)
@@ -219,14 +272,25 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Create example config if needed
+    # Create example config if needed (don't use tray mode for first-run config creation)
     if not Path(CONFIG_FILE).exists():
-        print(f"Config file '{CONFIG_FILE}' not found.")
-        print("Creating example configuration file...")
+        if HAVE_RICH:
+            console.print(f"[yellow]Config file '{CONFIG_FILE}' not found.[/yellow]")
+            console.print("Creating example configuration file...")
+        else:
+            print(f"Config file '{CONFIG_FILE}' not found.")
+            print("Creating example configuration file...")
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             f.write(generate_example_config())
-        print(f"✅ Created '{CONFIG_FILE}'")
-        print("\nPlease edit the config file to add your API keys, then restart.")
+        if HAVE_RICH:
+            console.print(f"[green]✅ Created '{CONFIG_FILE}'[/green]")
+            console.print("\nPlease edit the config file to add your API keys, then restart.")
+            console.print("[dim]Press Enter to exit...[/dim]")
+        else:
+            print(f"✅ Created '{CONFIG_FILE}'")
+            print("\nPlease edit the config file to add your API keys, then restart.")
+            print("Press Enter to exit...")
+        input()  # Wait for user to read the message
         sys.exit(0)
     
     # Initialize (new compact output)
@@ -235,20 +299,29 @@ def main():
     # Check for API keys
     has_any_keys = any(km.has_keys() for km in web_server.KEY_MANAGERS.values())
     if not has_any_keys:
-        print("⚠️  WARNING: No API keys configured!")
-        print("   Please add your API keys to config.ini")
-        print()
+        if HAVE_RICH:
+            console.print("[bold yellow]⚠️  WARNING: No API keys configured![/bold yellow]")
+            console.print("   Please add your API keys to [cyan]config.ini[/cyan]")
+            console.print()
+        else:
+            print("⚠️  WARNING: No API keys configured!")
+            print("   Please add your API keys to config.ini")
+            print()
     
     # ─── Server Info ──────────────────────────────────────────────────────
     host = web_server.CONFIG.get('host', '127.0.0.1')
     port = int(web_server.CONFIG.get('port', 5000))
     
-    print(f"🚀 Server: http://{host}:{port}")
-    print(f"   📡  {len(endpoints)} endpoints registered")
-    
-    # GUI status
-    if HAVE_GUI:
-        print("   🖥️  GUI available (on-demand)")
+    if HAVE_RICH:
+        console.print(f"[bold green]🚀 Server[/bold green]  [link=http://{host}:{port}]http://{host}:{port}[/link]")
+        console.print(f"   📡  {len(endpoints)} endpoints registered")
+        if HAVE_GUI:
+            console.print("   🖥️  GUI available (on-demand)")
+    else:
+        print(f"🚀 Server: http://{host}:{port}")
+        print(f"   📡  {len(endpoints)} endpoints registered")
+        if HAVE_GUI:
+            print("   🖥️  GUI available (on-demand)")
     
     # TextEditTool
     text_tool_result = initialize_text_edit_tool(config, ai_params)
@@ -262,10 +335,16 @@ def main():
     
     if use_tray:
         # Tray mode: hide console by default, run server in background
-        print("🔲 Starting in tray mode...")
-        print("   Right-click tray icon for menu")
-        print("   Double-click tray icon to show console")
-        print()
+        if HAVE_RICH:
+            console.print("[bold blue]🔲 Starting in tray mode...[/bold blue]")
+            console.print("   Right-click tray icon for menu")
+            console.print("   Double-click tray icon to show console")
+            console.print()
+        else:
+            print("🔲 Starting in tray mode...")
+            print("   Right-click tray icon for menu")
+            print("   Double-click tray icon to show console")
+            print()
         
         # Start terminal session manager
         terminal_thread = threading.Thread(
@@ -289,10 +368,17 @@ def main():
     else:
         # Terminal mode: normal behavior
         if args.no_tray:
-            print("📟 Running in terminal mode (--no-tray)")
+            if HAVE_RICH:
+                console.print("[dim]📟 Running in terminal mode (--no-tray)[/dim]")
+            else:
+                print("📟 Running in terminal mode (--no-tray)")
         elif not HAVE_TRAY:
-            print("📟 Running in terminal mode (tray not available)")
-            print("   Install with: pip install infi.systray")
+            if HAVE_RICH:
+                console.print("[dim]📟 Running in terminal mode (tray not available)[/dim]")
+                console.print("   Install with: [cyan]pip install infi.systray[/cyan]")
+            else:
+                print("📟 Running in terminal mode (tray not available)")
+                print("   Install with: pip install infi.systray")
         print()
         
         # Start terminal session manager

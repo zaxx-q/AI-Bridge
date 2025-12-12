@@ -30,6 +30,8 @@ build_exe_options = {
         "json",
         "threading",
         "logging",
+        "rich",
+        "infi.systray",
     ],
     
     # Modules to exclude (reduce size)

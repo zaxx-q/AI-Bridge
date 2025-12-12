@@ -7,6 +7,9 @@ pynput
 pyperclip
 darkdetect
 
+# Rich console output (colors, tables, etc.)
+rich
+
 # System tray (Windows)
 infi.systray
 

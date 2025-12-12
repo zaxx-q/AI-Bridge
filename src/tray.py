@@ -59,6 +59,48 @@ def is_console_visible():
     return True
 
 
+# ─── Console Window Control (Windows) ─────────────────────────────────────────
+
+# Console close handler type
+HANDLER_ROUTINE = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
+
+def _console_close_handler(ctrl_type):
+    """
+    Handle console close events.
+    When user clicks X on console, hide instead of killing the app.
+    
+    ctrl_type values:
+        0 = CTRL_C_EVENT
+        1 = CTRL_BREAK_EVENT
+        2 = CTRL_CLOSE_EVENT (user clicked X)
+        5 = CTRL_LOGOFF_EVENT
+        6 = CTRL_SHUTDOWN_EVENT
+    """
+    if ctrl_type == 2:  # CTRL_CLOSE_EVENT - user clicked X
+        # Hide console instead of closing
+        # We need to run this asynchronously or ensure it doesn't block
+        # But ShowWindow is usually fine.
+        hide_console()
+        return True  # Handled - don't close
+    
+    # For other events (Ctrl+C, shutdown, etc.), let them through
+    return False
+
+# Keep a reference to prevent garbage collection
+_console_handler = HANDLER_ROUTINE(_console_close_handler)
+
+def setup_console_close_handler():
+    """Set up the console close event handler"""
+    if sys.platform == 'win32':
+        try:
+            # SetConsoleCtrlHandler(handler, True) -> True adds it
+            ctypes.windll.kernel32.SetConsoleCtrlHandler(_console_handler, True)
+            return True
+        except Exception as e:
+            print(f"[Warning] Could not set console handler: {e}")
+    return False
+
+
 # ─── Tray Application ─────────────────────────────────────────────────────────
 
 class TrayApp:
@@ -115,7 +157,7 @@ class TrayApp:
         print("\n🔄 Restarting AI Bridge...")
         
         # Get the current script path
-        script = sys.argv[0]
+        script = os.path.abspath(sys.argv[0])
         args = sys.argv[1:]
         
         # Ensure console is shown before restart
@@ -127,14 +169,31 @@ class TrayApp:
         
         # Restart the process
         if sys.platform == 'win32':
-            # Use subprocess to start new process
-            subprocess.Popen([sys.executable, script] + args, 
-                           creationflags=subprocess.CREATE_NEW_CONSOLE)
+            # Use subprocess to start new process in a new console
+            # This is more robust than os.system('start ...')
+            if script.endswith('.py'):
+                subprocess.Popen([sys.executable, script] + args,
+                               creationflags=subprocess.CREATE_NEW_CONSOLE)
+            else:
+                # Frozen executable
+                subprocess.Popen([script] + args,
+                               creationflags=subprocess.CREATE_NEW_CONSOLE)
         else:
             os.execv(sys.executable, [sys.executable, script] + args)
         
         # Exit current process
         os._exit(0)
+    
+    def _on_session_browser(self, systray):
+        """Open the session browser GUI"""
+        try:
+            from .gui.core import show_session_browser, HAVE_GUI
+            if HAVE_GUI:
+                show_session_browser()
+            else:
+                print("[Warning] GUI not available")
+        except Exception as e:
+            print(f"[Error] Could not open session browser: {e}")
     
     def _on_edit_config(self, systray):
         """Open config.ini in default editor"""
@@ -190,11 +249,15 @@ class TrayApp:
         if not self.icon_path:
             print("[Warning] Icon file not found - using default icon")
         
+        # Set up console close handler (X button hides instead of closes)
+        setup_console_close_handler()
+        
         # Define menu options
-        # Format: (text, icon, callback) or (None, None, None) for separator
+        # Format: (text, icon, callback)
         menu_options = (
             ("Show Console", None, self._on_show_console),
             ("Hide Console", None, self._on_hide_console),
+            ("Session Browser", None, self._on_session_browser),
             ("Edit config.ini", None, self._on_edit_config),
             ("Edit text_edit_tool_options.json", None, self._on_edit_options),
             ("Restart", None, self._on_restart),
