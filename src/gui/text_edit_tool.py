@@ -529,23 +529,81 @@ class TextEditToolApp:
             ]
             
             from ..request_pipeline import RequestOrigin
-            response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
             
-            if error:
-                logging.error(f'Option processing failed: {error}')
-                self.is_processing = False
-                return
-            
-            if not response:
-                logging.error('No response from AI')
-                self.is_processing = False
-                return
-            
-            # Handle response
             if show_in_chat_window:
+                # For GUI mode, stream to console then show window
+                print(f"\n{'─'*60}")
+                print(f"[AI Response]...")
+                
+                response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
+                
+                if error:
+                    logging.error(f'Option processing failed: {error}')
+                    print(f"  [Error] {error}")
+                    self.is_processing = False
+                    return
+                
+                if not response:
+                    logging.error('No response from AI')
+                    self.is_processing = False
+                    return
+                
                 self._show_chat_window(f"{option_key} Result", response, selected_text)
+                print(f"{'─'*60}\n")
             else:
-                self._replace_text(response)
+                # Replace mode: type response to active field (same as direct chat)
+                streaming_enabled = self.config.get("streaming_enabled", True)
+                
+                if streaming_enabled:
+                    print(f"[AI Response] Streaming to active field...")
+                    
+                    # Buffer to accumulate chunks before typing (helps with Unicode)
+                    chunk_buffer = []
+                    buffer_size = 0
+                    MIN_BUFFER_CHARS = 20  # Accumulate at least 20 chars before typing
+                    
+                    def type_chunk(chunk):
+                        """Buffer chunks and type when buffer is large enough"""
+                        nonlocal chunk_buffer, buffer_size
+                        chunk_buffer.append(chunk)
+                        buffer_size += len(chunk)
+                        
+                        # Type when buffer reaches minimum size
+                        if buffer_size >= MIN_BUFFER_CHARS:
+                            text_to_type = ''.join(chunk_buffer)
+                            chunk_buffer.clear()
+                            buffer_size = 0
+                            self._type_text_chunk(text_to_type)
+                    
+                    response, error = self._call_api(messages, on_chunk=type_chunk, origin_override=RequestOrigin.POPUP_PROMPT)
+                    
+                    # Type any remaining buffered text
+                    if chunk_buffer:
+                        self._type_text_chunk(''.join(chunk_buffer))
+                else:
+                    print(f"[AI Response] Getting response...")
+                    response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
+                    
+                    # Type the full response when non-streaming
+                    if response and not error:
+                        print(f"[Typing to active field...]")
+                        self._type_text_chunk(response)
+                
+                if error:
+                    logging.error(f'Option processing failed: {error}')
+                    print(f"  [Error] {error}")
+                    self.is_processing = False
+                    return
+                
+                if not response:
+                    logging.error('No response from AI')
+                    self.is_processing = False
+                    return
+                
+                if streaming_enabled:
+                    print(f"\n✅ Response streamed ({len(response) if response else 0} chars)")
+                else:
+                    print(f"\n✅ Response typed ({len(response) if response else 0} chars)")
             
         except Exception as e:
             logging.error(f'Error processing option: {e}')
