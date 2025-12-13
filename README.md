@@ -6,6 +6,10 @@
 
 **AI Bridge** is a Windows desktop application that brings AI assistance to your fingertips. Use global hotkeys to edit text in any application, process screenshots with OCR, and chat with AI models—all from a lightweight system tray app.
 
+## 📽️ Demo
+
+https://github.com/user-attachments/assets/758a3459-f284-46ea-b872-46311d8bc6fd
+
 ## ✨ Features
 
 ### 🎯 TextEditTool
