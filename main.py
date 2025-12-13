@@ -10,6 +10,7 @@ Usage:
 """
 
 import sys
+import socket
 import logging
 import threading
 import signal
@@ -244,6 +245,21 @@ Examples:
     return parser.parse_args()
 
 
+def check_port_available(host: str, port: int) -> bool:
+    """
+    Check if a port is available for binding.
+    Returns True if available, False if already in use.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    try:
+        sock.bind((host, port))
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
 def run_server(config, ai_params, endpoints):
     """Run the Flask server (used by both tray and terminal modes)"""
     host = web_server.CONFIG.get('host', '127.0.0.1')
@@ -311,6 +327,27 @@ def main():
     # ─── Server Info ──────────────────────────────────────────────────────
     host = web_server.CONFIG.get('host', '127.0.0.1')
     port = int(web_server.CONFIG.get('port', 5000))
+    
+    # Check if port is available (single instance check)
+    if not check_port_available(host, port):
+        if HAVE_RICH:
+            console.print()
+            console.print(f"[bold red]❌ ERROR: Port {port} is already in use![/bold red]")
+            console.print()
+            console.print("[yellow]Another instance of AI Bridge may already be running.[/yellow]")
+            console.print(f"[dim]Check if port {port} is in use: netstat -an | findstr {port}[/dim]")
+            console.print()
+            console.print("[dim]Press Enter to exit...[/dim]")
+        else:
+            print()
+            print(f"❌ ERROR: Port {port} is already in use!")
+            print()
+            print("Another instance of AI Bridge may already be running.")
+            print(f"Check if port {port} is in use: netstat -an | findstr {port}")
+            print()
+            print("Press Enter to exit...")
+        input()
+        sys.exit(1)
     
     if HAVE_RICH:
         console.print(f"[bold green]🚀 Server[/bold green]  [link=http://{host}:{port}]http://{host}:{port}[/link]")
