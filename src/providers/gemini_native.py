@@ -118,6 +118,11 @@ class GeminiNativeProvider(BaseProvider):
         lower = model.lower()
         return "gemini" in lower and "2.5" in lower
     
+    def _is_gemma(self, model: str) -> bool:
+        """Check if model is Gemma (doesn't support systemInstruction)"""
+        lower = model.lower()
+        return "gemma" in lower
+    
     def _get_url(self, model: str, streaming: bool, api_key: str) -> str:
         """Build the API URL"""
         if streaming:
@@ -125,15 +130,26 @@ class GeminiNativeProvider(BaseProvider):
         else:
             return f"{GEMINI_BASE_URL}/models/{model}:generateContent?key={api_key}"
     
-    def _convert_messages_to_contents(self, messages: List[Dict]) -> tuple[List[Dict], Optional[str]]:
+    def _convert_messages_to_contents(
+        self,
+        messages: List[Dict],
+        prepend_system_to_user: bool = False
+    ) -> tuple[List[Dict], Optional[str]]:
         """
         Convert OpenAI-format messages to Gemini native format.
         
+        Args:
+            messages: List of messages in OpenAI format
+            prepend_system_to_user: If True, prepend system message to first user message
+                                   (for Gemma models that don't support systemInstruction)
+        
         Returns:
             Tuple of (contents, system_instruction)
+            If prepend_system_to_user is True, system_instruction will always be None
         """
         contents = []
         system_instruction = None
+        pending_system_text = None
         
         for message in messages:
             role = message.get("role", "user")
@@ -141,7 +157,13 @@ class GeminiNativeProvider(BaseProvider):
             
             # Handle system message
             if role == "system":
-                system_instruction = self._extract_text_content(content)
+                system_text = self._extract_text_content(content)
+                if prepend_system_to_user:
+                    # Store for prepending to first user message
+                    pending_system_text = system_text
+                else:
+                    # Use as systemInstruction field
+                    system_instruction = system_text
                 continue
             
             # Convert role: assistant -> model
@@ -149,6 +171,14 @@ class GeminiNativeProvider(BaseProvider):
             
             # Convert content to parts
             parts = self._convert_content_to_parts(content)
+            
+            # If we have a pending system message and this is a user message,
+            # prepend the system text to the user message
+            if pending_system_text and gemini_role == "user" and parts:
+                # Prepend system instruction to the first text part
+                system_parts = [{"text": pending_system_text + "\n\n"}]
+                parts = system_parts + parts
+                pending_system_text = None  # Only prepend once
             
             if parts:
                 contents.append({
@@ -243,7 +273,13 @@ class GeminiNativeProvider(BaseProvider):
         thinking_enabled: bool
     ) -> Dict:
         """Build the full request body"""
-        contents, system_instruction = self._convert_messages_to_contents(messages)
+        # Gemma models don't support systemInstruction - prepend to first user message instead
+        is_gemma = self._is_gemma(model)
+        
+        contents, system_instruction = self._convert_messages_to_contents(
+            messages,
+            prepend_system_to_user=is_gemma
+        )
         
         body = {
             "contents": contents,
@@ -251,9 +287,10 @@ class GeminiNativeProvider(BaseProvider):
             "safetySettings": SAFETY_SETTINGS
         }
         
-        if system_instruction:
+        if system_instruction and not is_gemma:
             # systemInstruction is a top-level field - omit "role" (best practice)
             # Never use "role": "user" here as it conflicts with system instruction purpose
+            # Gemma models don't support this field, so we skip it for them
             body["systemInstruction"] = {
                 "parts": [{"text": system_instruction}]
             }

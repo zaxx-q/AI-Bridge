@@ -1,7 +1,7 @@
 # AI Bridge
 
 <p align="center">
-  <strong>v1.0.0</strong> • Windows Desktop AI Assistant
+  <strong>• Windows Desktop AI Assistant •</strong>
 </p>
 
 **AI Bridge** is a Windows desktop application that brings AI assistance to your fingertips. Use global hotkeys to edit text in any application, process screenshots with OCR, and chat with AI models—all from a lightweight system tray app.
@@ -28,7 +28,7 @@ Process screenshots with AI:
 Results copy to clipboard automatically. See [ShareX Setup Guide](docs/SHAREX_SETUP.md).
 
 ### 💬 Chat Interface
-Modern chat windows with:
+Lightweight chat windows with:
 - Streaming responses (real-time typing)
 - Markdown rendering
 - Session history (browse and restore)
@@ -219,9 +219,9 @@ AIBridge.exe --show-console     # Tray mode but keep console visible
 
 ## 🗺️ Roadmap
 
-- [ ] **Localization** - Multi-language support for UI
 - [ ] **Prompt Editor** - GUI for editing text_edit_tool_options.json
 - [ ] **Colored Emoji** - Proper emoji rendering in console, chat, and popups
+- [ ] **Localization** - Multi-language support for UI
 
 ## 📝 Requirements
 

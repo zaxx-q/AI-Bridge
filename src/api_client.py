@@ -435,11 +435,41 @@ def call_api_chat(session, config, ai_params, key_managers, provider_override=No
     """
     API call for chat session.
     Uses current config settings for provider/model, not session-stored values.
+    Includes system instruction from followup_system_instruction setting.
     """
     messages = session.get_conversation_for_api(include_image=True)
+    
+    # Prepend system instruction for chat conversations
+    system_instruction = _get_chat_system_instruction()
+    if system_instruction:
+        messages = [{"role": "system", "content": system_instruction}] + messages
+    
     provider = provider_override or config.get("default_provider", "google")
     model = model_override or config.get(f"{provider}_model")
     return call_api_with_retry(provider, messages, model, config, ai_params, key_managers)
+
+
+def _get_chat_system_instruction() -> str:
+    """
+    Load followup_system_instruction from text_edit_tool_options.json.
+    Falls back to a default if file doesn't exist or key is missing.
+    """
+    import json
+    from pathlib import Path
+    
+    default = "You are a helpful AI assistant. Be concise and direct."
+    options_path = Path("text_edit_tool_options.json")
+    
+    try:
+        if options_path.exists():
+            with open(options_path, 'r', encoding='utf-8') as f:
+                options = json.load(f)
+                settings = options.get("_settings", {})
+                return settings.get("followup_system_instruction", default)
+    except Exception:
+        pass
+    
+    return default
 
 
 def call_api_chat_stream(session, config, ai_params, key_managers, callback, provider_override=None, model_override=None):
@@ -448,8 +478,14 @@ def call_api_chat_stream(session, config, ai_params, key_managers, callback, pro
     Uses current config settings for provider/model, not session-stored values.
     
     REFACTORED: Now uses unified streaming with provider classes.
+    Includes system instruction from followup_system_instruction setting.
     """
     messages = session.get_conversation_for_api(include_image=True)
+    
+    # Prepend system instruction for chat conversations
+    system_instruction = _get_chat_system_instruction()
+    if system_instruction:
+        messages = [{"role": "system", "content": system_instruction}] + messages
     
     # Use provided overrides or get from current config
     provider = provider_override or config.get("default_provider", "google")
