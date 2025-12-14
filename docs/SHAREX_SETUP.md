@@ -2,22 +2,22 @@
 
 This guide explains how to set up ShareX to work with AI Bridge for image processing tasks like OCR, translation, and description.
 
-> **Note**: Screenshots can be added to this guide. Place them in `docs/images/` and reference them below.
+## Demo
+
+https://github.com/user-attachments/assets/f9fcbea2-e403-4ea5-86d5-50edb79454f6
 
 ## Prerequisites
 
-- [ShareX](https://getsharex.com/) installed
+- Latest version of [ShareX](https://getsharex.com/) installed
 - AI Bridge running:
-  - **Recommended**: Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases) - just double-click to run
+  - **Recommended**: Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases) - just extract, run, enter API key, and run again
   - **Alternative**: `python main.py` (requires Python environment)
 
 ## Step 1: Create Custom Uploader
 
 1. Open ShareX
-2. Go to **Destinations** → **Custom uploader settings**
+2. Go to **Custom uploader settings**
 3. Click **New** to create a new uploader
-
-![Custom uploader settings](images/sharex-1-new-uploader.png)
 
 ## Step 2: Configure the Uploader
 
@@ -31,8 +31,9 @@ Fill in the following settings:
 | **Request URL** | `http://127.0.0.1:5000/ocr` |
 | **Body** | `Form data (multipart/form-data)` |
 | **File form name** | `image` |
+| **URL** | `{response}` |
 
-![Uploader configuration](images/sharex-2-config.png)
+![Custom uploader settings](images/sharex-new-uploader.jpg)
 
 ## Available Endpoints
 
@@ -81,17 +82,7 @@ Add these to the URL for additional behavior:
 - `http://127.0.0.1:5000/ocr_translate?lang=Indonesian` - Translate to Indonesian
 - `http://127.0.0.1:5000/describe?show=yes&model=gemini-2.5-pro` - Describe with specific model
 
-## Step 3: Configure Response
-
-In the **Response** section:
-
-1. Set **URL** field to: `{response}`
-
-This copies the extracted text directly to your clipboard.
-
-![Response configuration](images/sharex-3-response.png)
-
-## Step 4: Create Hotkey Workflow
+## Step 3: Create Hotkey Workflow
 
 1. Go to **Hotkey settings** (or right-click tray → Hotkey settings)
 2. Click **Add...** to create a new hotkey
@@ -99,22 +90,22 @@ This copies the extracted text directly to your clipboard.
    - **Task**: `Capture region` (or `Capture active window`, etc.)
    - **Hotkey**: Your preferred key combination
 
-![Hotkey setup](images/sharex-4-hotkey.png)
+![Hotkey setup](images/sharex-hotkey.jpg)
 
-## Step 5: Configure Task Settings
+## Step 4: Configure Task Settings
 
 1. Click the **Gear icon** ⚙️ next to your new hotkey
+2. Configure **Override after capture tasks**:
+   - Check **Upload image to host**
+5. Configure **Override after upload tasks**:
+   - Check **Copy URL to clipboard**
 2. Configure **Override destinations**:
    - Check **Image uploader**
    - Select **Custom image uploader**
 3. Configure **Override default custom uploader**:
    - Check and select your `AI Bridge - OCR` uploader
-4. Configure **Override after capture tasks**:
-   - Check **Upload image to host**
-5. Configure **Override after upload tasks**:
-   - Check **Copy URL to clipboard**
 
-![Task settings](images/sharex-5-task-settings.png)
+![Task settings](images/sharex-task-settings.jpg)
 
 ## Usage
 
@@ -142,6 +133,7 @@ You can also access workflows by:
 
 - Check AI Bridge console for errors (right-click tray → Show Console)
 - Verify your API keys are configured in `config.ini`
+- Make sure to use models that supports vision
 
 ### Slow Processing
 
