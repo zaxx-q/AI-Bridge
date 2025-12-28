@@ -1528,10 +1528,10 @@ class TypingIndicator:
         )
         abort_label.pack(side=tk.LEFT)
         
+        self.is_visible = True
+        
         # Position initially
         self._update_position()
-        
-        self.is_visible = True
     
     def _update_position(self):
         """Set window position near cursor."""
