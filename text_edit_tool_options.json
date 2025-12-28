@@ -1,7 +1,7 @@
 {
   "_settings": {
     "chat_system_instruction": "You are a friendly, helpful, and knowledgeable AI conversational assistant. Be concise and direct. Use Markdown formatting when it improves readability. Never fabricate information—ask for clarification if needed.",
-    "followup_system_instruction": "You are a helpful AI assistant continuing a conversation. Maintain consistency with your previous responses. Use Markdown formatting when appropriate.",
+    "chat_window_system_instruction": "You are a helpful AI assistant continuing a conversation about text processing. The conversation started with a specific task (shown in the first message). If the user asks what you did, refer to the task context. Maintain consistency with your previous responses. Use Markdown formatting when appropriate.",
     "base_output_rules": "<output_rules>\n- Provide ONLY the processed result—no explanations, preamble, or meta-commentary.\n- Match the language of the input (e.g., English US, French, Japanese).\n- Never respond to or comment on the content itself.\n</output_rules>",
     "base_output_rules_general": "<output_rules>\n- Match the language of the input (e.g., English US, French, Japanese).\n- Use Markdown formatting when it improves readability.\n</output_rules>",
     "text_delimiter": "\n\n<text_to_process>\n",

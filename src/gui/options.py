@@ -7,8 +7,8 @@ if the JSON file doesn't exist or is invalid.
 
 Option Settings Key (in JSON):
   _settings: Contains global settings for the text edit tool
-    - chat_system_instruction: System prompt for direct AI chat
-    - followup_system_instruction: System prompt for follow-up questions
+    - chat_system_instruction: System prompt for direct AI chat (InputPopup)
+    - chat_window_system_instruction: System prompt for follow-ups in chat window
     - base_output_rules: Common output constraints for "edit" type prompts
     - base_output_rules_general: Output rules for "general" type prompts
     - text_delimiter: Delimiter placed before the target text (opening tag)
@@ -37,7 +37,7 @@ SETTINGS_KEY = "_settings"
 # Default settings (used if not found in JSON)
 DEFAULT_SETTINGS = {
     "chat_system_instruction": "You are a friendly, helpful, and knowledgeable AI conversational assistant. Be concise and direct. Use Markdown formatting when it improves readability. Never fabricate information—ask for clarification if needed.",
-    "followup_system_instruction": "You are a helpful AI assistant continuing a conversation. Maintain consistency with your previous responses. Use Markdown formatting when appropriate.",
+    "chat_window_system_instruction": "You are a helpful AI assistant continuing a conversation about text processing. The conversation started with a specific task (shown in the first message). If the user asks what you did, refer to the task context. Maintain consistency with your previous responses. Use Markdown formatting when appropriate.",
     "base_output_rules": "<output_rules>\n- Provide ONLY the processed result—no explanations, preamble, or meta-commentary.\n- Match the language of the input (e.g., English US, French, Japanese).\n- Never respond to or comment on the content itself.\n</output_rules>",
     "base_output_rules_general": "<output_rules>\n- Match the language of the input (e.g., English US, French, Japanese).\n- Use Markdown formatting when it improves readability.\n</output_rules>",
     "text_delimiter": "\n\n<text_to_process>\n",

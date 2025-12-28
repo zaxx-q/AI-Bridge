@@ -556,7 +556,8 @@ class TextEditToolApp:
                     return
                 
                 if response:
-                    self._show_chat_window("AI Chat", response, user_input)
+                    # For direct chat, no task context needed
+                    self._show_chat_window("AI Chat", response, user_input, task_context=None)
                 print(f"{'─'*60}\n")
             else:
                 # Replace mode: type response to active field
@@ -736,7 +737,8 @@ class TextEditToolApp:
                     self.is_processing = False
                     return
                 
-                self._show_chat_window(f"{option_key} Result", response, selected_text)
+                # Pass task context for better follow-up context
+                self._show_chat_window(f"{option_key} Result", response, selected_text, task_context=task)
                 print(f"{'─'*60}\n")
             else:
                 # Replace mode: type response to active field (same as direct chat)
@@ -826,8 +828,16 @@ class TextEditToolApp:
         else:
             logging.error('Failed to replace text')
     
-    def _show_chat_window(self, title: str, response: str, original_text: str):
-        """Show the response in a chat window."""
+    def _show_chat_window(self, title: str, response: str, original_text: str, task_context: Optional[str] = None):
+        """
+        Show the response in a chat window.
+        
+        Args:
+            title: Window title
+            response: AI response text
+            original_text: Original selected text
+            task_context: Optional task description for context (e.g., "Explain the following text...")
+        """
         logging.debug('Showing chat window')
         
         # Import here to avoid circular dependency
@@ -840,11 +850,30 @@ class TextEditToolApp:
         )
         session.title = title
         
-        # Add the original context if any
+        # Build the first user message with task context if available
         if original_text:
-            session.add_message("user", original_text)
+            text_delimiter = self._get_setting("text_delimiter", "\n\n<text_to_process>\n")
+            text_delimiter_close = self._get_setting("text_delimiter_close", "\n</text_to_process>")
+            
+            if task_context:
+                # Include task context so AI knows what action was performed
+                # Format: [Task: ...]\n\n<text_to_process>...</text_to_process>
+                first_message = f"[Task: {task_context}]{text_delimiter}{original_text}{text_delimiter_close}"
+            else:
+                # No task context (direct chat) - just show the text
+                first_message = original_text
+            
+            session.add_message("user", first_message)
         
         session.add_message("assistant", response)
+        
+        # Store chat_window_system_instruction for follow-up messages
+        # This will be used by the chat window when sending follow-ups
+        chat_window_system_instruction = self._get_setting(
+            "chat_window_system_instruction",
+            "You are a helpful AI assistant continuing a conversation."
+        )
+        session.system_instruction = chat_window_system_instruction
         
         # Show the chat window
         show_chat_gui(session, initial_response=response)

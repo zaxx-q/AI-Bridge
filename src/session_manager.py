@@ -42,6 +42,9 @@ class ChatSession:
         self.mime_type = mime_type or "image/png"
         self.messages = []
         self.title = None
+        # System instruction for follow-up messages in chat window
+        # Not persisted, only used for active sessions
+        self.system_instruction = None
     
     def add_message(self, role, content):
         """Add a message to the session"""
@@ -54,9 +57,20 @@ class ChatSession:
         if not self.title and role == "user":
             self.title = content[:50] + ("..." if len(content) > 50 else "")
     
-    def get_conversation_for_api(self, include_image=True):
-        """Convert session messages to API format"""
+    def get_conversation_for_api(self, include_image=True, include_system_instruction=True):
+        """
+        Convert session messages to API format.
+        
+        Args:
+            include_image: Whether to include image data in the first user message
+            include_system_instruction: Whether to prepend system instruction if available
+        """
         messages = []
+        
+        # Prepend system instruction if available and requested
+        if include_system_instruction and self.system_instruction:
+            messages.append({"role": "system", "content": self.system_instruction})
+        
         for i, msg in enumerate(self.messages):
             role = msg["role"]
             content = msg["content"]
