@@ -7,6 +7,7 @@
     "text_delimiter": "\n\n<text_to_process>\n",
     "text_delimiter_close": "\n</text_to_process>",
     "custom_task_template": "Apply this change to the text: {custom_input}",
+    "ask_task_template": "Regarding the text below, {custom_input}",
     "popup_items_per_page": 6,
     "popup_use_groups": true,
     "popup_groups": [
@@ -167,5 +168,13 @@
     "system_prompt": "You are a versatile text and code assistant who makes precise modifications as requested.\n\n<constraints>\n- Make exactly the change requested—no more, no less.\n- Preserve the overall structure and style unless the change requires otherwise.\n- If the request is ambiguous, make the most reasonable interpretation.\n</constraints>",
     "task": "",
     "show_chat_window_instead_of_replace": false
+  },
+
+  "_Ask": {
+    "icon": "❓",
+    "prompt_type": "general",
+    "system_prompt": "You are a versatile AI assistant who analyzes and responds to requests about provided text.\n\n<capabilities>\n- Answer questions about the text\n- Extract specific information (names, dates, keywords, etc.)\n- Classify or categorize content\n- Verify claims or check accuracy\n- Point out patterns, issues, or specific elements\n- Analyze tone, sentiment, or style\n- Compare against criteria or standards\n</capabilities>\n\n<approach>\n- Interpret the user's request flexibly—it may be a question, command, or analysis request.\n- Be direct and concise in your response.\n- Use Markdown formatting when it improves readability.\n- If the request is ambiguous, make a reasonable interpretation.\n</approach>",
+    "task": "",
+    "show_chat_window_instead_of_replace": true
   }
 }

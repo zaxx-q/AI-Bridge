@@ -1431,9 +1431,14 @@ class AttachedPromptPopup:
     """
     Prompt selection popup as Toplevel attached to coordinator's root.
     Modern Catppuccin-styled with segmented toggle and carousel buttons.
+    
+    Features two input boxes:
+    1. "Explain your changes..." - For edit-type prompts (Custom action)
+    2. "Ask about this text..." - For Q&A-type prompts (general output rules)
     """
     
-    PLACEHOLDER = "Explain your changes..."
+    PLACEHOLDER_EDIT = "Explain your changes..."
+    PLACEHOLDER_ASK = "Ask about this text..."
     
     def __init__(
         self,
@@ -1455,7 +1460,8 @@ class AttachedPromptPopup:
         
         self.colors = get_colors()
         self.root: Optional[tk.Toplevel] = None
-        self.input_var: Optional[tk.StringVar] = None
+        self.edit_input_var: Optional[tk.StringVar] = None  # For "Explain your changes..."
+        self.ask_input_var: Optional[tk.StringVar] = None   # For "Ask about this text..."
         self.response_toggle: Optional[SegmentedToggle] = None
         
         self._create_window()
@@ -1508,24 +1514,38 @@ class AttachedPromptPopup:
         )
         self.response_toggle.pack(anchor=tk.CENTER)
         
-        # Input area with modern styling
-        input_frame = tk.Frame(content_frame, bg=self.colors.base)
-        input_frame.pack(fill=tk.X, pady=(0, 12))
-        
-        # Input container with border
-        input_container = tk.Frame(
-            input_frame,
+        # === Input area 1: Edit/Custom changes ===
+        # Container holding both input and button
+        edit_container = tk.Frame(
+            content_frame,
             bg=self.colors.surface0,
             highlightbackground=self.colors.surface2,
             highlightthickness=1
         )
-        input_container.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        edit_container.pack(fill=tk.X, pady=(0, 8))
         
-        self.input_var = tk.StringVar(master=self.root)
+        # Edit send button (Right aligned inside container)
+        edit_send_btn = tk.Label(
+            edit_container,
+            text="      ✏️",
+            font=("Arial", 12),
+            bg=self.colors.blue,
+            fg="#ffffff",
+            width=4,  # Fixed width for consistency
+            pady=8,
+            cursor="hand2"
+        )
+        edit_send_btn.pack(side=tk.RIGHT, fill=tk.Y)
+        edit_send_btn.bind('<Button-1>', lambda e: self._on_custom_submit())
+        edit_send_btn.bind('<Enter>', lambda e: edit_send_btn.config(bg=self.colors.lavender))
+        edit_send_btn.bind('<Leave>', lambda e: edit_send_btn.config(bg=self.colors.blue))
+        Tooltip(edit_send_btn, "Edit text with custom instructions")
         
-        self.input_entry = tk.Entry(
-            input_container,
-            textvariable=self.input_var,
+        self.edit_input_var = tk.StringVar(master=self.root)
+        
+        self.edit_input_entry = tk.Entry(
+            edit_container,
+            textvariable=self.edit_input_var,
             font=("Arial", 11),
             bg=self.colors.surface0,
             fg=self.colors.text,
@@ -1533,29 +1553,60 @@ class AttachedPromptPopup:
             relief=tk.FLAT,
             bd=0
         )
-        self.input_entry.pack(fill=tk.X, padx=10, pady=10)
-        self.input_entry.insert(0, self.PLACEHOLDER)
-        self.input_entry.config(fg=self.colors.overlay0)
+        self.edit_input_entry.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.edit_input_entry.insert(0, self.PLACEHOLDER_EDIT)
+        self.edit_input_entry.config(fg=self.colors.overlay0)
         
-        self.input_entry.bind('<FocusIn>', self._on_focus_in)
-        self.input_entry.bind('<FocusOut>', self._on_focus_out)
-        self.input_entry.bind('<Return>', lambda e: self._on_custom_submit())
+        self.edit_input_entry.bind('<FocusIn>', lambda e: self._on_edit_focus_in())
+        self.edit_input_entry.bind('<FocusOut>', lambda e: self._on_edit_focus_out())
+        self.edit_input_entry.bind('<Return>', lambda e: self._on_custom_submit())
         
-        # Send button
-        send_btn = tk.Label(
-            input_frame,
-            text="➤",
-            font=("Arial", 14),
-            bg=self.colors.blue,
+        # === Input area 2: Ask/Q&A about text ===
+        # Container holding both input and button
+        ask_container = tk.Frame(
+            content_frame,
+            bg=self.colors.surface0,
+            highlightbackground=self.colors.surface2,
+            highlightthickness=1
+        )
+        ask_container.pack(fill=tk.X, pady=(0, 12))
+        
+        # Ask send button (Right aligned inside container)
+        ask_send_btn = tk.Label(
+            ask_container,
+            text="❓",
+            font=("Arial", 12),
+            bg=self.colors.green,
             fg="#ffffff",
-            padx=14,
+            width=4,  # Fixed width for consistency
             pady=8,
             cursor="hand2"
         )
-        send_btn.pack(side=tk.RIGHT)
-        send_btn.bind('<Button-1>', lambda e: self._on_custom_submit())
-        send_btn.bind('<Enter>', lambda e: send_btn.config(bg=self.colors.lavender))
-        send_btn.bind('<Leave>', lambda e: send_btn.config(bg=self.colors.blue))
+        ask_send_btn.pack(side=tk.RIGHT, fill=tk.Y)
+        ask_send_btn.bind('<Button-1>', lambda e: self._on_ask_submit())
+        ask_send_btn.bind('<Enter>', lambda e: ask_send_btn.config(bg=self.colors.peach))
+        ask_send_btn.bind('<Leave>', lambda e: ask_send_btn.config(bg=self.colors.green))
+        Tooltip(ask_send_btn, "Ask a question about the text")
+        
+        self.ask_input_var = tk.StringVar(master=self.root)
+        
+        self.ask_input_entry = tk.Entry(
+            ask_container,
+            textvariable=self.ask_input_var,
+            font=("Arial", 11),
+            bg=self.colors.surface0,
+            fg=self.colors.text,
+            insertbackground=self.colors.text,
+            relief=tk.FLAT,
+            bd=0
+        )
+        self.ask_input_entry.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.ask_input_entry.insert(0, self.PLACEHOLDER_ASK)
+        self.ask_input_entry.config(fg=self.colors.overlay0)
+        
+        self.ask_input_entry.bind('<FocusIn>', lambda e: self._on_ask_focus_in())
+        self.ask_input_entry.bind('<FocusOut>', lambda e: self._on_ask_focus_out())
+        self.ask_input_entry.bind('<Return>', lambda e: self._on_ask_submit())
         
         # Action buttons carousel
         self._create_carousel(content_frame)
@@ -1569,7 +1620,7 @@ class AttachedPromptPopup:
         # Focus
         self.root.lift()
         self.root.focus_force()
-        self.input_entry.focus_set()
+        self.edit_input_entry.focus_set()
     
     def _create_carousel(self, parent: tk.Frame):
         """Create the carousel with action buttons (grouped or flat mode)."""
@@ -1664,17 +1715,29 @@ class AttachedPromptPopup:
         
         self.root.geometry(f"+{x}+{y}")
     
-    def _on_focus_in(self, event):
-        """Handle input focus in."""
-        if self.input_entry.get() == self.PLACEHOLDER:
-            self.input_entry.delete(0, tk.END)
-            self.input_entry.config(fg=self.colors.text)
+    def _on_edit_focus_in(self):
+        """Handle edit input focus in."""
+        if self.edit_input_entry.get() == self.PLACEHOLDER_EDIT:
+            self.edit_input_entry.delete(0, tk.END)
+            self.edit_input_entry.config(fg=self.colors.text)
     
-    def _on_focus_out(self, event):
-        """Handle input focus out."""
-        if not self.input_entry.get():
-            self.input_entry.insert(0, self.PLACEHOLDER)
-            self.input_entry.config(fg=self.colors.overlay0)
+    def _on_edit_focus_out(self):
+        """Handle edit input focus out."""
+        if not self.edit_input_entry.get():
+            self.edit_input_entry.insert(0, self.PLACEHOLDER_EDIT)
+            self.edit_input_entry.config(fg=self.colors.overlay0)
+    
+    def _on_ask_focus_in(self):
+        """Handle ask input focus in."""
+        if self.ask_input_entry.get() == self.PLACEHOLDER_ASK:
+            self.ask_input_entry.delete(0, tk.END)
+            self.ask_input_entry.config(fg=self.colors.text)
+    
+    def _on_ask_focus_out(self):
+        """Handle ask input focus out."""
+        if not self.ask_input_entry.get():
+            self.ask_input_entry.insert(0, self.PLACEHOLDER_ASK)
+            self.ask_input_entry.config(fg=self.colors.overlay0)
     
     def _on_option_click(self, option_key: str):
         """Handle action button click."""
@@ -1684,15 +1747,27 @@ class AttachedPromptPopup:
         self.on_option_selected(option_key, self.selected_text, None, response_mode)
     
     def _on_custom_submit(self):
-        """Handle custom input submission."""
-        custom_text = self.input_var.get().strip()
-        if not custom_text or custom_text == self.PLACEHOLDER:
+        """Handle custom edit input submission."""
+        custom_text = self.edit_input_var.get().strip()
+        if not custom_text or custom_text == self.PLACEHOLDER_EDIT:
             return
         
-        logging.debug(f'Custom input submitted: {custom_text[:50]}...')
+        logging.debug(f'Custom edit submitted: {custom_text[:50]}...')
         response_mode = self.response_toggle.get() if self.response_toggle else "default"
         self._close()
         self.on_option_selected("Custom", self.selected_text, custom_text, response_mode)
+    
+    def _on_ask_submit(self):
+        """Handle ask/Q&A input submission."""
+        ask_text = self.ask_input_var.get().strip()
+        if not ask_text or ask_text == self.PLACEHOLDER_ASK:
+            return
+        
+        logging.debug(f'Ask question submitted: {ask_text[:50]}...')
+        response_mode = self.response_toggle.get() if self.response_toggle else "default"
+        self._close()
+        # Use "_Ask" as a special key to indicate Q&A mode
+        self.on_option_selected("_Ask", self.selected_text, ask_text, response_mode)
     
     def _close(self):
         """Close the popup."""

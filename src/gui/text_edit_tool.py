@@ -395,6 +395,9 @@ class TextEditToolApp:
         Avoids clipboard to prevent filling clipboard managers.
         Uses configurable delay between characters for stability.
         
+        Newlines are sent as Shift+Enter to avoid triggering form submissions
+        in applications like chat inputs, Discord, etc.
+        
         Args:
             text: Text to type
             
@@ -423,7 +426,18 @@ class TextEditToolApp:
                     logging.debug("Typing aborted by user")
                     return False
                 
-                keyboard.type(char)
+                # Handle newlines with Shift+Enter to avoid form submissions
+                if char == '\n':
+                    keyboard.press(pykeyboard.Key.shift)
+                    keyboard.press(pykeyboard.Key.enter)
+                    keyboard.release(pykeyboard.Key.enter)
+                    keyboard.release(pykeyboard.Key.shift)
+                elif char == '\r':
+                    # Skip carriage return (Windows line endings)
+                    continue
+                else:
+                    keyboard.type(char)
+                
                 if char_delay > 0:
                     time.sleep(char_delay)
             
@@ -641,9 +655,9 @@ class TextEditToolApp:
         Process the selected option.
         
         Args:
-            option_key: The selected option key
+            option_key: The selected option key (including "Custom" and "_Ask")
             selected_text: The selected text
-            custom_input: Custom input text (for Custom option)
+            custom_input: Custom input text (for Custom edit or _Ask question)
             response_mode: Response mode ("default", "replace", or "show")
         
         Display Mode Override Hierarchy:
@@ -658,6 +672,11 @@ class TextEditToolApp:
                    {text_delimiter}
                    {selected_text}
                    {text_delimiter_close}
+        
+        Both "Custom" and "_Ask" use the same pattern:
+            - Get action options from config (system_prompt, prompt_type, show_chat_window_instead_of_replace)
+            - Use task template with {custom_input} placeholder
+            - "Custom" uses custom_task_template, "_Ask" uses ask_task_template
         """
         try:
             action_options = self._get_action_options()
@@ -692,13 +711,21 @@ class TextEditToolApp:
             text_delimiter = self._get_setting("text_delimiter", "\n\n<text_to_process>\n")
             text_delimiter_close = self._get_setting("text_delimiter_close", "\n</text_to_process>")
             
-            # Handle Custom action - use template for task
+            # Handle Custom action - use custom_task_template
             if option_key == "Custom" and custom_input:
                 custom_task_template = self._get_setting(
                     "custom_task_template",
-                    "Apply the following change to the text below: {custom_input}"
+                    "Apply the following change to the text: {custom_input}"
                 )
                 task = custom_task_template.format(custom_input=custom_input)
+            
+            # Handle _Ask action - use ask_task_template (same pattern as Custom)
+            elif option_key == "_Ask" and custom_input:
+                ask_task_template = self._get_setting(
+                    "ask_task_template",
+                    "Answer the following question about the text: {custom_input}"
+                )
+                task = ask_task_template.format(custom_input=custom_input)
             
             # Build user message: task + output rules + delimiter + text
             user_message_parts = []
