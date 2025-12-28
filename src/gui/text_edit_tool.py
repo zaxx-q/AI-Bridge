@@ -679,12 +679,12 @@ class TextEditToolApp:
             
             # Get prompt type (default to "edit" for backward compatibility)
             # "edit" prompts use base_output_rules (strict, no explanations)
-            # "explain" prompts use base_output_rules_explain (allows explanations)
+            # "general" prompts use base_output_rules_general (more permissive)
             prompt_type = option.get("prompt_type", "edit")
             
             # Select output rules based on prompt type
-            if prompt_type == "explain":
-                base_output_rules = self._get_setting("base_output_rules_explain", "")
+            if prompt_type == "general":
+                base_output_rules = self._get_setting("base_output_rules_general", "")
             else:
                 base_output_rules = self._get_setting("base_output_rules", "")
             

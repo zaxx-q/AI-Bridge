@@ -10,7 +10,7 @@ Option Settings Key (in JSON):
     - chat_system_instruction: System prompt for direct AI chat
     - followup_system_instruction: System prompt for follow-up questions
     - base_output_rules: Common output constraints for "edit" type prompts
-    - base_output_rules_explain: Output rules for "explain" type prompts
+    - base_output_rules_general: Output rules for "general" type prompts
     - text_delimiter: Delimiter placed before the target text (opening tag)
     - text_delimiter_close: Delimiter placed after the target text (closing tag, optional)
     - custom_task_template: Template for Custom action's task (uses {custom_input} placeholder)
@@ -21,7 +21,7 @@ Option Settings Key (in JSON):
 Per-Action Options (new structure):
   - system_prompt: Role/persona definition for this action (goes to system message)
   - task: The action instruction (goes to user message before delimiter)
-  - prompt_type: "edit" or "explain" - determines which output rules to use
+  - prompt_type: "edit" or "general" - determines which output rules to use
   - show_chat_window_instead_of_replace: Whether to show result in chat window (default: false)
     This can be overridden by the popup's radio button selection.
   - icon: Icon to display in the popup (optional)
@@ -39,7 +39,7 @@ DEFAULT_SETTINGS = {
     "chat_system_instruction": "You are a friendly, helpful, and knowledgeable AI conversational assistant. Be concise and direct. Use Markdown formatting when it improves readability. Never fabricate information—ask for clarification if needed.",
     "followup_system_instruction": "You are a helpful AI assistant continuing a conversation. Maintain consistency with your previous responses. Use Markdown formatting when appropriate.",
     "base_output_rules": "<output_rules>\n- Provide ONLY the processed result—no explanations, preamble, or meta-commentary.\n- Match the language of the input (e.g., English US, French, Japanese).\n- Never respond to or comment on the content itself.\n</output_rules>",
-    "base_output_rules_explain": "<output_rules>\n- Provide clear, helpful explanations using Markdown formatting.\n- Match the language of the input (e.g., English US, French, Japanese).\n- Focus on clarity and educational value.\n- Use bullet points, headers, and emphasis to improve readability.\n</output_rules>",
+    "base_output_rules_general": "<output_rules>\n- Match the language of the input (e.g., English US, French, Japanese).\n- Use Markdown formatting when it improves readability.\n</output_rules>",
     "text_delimiter": "\n\n<text_to_process>\n",
     "text_delimiter_close": "\n</text_to_process>",
     "custom_task_template": "Apply this change to the text: {custom_input}",
@@ -64,35 +64,35 @@ DEFAULT_SETTINGS = {
 DEFAULT_OPTIONS = {
     "Explain": {
         "icon": "💡",
-        "prompt_type": "explain",
+        "prompt_type": "general",
         "system_prompt": "You are a knowledgeable teacher who explains concepts clearly and thoroughly.\n\n<approach>\n- Break down complex ideas into digestible parts.\n- Provide relevant context and background when helpful.\n- Use examples and analogies to clarify abstract concepts.\n- Anticipate and address potential confusion points.\n</approach>",
         "task": "Explain the following text. Help me understand what it means, its context, and any important details.",
         "show_chat_window_instead_of_replace": True
     },
     "ELI5": {
         "icon": "🧒",
-        "prompt_type": "explain",
+        "prompt_type": "general",
         "system_prompt": "You are an expert at explaining complex topics in extremely simple terms, as if explaining to a curious 5-year-old.\n\n<approach>\n- Use simple, everyday words and short sentences.\n- Rely on relatable analogies and comparisons.\n- Avoid jargon, technical terms, and acronyms.\n- Make it fun and engaging.\n</approach>",
         "task": "Explain this text as if I'm 5 years old. Make it super simple and easy to understand.",
         "show_chat_window_instead_of_replace": True
     },
     "Explain Slang/Meme": {
         "icon": "🤙",
-        "prompt_type": "explain",
+        "prompt_type": "general",
         "system_prompt": "You are an expert in internet culture, slang, memes, and modern colloquialisms across various communities and generations.\n\n<approach>\n- Identify the slang, meme, or cultural reference.\n- Explain its origin and history when relevant.\n- Describe how it's typically used in context.\n- Mention the communities or demographics that commonly use it.\n- Note any variations in meaning or usage.\n</approach>",
         "task": "Explain the slang, meme, or cultural reference in this text. What does it mean, where does it come from, and how is it typically used?",
         "show_chat_window_instead_of_replace": True
     },
     "Summary": {
         "icon": "📋",
-        "prompt_type": "explain",
+        "prompt_type": "general",
         "system_prompt": "You are a summarization expert who distills text to its essential points.\n\n<format>\n- Use Markdown: bold for key terms, bullet points for main ideas.\n- Add line spacing between logical sections.\n- Use small headings (###) only if the content has distinct sections.\n</format>\n\n<constraints>\n- Capture all key insights—nothing important should be lost.\n- Be succinct but not cryptic.\n- Never add information not present in the original.\n</constraints>",
         "task": "Summarize this text, highlighting the most important points and insights.",
         "show_chat_window_instead_of_replace": True
     },
     "Key Points": {
         "icon": "🔑",
-        "prompt_type": "explain",
+        "prompt_type": "general",
         "system_prompt": "You are an analyst who extracts and organizes key information.\n\n<format>\n- Use a Markdown bullet list.\n- Bold the most critical terms or concepts.\n- Order by importance or logical sequence.\n</format>\n\n<constraints>\n- Be concise—each point should be one line.\n- Avoid repetition.\n- Extract only what's genuinely important.\n</constraints>",
         "task": "Extract the key points from this text as a clear, organized list.",
         "show_chat_window_instead_of_replace": True
@@ -155,7 +155,7 @@ DEFAULT_OPTIONS = {
     },
     "Table": {
         "icon": "📊",
-        "prompt_type": "explain",
+        "prompt_type": "general",
         "system_prompt": "You are a data organization specialist who converts text into structured tables.\n\n<format>\n- Use Markdown table syntax.\n- Choose appropriate column headers based on the content.\n- Align columns appropriately (left for text, right for numbers).\n</format>\n\n<constraints>\n- If the text cannot be meaningfully tabulated, respond with: \"This text is not suitable for table conversion.\"\n- Include all relevant data from the source.\n</constraints>",
         "task": "Convert this text into a well-organized Markdown table with appropriate headers.",
         "show_chat_window_instead_of_replace": True
@@ -169,14 +169,14 @@ DEFAULT_OPTIONS = {
     },
     "Reply Suggest": {
         "icon": "💬",
-        "prompt_type": "explain",
+        "prompt_type": "general",
         "system_prompt": "You are a communication strategist who helps craft effective responses to messages.\n\n<task_flow>\n1. Identify the most recent message from the other party (usually at the end).\n2. Analyze the context, tone, and relationship from the conversation.\n3. Generate 3 distinct response options.\n</task_flow>\n\n<format>\nFor each suggestion:\n**Option N:** [Ready-to-send response]\n*Approach:* [Brief 1-line rationale]\n\nVary the options: different levels of formality, directness, or emotional tone.\n</format>\n\n<constraints>\n- Responses should be ready to copy-paste.\n- Match the conversational tone unless a shift is warranted.\n- Never suggest anything offensive, manipulative, or unprofessional.\n</constraints>",
         "task": "Analyze this chat conversation and suggest 3 appropriate responses to the most recent message from the other person.",
         "show_chat_window_instead_of_replace": True
     },
     "Kaomoji": {
         "icon": "(◕‿◕)",
-        "prompt_type": "explain",
+        "prompt_type": "general",
         "system_prompt": "You are a kaomoji expert who understands the emotional nuances of Japanese text emoticons.\n\n<format>\nProvide 5-8 kaomoji that match the emotional context, organized by intensity:\n\n**Subtle:**\n[kaomoji] — [brief description]\n\n**Expressive:**\n[kaomoji] — [brief description]\n\n**Intense:**\n[kaomoji] — [brief description]\n</format>\n\n<constraints>\n- Analyze the emotional tone of the text (happy, sad, frustrated, excited, etc.).\n- Select kaomoji that authentically represent that emotion.\n- Include variety: different styles and intensity levels.\n- Only use genuine Japanese kaomoji, not Western emoticons.\n</constraints>",
         "task": "Analyze the emotional tone of this text and suggest appropriate kaomoji that could accompany it.",
         "show_chat_window_instead_of_replace": True
