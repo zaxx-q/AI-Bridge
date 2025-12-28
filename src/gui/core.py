@@ -138,6 +138,10 @@ class GUICoordinator:
                     self._create_input_popup(request)
                 elif request_type == 'popup_prompt':
                     self._create_prompt_popup(request)
+                elif request_type == 'typing_indicator':
+                    self._create_typing_indicator(request)
+                elif request_type == 'dismiss_typing_indicator':
+                    self._dismiss_typing_indicator()
                 elif request_type == 'callback':
                     # Generic callback execution on GUI thread
                     callback = request.get('callback')
@@ -184,6 +188,18 @@ class GUICoordinator:
         x = request.get('x')
         y = request.get('y')
         create_attached_prompt_popup(self._root, options, on_option_selected, on_close, selected_text, x, y)
+    
+    def _create_typing_indicator(self, request):
+        """Create a typing indicator on the GUI thread"""
+        from .popups import create_typing_indicator
+        abort_hotkey = request.get('abort_hotkey', 'Escape')
+        on_dismiss = request.get('on_dismiss')
+        create_typing_indicator(self._root, abort_hotkey, on_dismiss)
+    
+    def _dismiss_typing_indicator(self):
+        """Dismiss the typing indicator on the GUI thread"""
+        from .popups import dismiss_typing_indicator
+        dismiss_typing_indicator()
     
     def request_chat_window(self, session, initial_response=None):
         """Request creation of a chat window (thread-safe)"""
@@ -236,6 +252,23 @@ class GUICoordinator:
             'callback': callback
         })
     
+    def request_typing_indicator(self, abort_hotkey: str = "Escape",
+                                  on_dismiss: Optional[Callable] = None):
+        """Request showing a typing indicator (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'typing_indicator',
+            'abort_hotkey': abort_hotkey,
+            'on_dismiss': on_dismiss
+        })
+    
+    def request_dismiss_typing_indicator(self):
+        """Request dismissing the typing indicator (thread-safe)"""
+        if self._running:
+            self._request_queue.put({
+                'type': 'dismiss_typing_indicator'
+            })
+    
     def get_root(self) -> Optional[tk.Tk]:
         """Get the root Tk instance (only safe to use from GUI thread!)"""
         return self._root
@@ -271,3 +304,15 @@ def get_gui_status():
         "running": coordinator.is_running(),
         "open_windows": len(OPEN_WINDOWS)
     }
+
+
+def show_typing_indicator(abort_hotkey: str = "Escape", on_dismiss: Optional[Callable] = None):
+    """Show a typing indicator near the cursor (thread-safe)"""
+    coordinator = GUICoordinator.get_instance()
+    coordinator.request_typing_indicator(abort_hotkey, on_dismiss)
+
+
+def dismiss_typing_indicator():
+    """Dismiss the typing indicator (thread-safe)"""
+    coordinator = GUICoordinator.get_instance()
+    coordinator.request_dismiss_typing_indicator()

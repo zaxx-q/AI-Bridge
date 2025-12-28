@@ -47,6 +47,14 @@ DEFAULT_CONFIG = {
     # TextEditTool settings
     "text_edit_tool_enabled": True,
     "text_edit_tool_hotkey": "ctrl+space",
+    # Hotkey to abort streaming typing (default: escape)
+    "text_edit_tool_abort_hotkey": "escape",
+    # Delay between characters when streaming to text field (ms)
+    # Lower = faster typing. Default: 5
+    "streaming_typing_delay": 5,
+    # Uncap typing speed - type at maximum speed from server stream
+    # WARNING: May cause issues with some applications (input lag, missed characters)
+    "streaming_typing_uncapped": False,
 }
 
 # Default endpoint definitions
@@ -317,6 +325,19 @@ text_edit_tool_enabled = true
 
 # Hotkey combination (e.g., ctrl+space, ctrl+alt+w)
 text_edit_tool_hotkey = ctrl+space
+
+# Hotkey to abort streaming typing (default: escape)
+# Press this key to stop mid-stream typing
+text_edit_tool_abort_hotkey = escape
+
+# Delay between characters when streaming to text field (milliseconds)
+# Lower = faster typing. Default: 5
+streaming_typing_delay = 5
+
+# Uncap typing speed - type at maximum speed from server stream
+# WARNING: Setting to true may cause issues with some applications
+# (input lag, missed characters, application freezing). Use with caution!
+# streaming_typing_uncapped = false
 
 # TextEditTool options are configured in text_edit_tool_options.json
 # including: action prompts, placeholders, and per-action display settings

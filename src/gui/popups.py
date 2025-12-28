@@ -1446,3 +1446,197 @@ def create_attached_prompt_popup(
 ):
     """Create a prompt selection popup as Toplevel attached to parent root (called on GUI thread)"""
     AttachedPromptPopup(parent_root, options, on_option_selected, on_close, selected_text, x, y)
+
+
+# =============================================================================
+# Typing Indicator - Small tooltip that follows cursor during streaming
+# =============================================================================
+
+class TypingIndicator:
+    """
+    A small floating indicator that shows during streaming typing.
+    Displays near the mouse cursor and shows abort hotkey.
+    
+    Features:
+    - Follows cursor position (updates periodically)
+    - Shows customizable abort hotkey hint
+    - Auto-dismisses when closed
+    """
+    
+    UPDATE_INTERVAL_MS = 100  # How often to update position
+    OFFSET_X = 20  # Pixels to the right of cursor
+    OFFSET_Y = 20  # Pixels below cursor
+    
+    def __init__(
+        self,
+        parent_root: tk.Tk,
+        abort_hotkey: str = "Escape",
+        on_dismiss: Optional[Callable[[], None]] = None
+    ):
+        self.parent_root = parent_root
+        self.abort_hotkey = abort_hotkey
+        self.on_dismiss = on_dismiss
+        
+        self.colors = get_colors()
+        self.root: Optional[tk.Toplevel] = None
+        self.update_job: Optional[str] = None
+        self.is_visible = False
+        
+        self._create_window()
+    
+    def _create_window(self):
+        """Create the indicator window."""
+        self.root = tk.Toplevel(self.parent_root)
+        self.root.overrideredirect(True)
+        self.root.attributes('-topmost', True)
+        self.root.configure(bg=self.colors.surface0)
+        
+        # Make it slightly transparent on Windows
+        try:
+            self.root.attributes('-alpha', 0.95)
+        except tk.TclError:
+            pass  # Transparency not supported
+        
+        # Main frame with border
+        main_frame = tk.Frame(
+            self.root,
+            bg=self.colors.surface0,
+            highlightbackground=self.colors.blue,
+            highlightthickness=2
+        )
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Content frame
+        content_frame = tk.Frame(main_frame, bg=self.colors.surface0)
+        content_frame.pack(padx=8, pady=6)
+        
+        # Typing indicator with animation emoji
+        typing_label = tk.Label(
+            content_frame,
+            text="✍️ Typing...",
+            font=("Arial", 10, "bold"),
+            bg=self.colors.surface0,
+            fg=self.colors.text
+        )
+        typing_label.pack(side=tk.LEFT)
+        
+        # Abort hint
+        hotkey_display = self.abort_hotkey.title() if self.abort_hotkey else "Escape"
+        abort_label = tk.Label(
+            content_frame,
+            text=f" [{hotkey_display} to abort]",
+            font=("Arial", 9),
+            bg=self.colors.surface0,
+            fg=self.colors.overlay0
+        )
+        abort_label.pack(side=tk.LEFT)
+        
+        # Position initially
+        self._update_position()
+        
+        # Start position updates
+        self._schedule_update()
+        
+        self.is_visible = True
+    
+    def _update_position(self):
+        """Update window position to follow cursor."""
+        if not self.root or not self.is_visible:
+            return
+        
+        try:
+            # Get cursor position
+            x = self.root.winfo_pointerx() + self.OFFSET_X
+            y = self.root.winfo_pointery() + self.OFFSET_Y
+            
+            # Get screen dimensions
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            
+            # Get window dimensions
+            self.root.update_idletasks()
+            window_width = self.root.winfo_width()
+            window_height = self.root.winfo_height()
+            
+            # Adjust if would go off screen
+            if x + window_width > screen_width:
+                x = self.root.winfo_pointerx() - window_width - 10
+            if y + window_height > screen_height:
+                y = self.root.winfo_pointery() - window_height - 10
+            
+            self.root.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass  # Window was destroyed
+    
+    def _schedule_update(self):
+        """Schedule the next position update."""
+        if self.root and self.is_visible:
+            try:
+                self.update_job = self.root.after(
+                    self.UPDATE_INTERVAL_MS,
+                    self._periodic_update
+                )
+            except tk.TclError:
+                pass
+    
+    def _periodic_update(self):
+        """Periodic update callback."""
+        if self.is_visible:
+            self._update_position()
+            self._schedule_update()
+    
+    def dismiss(self):
+        """Dismiss the indicator."""
+        self.is_visible = False
+        
+        # Cancel scheduled updates
+        if self.update_job and self.root:
+            try:
+                self.root.after_cancel(self.update_job)
+            except tk.TclError:
+                pass
+            self.update_job = None
+        
+        # Destroy window
+        if self.root:
+            try:
+                self.root.destroy()
+            except tk.TclError:
+                pass
+            self.root = None
+        
+        # Call dismiss callback
+        if self.on_dismiss:
+            try:
+                self.on_dismiss()
+            except Exception:
+                pass
+
+
+# Global reference to current typing indicator (only one at a time)
+_current_typing_indicator: Optional[TypingIndicator] = None
+
+
+def create_typing_indicator(
+    parent_root: tk.Tk,
+    abort_hotkey: str = "Escape",
+    on_dismiss: Optional[Callable[[], None]] = None
+) -> TypingIndicator:
+    """Create and show a typing indicator (called on GUI thread)."""
+    global _current_typing_indicator
+    
+    # Dismiss any existing indicator
+    if _current_typing_indicator:
+        _current_typing_indicator.dismiss()
+    
+    _current_typing_indicator = TypingIndicator(parent_root, abort_hotkey, on_dismiss)
+    return _current_typing_indicator
+
+
+def dismiss_typing_indicator():
+    """Dismiss the current typing indicator if any."""
+    global _current_typing_indicator
+    
+    if _current_typing_indicator:
+        _current_typing_indicator.dismiss()
+        _current_typing_indicator = None

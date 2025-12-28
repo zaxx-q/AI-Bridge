@@ -59,6 +59,11 @@ class TextEditToolApp:
         # Get TextEditTool-specific config
         self.enabled = config.get("text_edit_tool_enabled", True)
         self.hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
+        self.abort_hotkey = config.get("text_edit_tool_abort_hotkey", "escape")
+        
+        # Typing speed settings
+        self.typing_delay_ms = config.get("streaming_typing_delay", 5)
+        self.typing_uncapped = config.get("streaming_typing_uncapped", False)
         
         # Initialize components
         self.hotkey_listener: Optional[HotkeyListener] = None
@@ -70,6 +75,10 @@ class TextEditToolApp:
         self.current_selected_text = ""
         self.is_processing = False
         self.cancel_requested = False
+        
+        # Streaming abort state
+        self.streaming_aborted = False
+        self._abort_listener = None
         
         logging.debug('TextEditToolApp initialized')
     
@@ -315,12 +324,82 @@ class TextEditToolApp:
             
             return ctx.response_text, ctx.error
     
-    def _type_text_chunk(self, text: str):
+    def _start_abort_listener(self):
+        """
+        Start listening for abort hotkey (e.g., Escape).
+        When pressed, sets streaming_aborted flag.
+        """
+        from pynput import keyboard as pykeyboard
+        
+        self.streaming_aborted = False
+        
+        # Parse abort hotkey to pynput key
+        abort_key = self._parse_hotkey(self.abort_hotkey)
+        
+        def on_press(key):
+            if self._key_matches(key, abort_key):
+                self.streaming_aborted = True
+                logging.debug("Abort hotkey pressed - stopping stream")
+                return False  # Stop listener
+        
+        self._abort_listener = pykeyboard.Listener(on_press=on_press)
+        self._abort_listener.start()
+    
+    def _stop_abort_listener(self):
+        """Stop the abort hotkey listener."""
+        if self._abort_listener:
+            try:
+                self._abort_listener.stop()
+            except Exception:
+                pass
+            self._abort_listener = None
+    
+    def _parse_hotkey(self, hotkey_str: str):
+        """Parse hotkey string to pynput key."""
+        from pynput import keyboard as pykeyboard
+        
+        key_map = {
+            "escape": pykeyboard.Key.esc,
+            "esc": pykeyboard.Key.esc,
+            "f1": pykeyboard.Key.f1,
+            "f2": pykeyboard.Key.f2,
+            "f3": pykeyboard.Key.f3,
+            "f4": pykeyboard.Key.f4,
+            "f5": pykeyboard.Key.f5,
+            "f6": pykeyboard.Key.f6,
+            "f7": pykeyboard.Key.f7,
+            "f8": pykeyboard.Key.f8,
+            "f9": pykeyboard.Key.f9,
+            "f10": pykeyboard.Key.f10,
+            "f11": pykeyboard.Key.f11,
+            "f12": pykeyboard.Key.f12,
+            "pause": pykeyboard.Key.pause,
+            "break": pykeyboard.Key.pause,
+            "scroll_lock": pykeyboard.Key.scroll_lock,
+        }
+        
+        key_lower = hotkey_str.lower().strip()
+        return key_map.get(key_lower, pykeyboard.Key.esc)
+    
+    def _key_matches(self, pressed_key, target_key):
+        """Check if pressed key matches target."""
+        try:
+            return pressed_key == target_key
+        except Exception:
+            return False
+    
+    def _type_text_chunk(self, text: str) -> bool:
         """
         Insert text chunk using keyboard typing with rate limiting.
         Used for STREAMING mode only - types character by character.
         Avoids clipboard to prevent filling clipboard managers.
-        Uses a small delay between characters for stability.
+        Uses configurable delay between characters for stability.
+        
+        Args:
+            text: Text to type
+            
+        Returns:
+            True if successful, False if aborted
         """
         import time
         from pynput import keyboard as pykeyboard
@@ -328,16 +407,35 @@ class TextEditToolApp:
         try:
             keyboard = pykeyboard.Controller()
             
-            # Type each character with a small delay for stability
+            # Determine delay per character
+            if self.typing_uncapped:
+                # WARNING: Uncapped mode - no delay
+                # May cause issues with some applications
+                char_delay = 0
+            else:
+                # Configurable delay (default 5ms)
+                char_delay = self.typing_delay_ms / 1000.0
+            
+            # Type each character with configured delay
             for char in text:
+                # Check abort flag
+                if self.streaming_aborted:
+                    logging.debug("Typing aborted by user")
+                    return False
+                
                 keyboard.type(char)
-                time.sleep(0.005)  # 5ms delay per character
+                if char_delay > 0:
+                    time.sleep(char_delay)
             
             # Small delay after chunk for application responsiveness
-            time.sleep(0.01)
+            if not self.typing_uncapped:
+                time.sleep(0.01)
+            
+            return True
             
         except Exception as e:
             logging.error(f"Error typing text chunk: {e}")
+            return False
     
     def _paste_text_instant(self, text: str) -> bool:
         """
@@ -465,16 +563,27 @@ class TextEditToolApp:
                 streaming_enabled = self.config.get("streaming_enabled", True)
                 
                 if streaming_enabled:
-                    print(f"[AI Response] Streaming to active field...")
+                    print(f"[AI Response] Streaming to active field... [{self.abort_hotkey.title()} to abort]")
+                    
+                    # Start abort listener and typing indicator
+                    self._start_abort_listener()
+                    from .core import show_typing_indicator, dismiss_typing_indicator
+                    show_typing_indicator(self.abort_hotkey)
                     
                     # Buffer to accumulate chunks before typing (helps with Unicode)
                     chunk_buffer = []
                     buffer_size = 0
                     MIN_BUFFER_CHARS = 20  # Accumulate at least 20 chars before typing
+                    typing_aborted = False
                     
                     def type_chunk(chunk):
                         """Buffer chunks and type when buffer is large enough"""
-                        nonlocal chunk_buffer, buffer_size
+                        nonlocal chunk_buffer, buffer_size, typing_aborted
+                        
+                        # Check if aborted
+                        if self.streaming_aborted or typing_aborted:
+                            return
+                        
                         chunk_buffer.append(chunk)
                         buffer_size += len(chunk)
                         
@@ -483,14 +592,23 @@ class TextEditToolApp:
                             text_to_type = ''.join(chunk_buffer)
                             chunk_buffer.clear()
                             buffer_size = 0
-                            self._type_text_chunk(text_to_type)
+                            if not self._type_text_chunk(text_to_type):
+                                typing_aborted = True
                     
-                    from ..request_pipeline import RequestOrigin
-                    response, error = self._call_api(messages, on_chunk=type_chunk, origin_override=RequestOrigin.POPUP_INPUT)
+                    try:
+                        from ..request_pipeline import RequestOrigin
+                        response, error = self._call_api(messages, on_chunk=type_chunk, origin_override=RequestOrigin.POPUP_INPUT)
+                        
+                        # Type any remaining buffered text (unless aborted)
+                        if chunk_buffer and not self.streaming_aborted and not typing_aborted:
+                            self._type_text_chunk(''.join(chunk_buffer))
+                    finally:
+                        # Always clean up abort listener and indicator
+                        self._stop_abort_listener()
+                        dismiss_typing_indicator()
                     
-                    # Type any remaining buffered text
-                    if chunk_buffer:
-                        self._type_text_chunk(''.join(chunk_buffer))
+                    if self.streaming_aborted or typing_aborted:
+                        print(f"\n⚠️ Streaming aborted by user")
                 else:
                     # Non-streaming: get full response then paste instantly
                     from ..request_pipeline import RequestOrigin
@@ -507,9 +625,9 @@ class TextEditToolApp:
                     self.is_processing = False
                     return
                 
-                if streaming_enabled:
+                if streaming_enabled and not self.streaming_aborted:
                     print(f"\n✅ Response streamed ({len(response) if response else 0} chars)")
-                else:
+                elif not streaming_enabled:
                     print(f"✅ Response pasted ({len(response) if response else 0} chars)")
             
         except Exception as e:
@@ -616,16 +734,27 @@ class TextEditToolApp:
                 streaming_enabled = self.config.get("streaming_enabled", True)
                 
                 if streaming_enabled:
-                    print(f"[AI Response] Streaming to active field...")
+                    print(f"[AI Response] Streaming to active field... [{self.abort_hotkey.title()} to abort]")
+                    
+                    # Start abort listener and typing indicator
+                    self._start_abort_listener()
+                    from .core import show_typing_indicator, dismiss_typing_indicator
+                    show_typing_indicator(self.abort_hotkey)
                     
                     # Buffer to accumulate chunks before typing (helps with Unicode)
                     chunk_buffer = []
                     buffer_size = 0
                     MIN_BUFFER_CHARS = 20  # Accumulate at least 20 chars before typing
+                    typing_aborted = False
                     
                     def type_chunk(chunk):
                         """Buffer chunks and type when buffer is large enough"""
-                        nonlocal chunk_buffer, buffer_size
+                        nonlocal chunk_buffer, buffer_size, typing_aborted
+                        
+                        # Check if aborted
+                        if self.streaming_aborted or typing_aborted:
+                            return
+                        
                         chunk_buffer.append(chunk)
                         buffer_size += len(chunk)
                         
@@ -634,13 +763,22 @@ class TextEditToolApp:
                             text_to_type = ''.join(chunk_buffer)
                             chunk_buffer.clear()
                             buffer_size = 0
-                            self._type_text_chunk(text_to_type)
+                            if not self._type_text_chunk(text_to_type):
+                                typing_aborted = True
                     
-                    response, error = self._call_api(messages, on_chunk=type_chunk, origin_override=RequestOrigin.POPUP_PROMPT)
+                    try:
+                        response, error = self._call_api(messages, on_chunk=type_chunk, origin_override=RequestOrigin.POPUP_PROMPT)
+                        
+                        # Type any remaining buffered text (unless aborted)
+                        if chunk_buffer and not self.streaming_aborted and not typing_aborted:
+                            self._type_text_chunk(''.join(chunk_buffer))
+                    finally:
+                        # Always clean up abort listener and indicator
+                        self._stop_abort_listener()
+                        dismiss_typing_indicator()
                     
-                    # Type any remaining buffered text
-                    if chunk_buffer:
-                        self._type_text_chunk(''.join(chunk_buffer))
+                    if self.streaming_aborted or typing_aborted:
+                        print(f"\n⚠️ Streaming aborted by user")
                 else:
                     # Non-streaming: get full response then paste instantly
                     response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
@@ -661,9 +799,9 @@ class TextEditToolApp:
                     self.is_processing = False
                     return
                 
-                if streaming_enabled:
+                if streaming_enabled and not self.streaming_aborted:
                     print(f"\n✅ Response streamed ({len(response) if response else 0} chars)")
-                else:
+                elif not streaming_enabled:
                     print(f"✅ Response pasted ({len(response) if response else 0} chars)")
             
         except Exception as e:
