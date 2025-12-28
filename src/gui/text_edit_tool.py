@@ -672,13 +672,22 @@ class TextEditToolApp:
                 show_in_chat_window = option.get("show_chat_window_instead_of_replace", False)
             
             # Build prompt using new structure with backwards compatibility
-            # New keys: system_prompt, task
+            # New keys: system_prompt, task, prompt_type
             # Legacy keys: instruction, prefix
             system_prompt = option.get("system_prompt") or option.get("instruction", "")
             task = option.get("task") or option.get("prefix", "")
             
-            # Get shared settings
-            base_output_rules = self._get_setting("base_output_rules", "")
+            # Get prompt type (default to "edit" for backward compatibility)
+            # "edit" prompts use base_output_rules (strict, no explanations)
+            # "explain" prompts use base_output_rules_explain (allows explanations)
+            prompt_type = option.get("prompt_type", "edit")
+            
+            # Select output rules based on prompt type
+            if prompt_type == "explain":
+                base_output_rules = self._get_setting("base_output_rules_explain", "")
+            else:
+                base_output_rules = self._get_setting("base_output_rules", "")
+            
             text_delimiter = self._get_setting("text_delimiter", "\n\n<text_to_process>\n")
             text_delimiter_close = self._get_setting("text_delimiter_close", "\n</text_to_process>")
             

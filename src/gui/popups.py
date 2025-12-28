@@ -260,6 +260,242 @@ class Tooltip:
             self.tooltip_window = None
 
 
+class GroupedButtonList:
+    """
+    A list of buttons organized by groups with inline headers.
+    Each group displays all its items together without pagination.
+    Groups flow continuously with headers appearing inline.
+    """
+    
+    def __init__(
+        self,
+        parent: tk.Frame,
+        groups: List[Dict],  # [{"name": "Group Name", "items": [(key, display_text, icon, tooltip), ...]}, ...]
+        on_click: Callable[[str], None]
+    ):
+        self.parent = parent
+        self.groups = groups
+        self.on_click = on_click
+        
+        self.colors = get_colors()
+        self.current_group_idx = 0
+        self.total_groups = len(groups)
+        
+        self.buttons_frame: Optional[tk.Frame] = None
+        self.nav_frame: Optional[tk.Frame] = None
+        self.dot_labels: List[tk.Label] = []
+        self.tooltips: List[Tooltip] = []
+        self.group_header_label: Optional[tk.Label] = None
+        
+        self._create_widget()
+    
+    def _create_widget(self):
+        """Create the grouped button list widget."""
+        self.frame = tk.Frame(self.parent, bg=self.colors.base)
+        
+        # Main container with navigation arrows
+        self.content_frame = tk.Frame(self.frame, bg=self.colors.base)
+        self.content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Left arrow (for navigating between groups)
+        if self.total_groups > 1:
+            self.left_arrow = tk.Label(
+                self.content_frame,
+                text="◀",
+                font=("Arial", 12),
+                bg=self.colors.base,
+                fg=self.colors.overlay0,
+                padx=8,
+                cursor="hand2"
+            )
+            self.left_arrow.pack(side=tk.LEFT, fill=tk.Y)
+            self.left_arrow.bind('<Button-1>', lambda e: self._prev_group())
+            self.left_arrow.bind('<Enter>', lambda e: self.left_arrow.config(fg=self.colors.text))
+            self.left_arrow.bind('<Leave>', lambda e: self.left_arrow.config(fg=self.colors.overlay0))
+        
+        # Buttons container (includes header + buttons)
+        self.buttons_container = tk.Frame(self.content_frame, bg=self.colors.base)
+        self.buttons_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Right arrow
+        if self.total_groups > 1:
+            self.right_arrow = tk.Label(
+                self.content_frame,
+                text="▶",
+                font=("Arial", 12),
+                bg=self.colors.base,
+                fg=self.colors.overlay0,
+                padx=8,
+                cursor="hand2"
+            )
+            self.right_arrow.pack(side=tk.RIGHT, fill=tk.Y)
+            self.right_arrow.bind('<Button-1>', lambda e: self._next_group())
+            self.right_arrow.bind('<Enter>', lambda e: self.right_arrow.config(fg=self.colors.text))
+            self.right_arrow.bind('<Leave>', lambda e: self.right_arrow.config(fg=self.colors.overlay0))
+        
+        # Group dots (only if multiple groups)
+        if self.total_groups > 1:
+            self.nav_frame = tk.Frame(self.frame, bg=self.colors.base)
+            self.nav_frame.pack(pady=(8, 0))
+            
+            for i in range(self.total_groups):
+                dot = tk.Label(
+                    self.nav_frame,
+                    text="●" if i == 0 else "○",
+                    font=("Arial", 8),
+                    bg=self.colors.base,
+                    fg=self.colors.blue if i == 0 else self.colors.overlay0,
+                    padx=2,
+                    cursor="hand2"
+                )
+                dot.pack(side=tk.LEFT)
+                dot.bind('<Button-1>', lambda e, idx=i: self._go_to_group(idx))
+                self.dot_labels.append(dot)
+        
+        # Render initial group
+        self._render_group()
+    
+    def _render_group(self):
+        """Render the current group with header and buttons."""
+        # Clear existing content
+        for widget in self.buttons_container.winfo_children():
+            widget.destroy()
+        self.tooltips.clear()
+        
+        if not self.groups:
+            return
+        
+        current_group = self.groups[self.current_group_idx]
+        group_name = current_group.get("name", "")
+        items = current_group.get("items", [])
+        
+        # Group header
+        if group_name:
+            header_frame = tk.Frame(self.buttons_container, bg=self.colors.base)
+            header_frame.pack(fill=tk.X, pady=(0, 4))
+            
+            self.group_header_label = tk.Label(
+                header_frame,
+                text=f"── {group_name} ──",
+                font=("Arial", 9, "bold"),
+                bg=self.colors.base,
+                fg=self.colors.overlay0
+            )
+            self.group_header_label.pack(anchor=tk.CENTER)
+        
+        # Buttons frame
+        self.buttons_frame = tk.Frame(self.buttons_container, bg=self.colors.base)
+        self.buttons_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Configure columns
+        self.buttons_frame.columnconfigure(0, weight=0, minsize=40)  # Icon column
+        self.buttons_frame.columnconfigure(1, weight=1)  # Text column
+        
+        # Create buttons
+        for i, item in enumerate(items):
+            key = item[0]
+            display_text = item[1]
+            icon = item[2] if len(item) > 2 else None
+            tooltip_text = item[3] if len(item) > 3 else None
+            
+            # Row frame
+            row_frame = tk.Frame(self.buttons_frame, bg=self.colors.surface0, cursor="hand2")
+            row_frame.grid(row=i, column=0, columnspan=2, sticky=tk.EW, pady=1)
+            
+            row_frame.columnconfigure(0, weight=0, minsize=40)
+            row_frame.columnconfigure(1, weight=1)
+            
+            # Icon label
+            icon_label = tk.Label(
+                row_frame,
+                text=icon if icon else "",
+                font=("Arial", 10),
+                bg=self.colors.surface0,
+                fg=self.colors.text,
+                width=3,
+                anchor=tk.CENTER,
+                pady=10,
+                cursor="hand2"
+            )
+            icon_label.grid(row=0, column=0, sticky=tk.W, padx=(8, 0))
+            
+            # Text label
+            text_label = tk.Label(
+                row_frame,
+                text=display_text,
+                font=("Arial", 10),
+                bg=self.colors.surface0,
+                fg=self.colors.text,
+                anchor=tk.W,
+                pady=10,
+                cursor="hand2"
+            )
+            text_label.grid(row=0, column=1, sticky=tk.W, padx=(4, 8))
+            
+            # Hover effects
+            def make_enter_handler(frame, icon_lbl, text_lbl):
+                def handler(e):
+                    frame.config(bg=self.colors.surface1)
+                    icon_lbl.config(bg=self.colors.surface1)
+                    text_lbl.config(bg=self.colors.surface1)
+                return handler
+            
+            def make_leave_handler(frame, icon_lbl, text_lbl):
+                def handler(e):
+                    frame.config(bg=self.colors.surface0)
+                    icon_lbl.config(bg=self.colors.surface0)
+                    text_lbl.config(bg=self.colors.surface0)
+                return handler
+            
+            def make_click_handler(k):
+                return lambda e: self.on_click(k)
+            
+            enter_handler = make_enter_handler(row_frame, icon_label, text_label)
+            leave_handler = make_leave_handler(row_frame, icon_label, text_label)
+            click_handler = make_click_handler(key)
+            
+            for widget in (row_frame, icon_label, text_label):
+                widget.bind('<Enter>', enter_handler)
+                widget.bind('<Leave>', leave_handler)
+                widget.bind('<Button-1>', click_handler)
+            
+            # Tooltip
+            if tooltip_text:
+                tooltip = Tooltip(text_label, tooltip_text)
+                self.tooltips.append(tooltip)
+        
+        # Update dots
+        self._update_dots()
+    
+    def _update_dots(self):
+        """Update dot indicators."""
+        for i, dot in enumerate(self.dot_labels):
+            if i == self.current_group_idx:
+                dot.config(text="●", fg=self.colors.blue)
+            else:
+                dot.config(text="○", fg=self.colors.overlay0)
+    
+    def _next_group(self):
+        """Go to next group (wraps around)."""
+        self.current_group_idx = (self.current_group_idx + 1) % self.total_groups
+        self._render_group()
+    
+    def _prev_group(self):
+        """Go to previous group (wraps around)."""
+        self.current_group_idx = (self.current_group_idx - 1) % self.total_groups
+        self._render_group()
+    
+    def _go_to_group(self, idx: int):
+        """Go to specific group."""
+        if 0 <= idx < self.total_groups:
+            self.current_group_idx = idx
+            self._render_group()
+    
+    def pack(self, **kwargs):
+        """Pack the widget."""
+        self.frame.pack(**kwargs)
+
+
 class CarouselButtonList:
     """
     A carousel-style list of buttons with pagination.
@@ -1336,9 +1572,56 @@ class AttachedPromptPopup:
         self.input_entry.focus_set()
     
     def _create_carousel(self, parent: tk.Frame):
-        """Create the carousel with action buttons."""
-        # Get items per page from settings
+        """Create the carousel with action buttons (grouped or flat mode)."""
         settings = self.options.get("_settings", {})
+        use_groups = settings.get("popup_use_groups", False)
+        
+        if use_groups:
+            # Grouped mode: organize buttons by groups defined in settings
+            self._create_grouped_buttons(parent, settings)
+        else:
+            # Flat mode: simple paginated carousel
+            self._create_flat_carousel(parent, settings)
+    
+    def _create_grouped_buttons(self, parent: tk.Frame, settings: Dict):
+        """Create grouped button list from settings."""
+        popup_groups = settings.get("popup_groups", [])
+        
+        if not popup_groups:
+            # Fallback to flat mode if no groups defined
+            self._create_flat_carousel(parent, settings)
+            return
+        
+        # Build groups with items: [{"name": "...", "items": [(key, display, icon, tooltip), ...]}, ...]
+        groups = []
+        for group_def in popup_groups:
+            group_name = group_def.get("name", "")
+            item_keys = group_def.get("items", [])
+            
+            items = []
+            for key in item_keys:
+                option = self.options.get(key)
+                if option and key != "Custom" and not key.startswith("_"):
+                    icon = option.get("icon", None)
+                    tooltip = option.get("task", None)
+                    items.append((key, key, icon, tooltip))
+            
+            if items:
+                groups.append({"name": group_name, "items": items})
+        
+        if groups:
+            grouped_list = GroupedButtonList(
+                parent,
+                groups=groups,
+                on_click=self._on_option_click
+            )
+            grouped_list.pack(fill=tk.X)
+        else:
+            # Fallback if all groups are empty
+            self._create_flat_carousel(parent, settings)
+    
+    def _create_flat_carousel(self, parent: tk.Frame, settings: Dict):
+        """Create flat paginated carousel."""
         items_per_page = settings.get("popup_items_per_page", CarouselButtonList.DEFAULT_ITEMS_PER_PAGE)
         
         # Build items list: (key, display_text, icon, tooltip)
@@ -1347,7 +1630,6 @@ class AttachedPromptPopup:
             if key == "Custom" or key.startswith("_"):
                 continue
             icon = option.get("icon", None)
-            # Use the task description as tooltip
             tooltip = option.get("task", None)
             items.append((key, key, icon, tooltip))
         
