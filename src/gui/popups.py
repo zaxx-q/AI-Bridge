@@ -1458,12 +1458,10 @@ class TypingIndicator:
     Displays near the mouse cursor and shows abort hotkey.
     
     Features:
-    - Follows cursor position (updates periodically)
     - Shows customizable abort hotkey hint
     - Auto-dismisses when closed
     """
     
-    UPDATE_INTERVAL_MS = 100  # How often to update position
     OFFSET_X = 20  # Pixels to the right of cursor
     OFFSET_Y = 20  # Pixels below cursor
     
@@ -1479,7 +1477,6 @@ class TypingIndicator:
         
         self.colors = get_colors()
         self.root: Optional[tk.Toplevel] = None
-        self.update_job: Optional[str] = None
         self.is_visible = False
         
         self._create_window()
@@ -1534,13 +1531,10 @@ class TypingIndicator:
         # Position initially
         self._update_position()
         
-        # Start position updates
-        self._schedule_update()
-        
         self.is_visible = True
     
     def _update_position(self):
-        """Update window position to follow cursor."""
+        """Set window position near cursor."""
         if not self.root or not self.is_visible:
             return
         
@@ -1568,34 +1562,9 @@ class TypingIndicator:
         except tk.TclError:
             pass  # Window was destroyed
     
-    def _schedule_update(self):
-        """Schedule the next position update."""
-        if self.root and self.is_visible:
-            try:
-                self.update_job = self.root.after(
-                    self.UPDATE_INTERVAL_MS,
-                    self._periodic_update
-                )
-            except tk.TclError:
-                pass
-    
-    def _periodic_update(self):
-        """Periodic update callback."""
-        if self.is_visible:
-            self._update_position()
-            self._schedule_update()
-    
     def dismiss(self):
         """Dismiss the indicator."""
         self.is_visible = False
-        
-        # Cancel scheduled updates
-        if self.update_job and self.root:
-            try:
-                self.root.after_cancel(self.update_job)
-            except tk.TclError:
-                pass
-            self.update_job = None
         
         # Destroy window
         if self.root:
