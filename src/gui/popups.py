@@ -834,7 +834,7 @@ class PromptSelectionPopup(BasePopup):
         input_frame.pack(fill=tk.X, pady=(0, 10))
         
         self.input_var = tk.StringVar()
-        placeholder = "Describe your change..."
+        placeholder = "Explain your changes.."
         
         input_entry = tk.Entry(
             input_frame,
@@ -980,7 +980,7 @@ class PromptSelectionPopup(BasePopup):
         """Handle custom input submission."""
         custom_text = self.input_var.get().strip()
         
-        if not custom_text or custom_text == "Describe your change...":
+        if not custom_text or custom_text == "Explain your changes..":
             return
         
         logging.debug(f'Custom input submitted: {custom_text[:50]}...')
@@ -1197,7 +1197,7 @@ class AttachedPromptPopup:
     Modern Catppuccin-styled with segmented toggle and carousel buttons.
     """
     
-    PLACEHOLDER = "Describe your change..."
+    PLACEHOLDER = "Explain your changes..."
     
     def __init__(
         self,

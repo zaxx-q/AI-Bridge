@@ -318,6 +318,7 @@ class TextEditToolApp:
     def _type_text_chunk(self, text: str):
         """
         Insert text chunk using keyboard typing with rate limiting.
+        Used for STREAMING mode only - types character by character.
         Avoids clipboard to prevent filling clipboard managers.
         Uses a small delay between characters for stability.
         """
@@ -337,6 +338,66 @@ class TextEditToolApp:
             
         except Exception as e:
             logging.error(f"Error typing text chunk: {e}")
+    
+    def _paste_text_instant(self, text: str) -> bool:
+        """
+        Paste text instantly using clipboard.
+        Used for NON-STREAMING mode - pastes all text at once.
+        
+        This is faster than character-by-character typing and provides
+        a better user experience when streaming is disabled.
+        
+        Args:
+            text: The text to paste
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        import time
+        import pyperclip
+        from pynput import keyboard as pykeyboard
+        
+        if not text:
+            return False
+        
+        # Backup current clipboard
+        try:
+            clipboard_backup = pyperclip.paste()
+        except Exception:
+            clipboard_backup = ""
+        
+        try:
+            # Clean and copy new text to clipboard
+            cleaned_text = text.rstrip('\n')
+            pyperclip.copy(cleaned_text)
+            
+            # Small delay to ensure clipboard is updated
+            time.sleep(0.05)
+            
+            # Paste using Ctrl+V
+            keyboard = pykeyboard.Controller()
+            keyboard.press(pykeyboard.Key.ctrl)
+            keyboard.press('v')
+            keyboard.release('v')
+            keyboard.release(pykeyboard.Key.ctrl)
+            
+            # Wait for paste to complete
+            time.sleep(0.1)
+            
+            # Restore original clipboard
+            pyperclip.copy(clipboard_backup)
+            
+            logging.debug(f'Pasted {len(cleaned_text)} chars instantly')
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error pasting text: {e}")
+            # Try to restore clipboard
+            try:
+                pyperclip.copy(clipboard_backup)
+            except Exception:
+                pass
+            return False
     
     def _process_direct_chat(self, user_input: str, response_mode: str = "default"):
         """
@@ -431,14 +492,14 @@ class TextEditToolApp:
                     if chunk_buffer:
                         self._type_text_chunk(''.join(chunk_buffer))
                 else:
-                    print(f"[AI Response] Getting response...")
+                    # Non-streaming: get full response then paste instantly
                     from ..request_pipeline import RequestOrigin
                     response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_INPUT)
                     
-                    # Type the full response when non-streaming
+                    # Paste the full response instantly using clipboard
                     if response and not error:
-                        print(f"[Typing to active field...]")
-                        self._type_text_chunk(response)
+                        print(f"[Pasting to active field...]")
+                        self._paste_text_instant(response)
                 
                 if error:
                     logging.error(f'Direct chat failed: {error}')
@@ -449,7 +510,7 @@ class TextEditToolApp:
                 if streaming_enabled:
                     print(f"\n✅ Response streamed ({len(response) if response else 0} chars)")
                 else:
-                    print(f"\n✅ Response typed ({len(response) if response else 0} chars)")
+                    print(f"✅ Response pasted ({len(response) if response else 0} chars)")
             
         except Exception as e:
             logging.error(f'Error in direct chat: {e}')
@@ -581,13 +642,13 @@ class TextEditToolApp:
                     if chunk_buffer:
                         self._type_text_chunk(''.join(chunk_buffer))
                 else:
-                    print(f"[AI Response] Getting response...")
+                    # Non-streaming: get full response then paste instantly
                     response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
                     
-                    # Type the full response when non-streaming
+                    # Paste the full response instantly using clipboard
                     if response and not error:
-                        print(f"[Typing to active field...]")
-                        self._type_text_chunk(response)
+                        print(f"[Pasting to active field...]")
+                        self._paste_text_instant(response)
                 
                 if error:
                     logging.error(f'Option processing failed: {error}')
@@ -603,7 +664,7 @@ class TextEditToolApp:
                 if streaming_enabled:
                     print(f"\n✅ Response streamed ({len(response) if response else 0} chars)")
                 else:
-                    print(f"\n✅ Response typed ({len(response) if response else 0} chars)")
+                    print(f"✅ Response pasted ({len(response) if response else 0} chars)")
             
         except Exception as e:
             logging.error(f'Error processing option: {e}')
