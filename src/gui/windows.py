@@ -342,8 +342,8 @@ class StandaloneChatWindow:
         register_window(self.window_tag)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         
-        # Initial display
-        self._update_chat_display()
+        # Initial display - scroll to bottom to show the conversation
+        self._update_chat_display(scroll_to_bottom=True)
         
         # Focus the window
         self.root.lift()
@@ -1385,7 +1385,8 @@ class AttachedChatWindow:
         register_window(self.window_tag)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         
-        self._update_chat_display()
+        # Initial display - scroll to bottom to show the conversation
+        self._update_chat_display(scroll_to_bottom=True)
         self.root.lift()
         self.root.focus_force()
     
