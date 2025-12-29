@@ -170,22 +170,34 @@ Access via `http://127.0.0.1:5000/my_analyzer` or `http://127.0.0.1:5000/my_tran
 
 ### TextEditTool Options
 
-Customize prompts in `text_edit_tool_options.json`:
+Customize prompts in `text_edit_tool_options.json`. The tool supports two types of interactions:
+
+1. **Edit Mode** (`prompt_type: "edit"`): Strict text replacement (e.g., Proofread, Rewrite)
+2. **General Mode** (`prompt_type: "general"`): Conversational responses (e.g., Explain, Ask)
 
 ```json
 {
   "Proofread": {
     "icon": "✏",
+    "prompt_type": "edit",
     "system_prompt": "You are a meticulous proofreader...",
     "task": "Proofread the following text...",
     "show_chat_window_instead_of_replace": false
   },
+  "Explain": {
+    "icon": "💡",
+    "prompt_type": "general",
+    "system_prompt": "You are a knowledgeable teacher...",
+    "task": "Explain the following text...",
+    "show_chat_window_instead_of_replace": true
+  },
   "Rewrite": {
     "icon": "📝",
+    "prompt_type": "edit",
     "system_prompt": "You are an expert editor...",
     "task": "Rewrite this text to improve clarity...",
     "show_chat_window_instead_of_replace": false
-  }
+  },
 }
 ```
 

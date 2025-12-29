@@ -71,7 +71,7 @@ AI-Bridge/
 | `core.py` | GUICoordinator singleton managing all Tkinter windows |
 | `text_edit_tool.py` | Global hotkey TextEditTool application |
 | `windows.py` | Chat window and session browser implementations |
-| `popups.py` | Catppuccin-themed popup dialogs |
+| `popups.py` | Catppuccin-themed popup dialogs with dual inputs (Edit/Ask) |
 | `hotkey.py` | pynput-based global hotkey listener |
 
 ### Providers (`src/providers/`)

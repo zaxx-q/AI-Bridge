@@ -9,7 +9,7 @@ AI Bridge is a Windows application consisting of:
 1. **Flask Web Server** - REST API endpoints for image/text processing
 2. **System Tray Application** - Background process management with `infi.systray`
 3. **Tkinter GUI** - Chat windows, session browser, popups with Catppuccin theme
-4. **TextEditTool** - Global hotkey integration with `pynput`
+4. **TextEditTool** - Global hotkey integration with `pynput` and interactive popups
 5. **AI Provider System** - Unified abstraction for multiple AI backends
 
 ## Component Diagram
@@ -20,6 +20,8 @@ flowchart TB
         Tray["System Tray<br/>(tray.py)"]
         Flask["Flask Server<br/>(web_server.py)"]
         TET["TextEditTool<br/>(text_edit_tool.py)"]
+        Popups["Popups<br/>(popups.py)"]
+        TypingInd["TypingIndicator<br/>(popups.py)"]
     end
     
     subgraph Pipeline["Request Pipeline"]
@@ -42,7 +44,9 @@ flowchart TB
     
     Tray --> Pipeline
     Flask --> Pipeline
-    TET --> Pipeline
+    TET --> Popups
+    TET --> TypingInd
+    Popups --> Pipeline
     Pipeline --> APIClient
     APIClient --> OAI
     APIClient --> Gemini
@@ -125,7 +129,8 @@ flowchart LR
 |--------|---------|
 | `ChatWindow` | Interactive AI chat with streaming |
 | `SessionBrowserWindow` | Browse and restore saved sessions |
-| `PopupWindow` | TextEditTool selection/input dialogs |
+| `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) |
+| `TypingIndicator` | Tooltip showing typing status and abort hotkey |
 
 ## Request Pipeline
 
@@ -167,6 +172,13 @@ Sessions are stored in `chat_sessions.json` with sequential IDs.
   }
 }
 ```
+
+### Context Injection
+
+When a session is initiated from the TextEditTool (e.g., asking a question about selected text), the first message includes a context marker:
+`[Task: Explain this text]`
+
+This allows the AI to understand the context of the request even if the user asks "What did you just do?".
 
 ### Design Decision
 
