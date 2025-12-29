@@ -21,6 +21,7 @@ flowchart TB
         Flask["Flask Server<br/>(web_server.py)"]
         TET["TextEditTool<br/>(text_edit_tool.py)"]
         Popups["Popups<br/>(popups.py)"]
+        Modifiers["ModifierBar<br/>(popups.py)"]
         TypingInd["TypingIndicator<br/>(popups.py)"]
     end
     
@@ -45,6 +46,7 @@ flowchart TB
     Tray --> Pipeline
     Flask --> Pipeline
     TET --> Popups
+    Popups --> Modifiers
     TET --> TypingInd
     Popups --> Pipeline
     Pipeline --> APIClient
@@ -72,7 +74,7 @@ class BaseProvider:
 ### Available Providers
 
 | Provider | Class | Use Case |
-|----------|-------|----------|
+| ---------- | ------- | ---------- |
 | `google` | `GeminiNativeProvider` | Native Gemini API with thinking, tools |
 | `openrouter` | `OpenAICompatibleProvider` | OpenRouter.ai models |
 | `custom` | `OpenAICompatibleProvider` | Any OpenAI-compatible endpoint |
@@ -82,7 +84,7 @@ class BaseProvider:
 The provider system includes automatic retry with key rotation:
 
 | Error | Action | Delay |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | 429 Rate Limit | Rotate to next key | None |
 | 401/402/403 Auth | Rotate to next key | None |
 | 5xx Server Error | Retry same key | 2 seconds |
@@ -126,10 +128,10 @@ flowchart LR
 ### Window Types
 
 | Window | Purpose |
-|--------|---------|
+| -------- | --------- |
 | `ChatWindow` | Interactive AI chat with streaming |
 | `SessionBrowserWindow` | Browse and restore saved sessions |
-| `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) |
+| `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) and ModifierBar |
 | `TypingIndicator` | Tooltip showing typing status and abort hotkey |
 
 ## Request Pipeline
@@ -183,6 +185,7 @@ This allows the AI to understand the context of the request even if the user ask
 ### Design Decision
 
 Sessions do NOT store provider/model. This allows:
+
 - Hot-switching providers mid-conversation
 - No migration needed when changing default provider
 - Current config is always used at request time
@@ -199,7 +202,7 @@ The tray application (`src/tray.py`) manages:
 ### Console Window Behavior
 
 | Action | Result |
-|--------|--------|
+| -------- | -------- |
 | Click X on console | Button disabled (grayed out) |
 | Tray → Hide Console | Hides console window |
 | Tray → Show Console | Shows and focuses console |
@@ -210,7 +213,7 @@ The tray application (`src/tray.py`) manages:
 Different providers have different thinking mechanisms:
 
 | Provider | Config Key | Values |
-|----------|-----------|--------|
+| ---------- | ----------- | -------- |
 | OpenAI-compatible | `reasoning_effort` | `low`, `medium`, `high` |
 | Gemini 2.5 | `thinking_budget` | Integer (tokens, -1 = auto) |
 | Gemini 3.x | `thinking_level` | `low`, `high` |

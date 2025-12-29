@@ -201,6 +201,22 @@ Customize prompts in `text_edit_tool_options.json`. The tool supports two types 
 }
 ```
 
+### Text Modifiers
+
+The TextEditTool popup includes a **Modifier Bar** that lets you fine-tune the output. Toggle these modifiers to inject specific instructions into the prompt:
+
+- **Variations** (🔢): Generate 3 alternative versions.
+- **Explain** (📝): Add an explanation of changes.
+- **Creative** (🎨): Take more liberties with phrasing.
+- **Literal** (📏): Stay close to the original.
+- **Shorter** (✂️): Make the result more concise.
+- **Longer** (📖): Expand with more detail.
+- **Formal** (💼): Professional/business tone.
+- **Informal** (💬): Casual/personal tone.
+- **Global** (🌐): Avoid idioms for international audience.
+
+*Note: Some modifiers (like Variations and Explain) force the output to open in a chat window.*
+
 ## 💡 Tips
 
 ### For Faster Responses
