@@ -226,6 +226,30 @@ class TrayApp:
         except Exception as e:
             print(f"[Error] Could not open session browser: {e}")
     
+    def _on_settings(self, systray):
+        """Open settings window"""
+        try:
+            from .gui.core import show_settings_window, HAVE_GUI
+            if HAVE_GUI:
+                print("\n⚙️  Opening settings...\n")
+                show_settings_window()
+            else:
+                print("[Warning] GUI not available")
+        except Exception as e:
+            print(f"[Error] Could not open settings: {e}")
+    
+    def _on_prompt_editor(self, systray):
+        """Open prompt editor window"""
+        try:
+            from .gui.core import show_prompt_editor, HAVE_GUI
+            if HAVE_GUI:
+                print("\n✏️  Opening prompt editor...\n")
+                show_prompt_editor()
+            else:
+                print("[Warning] GUI not available")
+        except Exception as e:
+            print(f"[Error] Could not open prompt editor: {e}")
+    
     def _on_edit_config(self, systray):
         """Open config.ini in default editor"""
         config_path = Path(__file__).parent.parent / "config.ini"
@@ -291,8 +315,10 @@ class TrayApp:
             ("Show Console", None, self._on_show_console),
             ("Hide Console", None, self._on_hide_console),
             ("Session Browser", None, self._on_session_browser),
-            ("Edit config.ini", None, self._on_edit_config),
-            ("Edit text_edit_tool_options.json", None, self._on_edit_options),
+            ("Settings", None, self._on_settings),
+            ("Prompt Editor", None, self._on_prompt_editor),
+            ("Edit config.ini (file)", None, self._on_edit_config),
+            ("Edit prompts.json (file)", None, self._on_edit_options),
             ("Restart", None, self._on_restart),
         )
         

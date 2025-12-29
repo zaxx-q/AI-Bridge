@@ -9,69 +9,31 @@ import tkinter as tk
 from tkinter import font as tkfont
 from typing import Optional, Dict
 
-try:
-    import darkdetect
-    HAVE_DARKDETECT = True
-except ImportError:
-    HAVE_DARKDETECT = False
+# Import theme system
+from .themes import ThemeRegistry, get_color_scheme as _get_color_scheme, is_dark_mode as _is_dark_mode
 
 
 def is_dark_mode() -> bool:
-    """Check if system is in dark mode."""
-    if HAVE_DARKDETECT:
-        try:
-            return darkdetect.isDark()
-        except Exception:
-            pass
-    return False
+    """
+    Check if system is in dark mode.
+    
+    This wraps the theme registry's dark mode detection,
+    which respects the ui_theme_mode config setting.
+    """
+    return _is_dark_mode()
 
 
 def get_color_scheme() -> Dict[str, str]:
-    """Get color scheme based on dark/light mode."""
-    if is_dark_mode():
-        return {
-            "bg": "#1e1e2e",
-            "fg": "#cdd6f4",
-            "text_bg": "#313244",
-            "input_bg": "#45475a",
-            "border": "#585b70",
-            "accent": "#89b4fa",
-            "accent_green": "#a6e3a1",
-            "accent_yellow": "#f9e2af",
-            "accent_red": "#f38ba8",
-            "user_bg": "#1e3a5f",
-            "user_accent": "#89b4fa",
-            "assistant_bg": "#1e3e2e",
-            "assistant_accent": "#a6e3a1",
-            "code_bg": "#11111b",
-            "header1": "#f9e2af",
-            "header2": "#89b4fa",
-            "header3": "#94e2d5",
-            "bullet": "#f5c2e7",
-            "blockquote": "#6c7086",
-        }
-    else:
-        return {
-            "bg": "#eff1f5",
-            "fg": "#4c4f69",
-            "text_bg": "#ffffff",
-            "input_bg": "#ffffff",
-            "border": "#ccd0da",
-            "accent": "#1e66f5",
-            "accent_green": "#40a02b",
-            "accent_yellow": "#df8e1d",
-            "accent_red": "#d20f39",
-            "user_bg": "#dce0e8",
-            "user_accent": "#1e66f5",
-            "assistant_bg": "#e6f3e6",
-            "assistant_accent": "#40a02b",
-            "code_bg": "#e6e9ef",
-            "header1": "#df8e1d",
-            "header2": "#1e66f5",
-            "header3": "#179299",
-            "bullet": "#ea76cb",
-            "blockquote": "#8c8fa1",
-        }
+    """
+    Get color scheme based on current theme and mode.
+    
+    This uses the centralized ThemeRegistry which reads from config
+    to determine the active theme and mode.
+    
+    Returns:
+        Dict mapping color names to hex values
+    """
+    return _get_color_scheme()
 
 
 def copy_to_clipboard(text: str, root: Optional[tk.Tk] = None) -> bool:

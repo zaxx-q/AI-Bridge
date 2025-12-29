@@ -142,6 +142,10 @@ class GUICoordinator:
                     self._create_typing_indicator(request)
                 elif request_type == 'dismiss_typing_indicator':
                     self._dismiss_typing_indicator()
+                elif request_type == 'settings':
+                    self._create_settings_window(request)
+                elif request_type == 'prompt_editor':
+                    self._create_prompt_editor_window(request)
                 elif request_type == 'callback':
                     # Generic callback execution on GUI thread
                     callback = request.get('callback')
@@ -200,6 +204,16 @@ class GUICoordinator:
         """Dismiss the typing indicator on the GUI thread"""
         from .popups import dismiss_typing_indicator
         dismiss_typing_indicator()
+    
+    def _create_settings_window(self, request):
+        """Create a settings window on the GUI thread"""
+        from .settings_window import create_attached_settings_window
+        create_attached_settings_window(self._root)
+    
+    def _create_prompt_editor_window(self, request):
+        """Create a prompt editor window on the GUI thread"""
+        from .prompt_editor import create_attached_prompt_editor_window
+        create_attached_prompt_editor_window(self._root)
     
     def request_chat_window(self, session, initial_response=None):
         """Request creation of a chat window (thread-safe)"""
@@ -269,6 +283,20 @@ class GUICoordinator:
                 'type': 'dismiss_typing_indicator'
             })
     
+    def request_settings_window(self):
+        """Request creation of a settings window (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'settings'
+        })
+    
+    def request_prompt_editor_window(self):
+        """Request creation of a prompt editor window (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'prompt_editor'
+        })
+    
     def get_root(self) -> Optional[tk.Tk]:
         """Get the root Tk instance (only safe to use from GUI thread!)"""
         return self._root
@@ -316,3 +344,17 @@ def dismiss_typing_indicator():
     """Dismiss the typing indicator (thread-safe)"""
     coordinator = GUICoordinator.get_instance()
     coordinator.request_dismiss_typing_indicator()
+
+
+def show_settings_window():
+    """Show settings window (thread-safe)"""
+    coordinator = GUICoordinator.get_instance()
+    coordinator.request_settings_window()
+    return True
+
+
+def show_prompt_editor():
+    """Show prompt editor window (thread-safe)"""
+    coordinator = GUICoordinator.get_instance()
+    coordinator.request_prompt_editor_window()
+    return True

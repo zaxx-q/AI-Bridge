@@ -8,10 +8,11 @@ Threading Note:
     we use a polling update loop instead of blocking mainloop().
 
 Design:
-    Modern Catppuccin-inspired color scheme with:
+    Modern themed color scheme with:
     - Segmented toggle for response mode selection
     - Carousel-based action buttons with pagination
     - Icon support for action buttons
+    - Multiple theme support via ThemeRegistry
 """
 
 import logging
@@ -21,64 +22,25 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional, Dict, List, Tuple
 
-try:
-    import darkdetect
-    HAVE_DARKDETECT = True
-except ImportError:
-    HAVE_DARKDETECT = False
+# Import theme system
+from .themes import (
+    ThemeRegistry, ThemeColors,
+    get_colors as _get_theme_colors,
+    is_dark_mode,
+    # Legacy compatibility classes (deprecated but kept for transition)
+    CatppuccinMocha, CatppuccinLatte
+)
 
 
-# =============================================================================
-# Color Palettes (Catppuccin-inspired)
-# =============================================================================
-
-class CatppuccinMocha:
-    """Dark mode color palette (Catppuccin Mocha)"""
-    base = "#1e1e2e"           # Primary background
-    mantle = "#181825"         # Deeper background
-    surface0 = "#313244"       # Elevated surfaces
-    surface1 = "#45475a"       # Hover states
-    surface2 = "#585b70"       # Borders
-    overlay0 = "#6c7086"       # Muted text
-    text = "#cdd6f4"           # Primary text
-    subtext0 = "#a6adc8"       # Secondary text
-    blue = "#89b4fa"           # Accent
-    lavender = "#b4befe"       # Hover accent
-    green = "#a6e3a1"          # Success
-    peach = "#fab387"          # Warning
-    red = "#f38ba8"            # Error
-
-
-class CatppuccinLatte:
-    """Light mode color palette (Catppuccin Latte)"""
-    base = "#eff1f5"           # Primary background
-    mantle = "#e6e9ef"         # Deeper background
-    surface0 = "#ccd0da"       # Elevated surfaces
-    surface1 = "#bcc0cc"       # Hover states
-    surface2 = "#acb0be"       # Borders
-    overlay0 = "#9ca0b0"       # Muted text
-    text = "#4c4f69"           # Primary text
-    subtext0 = "#6c6f85"       # Secondary text
-    blue = "#1e66f5"           # Accent
-    lavender = "#7287fd"       # Hover accent
-    green = "#40a02b"          # Success
-    peach = "#fe640b"          # Warning
-    red = "#d20f39"            # Error
-
-
-def is_dark_mode() -> bool:
-    """Check if system is in dark mode."""
-    if HAVE_DARKDETECT:
-        try:
-            return darkdetect.isDark()
-        except Exception:
-            pass
-    return False
-
-
-def get_colors():
-    """Get the appropriate color palette based on system theme."""
-    return CatppuccinMocha if is_dark_mode() else CatppuccinLatte
+def get_colors() -> ThemeColors:
+    """
+    Get the current theme colors.
+    
+    Returns ThemeColors dataclass based on current config and system theme.
+    This function provides the same interface as before but now uses
+    the centralized theme registry.
+    """
+    return _get_theme_colors()
 
 
 # =============================================================================

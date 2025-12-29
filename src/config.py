@@ -55,6 +55,11 @@ DEFAULT_CONFIG = {
     # Uncap typing speed - type at maximum speed from server stream
     # WARNING: May cause issues with some applications (input lag, missed characters)
     "streaming_typing_uncapped": False,
+    # UI Theme settings
+    # Available themes: catppuccin, dracula, nord, gruvbox, onedark, minimal, highcontrast
+    "ui_theme": "catppuccin",
+    # Theme mode: auto (follows system), dark, light
+    "ui_theme_mode": "auto",
 }
 
 # Default endpoint definitions
@@ -341,6 +346,15 @@ streaming_typing_delay = 5
 
 # TextEditTool options are configured in text_edit_tool_options.json
 # including: action prompts, placeholders, and per-action display settings
+
+# ============================================================
+# UI THEME SETTINGS
+# ============================================================
+# Available themes: catppuccin, dracula, nord, gruvbox, onedark, minimal, highcontrast
+ui_theme = catppuccin
+
+# Theme mode: auto (follows system dark/light), dark, light
+ui_theme_mode = auto
 
 
 # ============================================================

@@ -13,15 +13,35 @@
     "popup_groups": [
       {
         "name": "Understanding",
-        "items": ["Explain", "ELI5", "Explain Slang/Meme", "Summary", "Key Points"]
+        "items": [
+          "Explain",
+          "ELI5",
+          "Explain Slang/Meme",
+          "Summary",
+          "Key Points"
+        ]
       },
       {
         "name": "Text Edit",
-        "items": ["Proofread", "Refine", "Rewrite", "Paraphrase", "Professional", "Friendly", "Casual", "Concise"]
+        "items": [
+          "Proofread",
+          "Refine",
+          "Rewrite",
+          "Paraphrase",
+          "Professional",
+          "Friendly",
+          "Casual",
+          "Concise"
+        ]
       },
       {
         "name": "Suggestor",
-        "items": ["Table", "Continue", "Reply Suggest", "Kaomoji"]
+        "items": [
+          "Table",
+          "Continue",
+          "Reply Suggest",
+          "Kaomoji"
+        ]
       }
     ],
     "modifiers": [
@@ -59,7 +79,7 @@
       },
       {
         "key": "shorter",
-        "icon": "✂️",
+        "icon": "✂",
         "label": "Shorter",
         "tooltip": "Make the result more concise",
         "injection": "<modifier_shorter>\nMake the result significantly more concise than the original. Aim for 30-50% reduction.\n</modifier_shorter>",
@@ -99,7 +119,6 @@
       }
     ]
   },
-
   "Explain": {
     "icon": "💡",
     "prompt_type": "general",
@@ -107,7 +126,6 @@
     "task": "Explain the following text. Help me understand what it means, its context, and any important details.",
     "show_chat_window_instead_of_replace": true
   },
-
   "ELI5": {
     "icon": "🧒",
     "prompt_type": "general",
@@ -115,7 +133,6 @@
     "task": "Explain this text as if I'm 5 years old. Make it super simple and easy to understand.",
     "show_chat_window_instead_of_replace": true
   },
-
   "Explain Slang/Meme": {
     "icon": "🤙",
     "prompt_type": "general",
@@ -123,7 +140,6 @@
     "task": "Explain the slang, meme, or cultural reference in this text. What does it mean, where does it come from, and how is it typically used?",
     "show_chat_window_instead_of_replace": true
   },
-
   "Summary": {
     "icon": "📋",
     "prompt_type": "general",
@@ -131,7 +147,6 @@
     "task": "Summarize this text, highlighting the most important points and insights.",
     "show_chat_window_instead_of_replace": true
   },
-
   "Key Points": {
     "icon": "🔑",
     "prompt_type": "general",
@@ -139,7 +154,6 @@
     "task": "Extract the key points from this text as a clear, organized list.",
     "show_chat_window_instead_of_replace": true
   },
-
   "Proofread": {
     "icon": "✏",
     "prompt_type": "edit",
@@ -147,7 +161,6 @@
     "task": "Proofread the following text. Correct any grammar, spelling, or punctuation errors while preserving the original voice.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Refine": {
     "icon": "✨",
     "prompt_type": "edit",
@@ -155,7 +168,6 @@
     "task": "Refine this text: polish its clarity and flow while preserving its tone, style, and meaning. Make at least subtle improvements—never return identical text.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Rewrite": {
     "icon": "📝",
     "prompt_type": "edit",
@@ -163,7 +175,6 @@
     "task": "Rewrite this text to improve its clarity, flow, and phrasing while preserving the original meaning.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Paraphrase": {
     "icon": "🔄",
     "prompt_type": "edit",
@@ -171,7 +182,6 @@
     "task": "Paraphrase this text using different words and sentence structures while preserving the exact meaning.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Professional": {
     "icon": "💼",
     "prompt_type": "edit",
@@ -179,7 +189,6 @@
     "task": "Rewrite this text to sound more professional, polished, and appropriate for a business context.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Friendly": {
     "icon": "😊",
     "prompt_type": "edit",
@@ -187,7 +196,6 @@
     "task": "Rewrite this text to sound warmer, more approachable, and conversational.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Casual": {
     "icon": "😎",
     "prompt_type": "edit",
@@ -195,7 +203,6 @@
     "task": "Rewrite this in a casual, relaxed way—like you're texting a friend. Keep it natural and real.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Concise": {
     "icon": "✂",
     "prompt_type": "edit",
@@ -203,7 +210,6 @@
     "task": "Make this text more concise. Remove unnecessary words while keeping all essential information.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Table": {
     "icon": "📊",
     "prompt_type": "general",
@@ -211,7 +217,6 @@
     "task": "Convert this text into a well-organized Markdown table with appropriate headers.",
     "show_chat_window_instead_of_replace": true
   },
-
   "Continue": {
     "icon": "→",
     "prompt_type": "edit",
@@ -219,7 +224,6 @@
     "task": "Continue this text naturally, matching its style and tone. Write the next logical paragraph or section.",
     "show_chat_window_instead_of_replace": false
   },
-
   "Reply Suggest": {
     "icon": "💬",
     "prompt_type": "general",
@@ -227,7 +231,6 @@
     "task": "Analyze this chat conversation and suggest 3 appropriate responses to the most recent message from the other person.",
     "show_chat_window_instead_of_replace": true
   },
-
   "Kaomoji": {
     "icon": "(◕‿◕)",
     "prompt_type": "general",
@@ -235,15 +238,13 @@
     "task": "Analyze the emotional tone of this text and suggest appropriate kaomoji that could accompany it.",
     "show_chat_window_instead_of_replace": true
   },
-
-  "Custom": {
+  "_Custom": {
     "icon": "⚡",
     "prompt_type": "edit",
     "system_prompt": "You are a versatile text and code assistant who makes precise modifications as requested.\n\n<constraints>\n- Make exactly the change requested—no more, no less.\n- Preserve the overall structure and style unless the change requires otherwise.\n- If the request is ambiguous, make the most reasonable interpretation.\n</constraints>",
     "task": "",
     "show_chat_window_instead_of_replace": false
   },
-
   "_Ask": {
     "icon": "❓",
     "prompt_type": "general",

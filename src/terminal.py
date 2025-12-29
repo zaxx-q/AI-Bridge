@@ -39,6 +39,7 @@ def print_commands_box():
     print("  [L] 📋 Sessions      [P] 🔄 Provider     [T] 💭 Thinking")
     print("  [O] 🖥️ Browser       [M] 🤖 Models       [R] 🌊 Streaming")
     print("  [E] 📡 Endpoints     [S] 📊 Status       [H] ❓ Help")
+    print("  [G] ⚙️ Settings      [W] ✏️ Prompts")
     print("─" * 64)
     print()
 
@@ -359,6 +360,24 @@ def terminal_session_manager(endpoints=None):
                 except:
                     pass
             
+            elif key == 'g':
+                # Open Settings window
+                if HAVE_GUI:
+                    print("\n⚙️  Opening settings...\n")
+                    from .gui.core import show_settings_window
+                    show_settings_window()
+                else:
+                    print("\n✗ GUI not available\n")
+            
+            elif key == 'w':
+                # Open Prompt Editor window
+                if HAVE_GUI:
+                    print("\n✏️  Opening prompt editor...\n")
+                    from .gui.core import show_prompt_editor
+                    show_prompt_editor()
+                else:
+                    print("\n✗ GUI not available\n")
+            
             elif key == 'h':
                 print(f"\n{'─'*64}")
                 print("❓ HELP")
@@ -374,6 +393,8 @@ def terminal_session_manager(endpoints=None):
                 print("   [S] 📊 Status        Show current configuration")
                 print("   [T] 💭 Thinking      Toggle thinking mode")
                 print("   [R] 🌊 Streaming     Toggle streaming")
+                print("   [G] ⚙️ Settings      Open settings window")
+                print("   [W] ✏️ Prompts       Open prompt editor")
                 print("   [H] ❓ Help          Show this help")
                 print(f"{'─'*64}\n")
             
