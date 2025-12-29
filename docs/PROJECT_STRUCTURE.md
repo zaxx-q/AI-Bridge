@@ -37,9 +37,12 @@ AI-Bridge/
     │   ├── core.py             # GUICoordinator singleton for thread-safe GUI
     │   ├── hotkey.py           # Global hotkey listener (pynput)
     │   ├── options.py          # Default options and settings constants
-    │   ├── popups.py           # Modern Catppuccin-styled popups
+    │   ├── popups.py           # Modern themed popups with ModifierBar
+    │   ├── prompt_editor.py    # GUI editor for text_edit_tool_options.json
+    │   ├── settings_window.py  # GUI editor for config.ini
     │   ├── text_edit_tool.py   # TextEditTool application controller
     │   ├── text_handler.py     # Text selection and replacement
+    │   ├── themes.py           # ThemeRegistry with multi-theme support
     │   ├── utils.py            # GUI utilities (clipboard, markdown render)
     │   └── windows.py          # Chat and Browser windows
     │
@@ -71,8 +74,11 @@ AI-Bridge/
 | `core.py` | GUICoordinator singleton managing all Tkinter windows |
 | `text_edit_tool.py` | Global hotkey TextEditTool application |
 | `windows.py` | Chat window and session browser implementations |
-| `popups.py` | Catppuccin-themed popup dialogs with dual inputs (Edit/Ask) |
+| `popups.py` | Themed popup dialogs with dual inputs (Edit/Ask) and ModifierBar |
 | `hotkey.py` | pynput-based global hotkey listener |
+| `themes.py` | ThemeRegistry with 7 themes, dark/light variants, system detection |
+| `settings_window.py` | GUI editor for config.ini with tabbed interface |
+| `prompt_editor.py` | GUI editor for text_edit_tool_options.json with hot-reload |
 
 ### Providers (`src/providers/`)
 

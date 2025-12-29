@@ -36,7 +36,14 @@ Lightweight chat windows with:
 - Streaming responses (real-time typing)
 - Markdown rendering
 - Session history (browse and restore)
-- Catppuccin-themed UI
+- Multi-theme UI with 7 color schemes
+
+### 🎨 Theme System
+Customizable appearance with:
+- **7 themes**: Catppuccin, Dracula, Nord, Gruvbox, OneDark, Minimal, High Contrast
+- **Dark/Light modes**: Each theme has both variants
+- **System detection**: Auto-switches based on Windows theme
+- **Live preview**: See theme changes instantly in Settings
 
 ### 🔄 Robust Backend
 - **Multi-provider support** - Google Gemini, OpenRouter, custom endpoints
@@ -84,7 +91,9 @@ sk-or-v1-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 Right-click the tray icon for:
 - **Show/Hide Console** - Toggle console visibility
 - **Session Browser** - View chat history
-- **Edit config.ini** - Open configuration
+- **Settings** - Open GUI settings editor
+- **Prompt Editor** - Edit TextEditTool prompts
+- **Edit config.ini** - Open configuration file
 - **Restart** - Restart the application
 - **Quit** - Exit completely
 
@@ -217,6 +226,18 @@ The TextEditTool popup includes a **Modifier Bar** that lets you fine-tune the o
 
 *Note: Some modifiers (like Variations and Explain) force the output to open in a chat window.*
 
+### Theming
+
+Configure the UI theme in Settings or `config.ini`:
+
+```ini
+[config]
+ui_theme = catppuccin
+ui_theme_mode = auto  # auto, dark, light
+```
+
+Available themes: `catppuccin`, `dracula`, `nord`, `gruvbox`, `onedark`, `minimal`, `highcontrast`
+
 ## 💡 Tips
 
 ### For Faster Responses
@@ -251,7 +272,9 @@ AIBridge.exe --show-console     # Tray mode but keep console visible
 
 ## 🗺️ Roadmap
 
-- [ ] **Prompt Editor** - GUI for editing text_edit_tool_options.json
+- [x] **Prompt Editor** - GUI for editing text_edit_tool_options.json
+- [x] **Settings Window** - GUI for editing config.ini
+- [x] **Theme System** - Multiple color schemes with dark/light modes
 - [ ] **Colored Emoji** - Proper emoji rendering in console, chat, and popups
 - [ ] **Localization** - Multi-language support for UI
 

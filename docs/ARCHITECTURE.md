@@ -8,9 +8,11 @@ AI Bridge is a Windows application consisting of:
 
 1. **Flask Web Server** - REST API endpoints for image/text processing
 2. **System Tray Application** - Background process management with `infi.systray`
-3. **Tkinter GUI** - Chat windows, session browser, popups with Catppuccin theme
+3. **Tkinter GUI** - Chat windows, session browser, popups with multi-theme support
 4. **TextEditTool** - Global hotkey integration with `pynput` and interactive popups
 5. **AI Provider System** - Unified abstraction for multiple AI backends
+6. **Theme System** - Multi-theme support with dark/light modes and system detection
+7. **Settings Infrastructure** - GUI editors for config.ini and prompt options with hot-reload
 
 ## Component Diagram
 
@@ -133,6 +135,8 @@ flowchart LR
 | `SessionBrowserWindow` | Browse and restore saved sessions |
 | `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) and ModifierBar |
 | `TypingIndicator` | Tooltip showing typing status and abort hotkey |
+| `SettingsWindow` | GUI editor for config.ini with tabbed interface |
+| `PromptEditorWindow` | GUI editor for text_edit_tool_options.json |
 
 ## Request Pipeline
 
@@ -247,3 +251,93 @@ AIzaSyYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
 [endpoints]
 # Use {lang} placeholder for dynamic language
 ocr_translate = Extract and translate to {lang}. Return only translated text.
+```
+
+## Theme System
+
+The theme system (`src/gui/themes.py`) provides centralized color management with multiple presets.
+
+### Available Themes
+
+| Theme | Description | Variants |
+| ------- | ------------- | ---------- |
+| `catppuccin` | Warm pastel colors | Mocha (dark), Latte (light) |
+| `dracula` | Dark purple-based | Classic (dark), Pro (light) |
+| `nord` | Arctic blue palette | Polar Night (dark), Snow Storm (light) |
+| `gruvbox` | Retro earthy colors | Dark, Light |
+| `onedark` | Atom editor theme | Dark, Light |
+| `minimal` | Clean, minimal design | Dark, Light |
+| `highcontrast` | Maximum readability | Dark, Light |
+
+### Configuration
+
+```ini
+[config]
+ui_theme = catppuccin
+ui_theme_mode = auto  # auto, dark, light
+```
+
+### Usage
+
+```python
+from src.gui.themes import get_colors, ThemeRegistry
+
+# Get current theme colors
+colors = get_colors()
+print(colors.bg, colors.fg, colors.accent)
+
+# Get specific theme
+dark_nord = ThemeRegistry.get_theme("nord", "dark")
+
+# Check system dark mode
+is_dark = ThemeRegistry.is_dark_mode()
+```
+
+### ThemeColors Dataclass
+
+The `ThemeColors` dataclass provides standardized color names with legacy property aliases:
+
+| Standard | Legacy Alias | Purpose |
+| ---------- | -------------- | --------- |
+| `bg` | `base` | Primary background |
+| `fg` | `text` | Primary text |
+| `accent` | `blue` | Primary accent color |
+| `accent_green` | `green` | Success/positive |
+| `accent_red` | `red` | Error/danger |
+| `code_bg` | `mantle` | Code block background |
+| `blockquote` | `subtext0` | Muted text |
+
+## Settings Infrastructure
+
+### SettingsWindow
+
+GUI editor for `config.ini` (`src/gui/settings_window.py`):
+
+- **Tabbed Interface**: General, Provider, Streaming, TextEditTool, API Keys, Endpoints, Theme
+- **Live Preview**: Theme tab shows real-time preview of color changes
+- **Validation**: Port numbers, hotkey formats
+- **Backup**: Creates `.bak` file before saving
+- **Hot-Reload**: API keys and endpoints reload without restart
+
+### PromptEditorWindow
+
+GUI editor for `text_edit_tool_options.json` (`src/gui/prompt_editor.py`):
+
+- **Actions Tab**: Edit action prompts, icons, and types
+- **Settings Tab**: Edit global settings like output rules
+- **Modifiers Tab**: Manage modifier buttons and injections
+- **Groups Tab**: Organize actions into popup groups
+- **Hot-Reload**: Triggers `reload_options()` on save for immediate effect
+
+### Access Methods
+
+```python
+# From any thread
+from src.gui.settings_window import show_settings_window
+from src.gui.prompt_editor import show_prompt_editor
+
+show_settings_window()  # Opens Settings window
+show_prompt_editor()    # Opens Prompt Editor
+```
+
+Both windows are accessible from the system tray menu.
