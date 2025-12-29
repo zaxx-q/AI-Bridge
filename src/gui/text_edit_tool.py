@@ -983,3 +983,38 @@ class TextEditToolApp:
             "hotkey": self.hotkey,
             "processing": self.is_processing
         }
+    
+    def reload_options(self):
+        """
+        Reload options from file without restart.
+        This is called when the prompt editor saves changes.
+        """
+        logging.info("Reloading TextEditTool options...")
+        self.options = self._load_options()
+        print(f"[TextEditTool] Reloaded options from {self.options_file}")
+
+
+# Global reference for hot-reload
+_TEXT_EDIT_TOOL_INSTANCE: Optional[TextEditToolApp] = None
+
+
+def set_instance(app: TextEditToolApp):
+    """Set the global TextEditTool instance for hot-reload access."""
+    global _TEXT_EDIT_TOOL_INSTANCE
+    _TEXT_EDIT_TOOL_INSTANCE = app
+
+
+def get_instance() -> Optional[TextEditToolApp]:
+    """Get the global TextEditTool instance."""
+    return _TEXT_EDIT_TOOL_INSTANCE
+
+
+def reload_options():
+    """
+    Reload TextEditTool options from file.
+    Called by prompt_editor when saving.
+    """
+    if _TEXT_EDIT_TOOL_INSTANCE:
+        _TEXT_EDIT_TOOL_INSTANCE.reload_options()
+    else:
+        print("[TextEditTool] No instance to reload options for")

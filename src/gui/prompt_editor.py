@@ -1293,10 +1293,11 @@ class PromptEditorWindow:
             
             # Reload options in text_edit_tool if possible
             try:
-                from . import text_edit_tool
-                text_edit_tool.reload_options()
-            except (ImportError, AttributeError):
-                pass
+                from .text_edit_tool import reload_options
+                reload_options()
+                print("[PromptEditor] TextEditTool options hot-reloaded")
+            except (ImportError, AttributeError) as e:
+                print(f"[PromptEditor] Could not hot-reload options: {e}")
             
             # Close after brief delay
             self.root.after(1000, self._close)

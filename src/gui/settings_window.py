@@ -333,92 +333,8 @@ class ToggleSwitch(tk.Canvas):
             self.command()
 
 
-class HotkeyEntry(tk.Entry):
-    """Entry widget that captures hotkey combinations."""
-    
-    def __init__(self, parent, colors: ThemeColors, **kwargs):
-        super().__init__(parent, **kwargs)
-        self.colors = colors
-        self.configure(
-            bg=colors.input_bg,
-            fg=colors.fg,
-            insertbackground=colors.fg,
-            relief=tk.FLAT,
-            highlightbackground=colors.border,
-            highlightthickness=1
-        )
-        self.bind('<KeyPress>', self._on_key)
-        self.bind('<FocusIn>', self._on_focus_in)
-        self.bind('<FocusOut>', self._on_focus_out)
-        self._capturing = False
-    
-    def _on_focus_in(self, event):
-        self._capturing = True
-        self.configure(highlightbackground=self.colors.accent)
-    
-    def _on_focus_out(self, event):
-        self._capturing = False
-        self.configure(highlightbackground=self.colors.border)
-    
-    def _on_key(self, event):
-        if not self._capturing:
-            return
-        
-        # Get key name
-        key = event.keysym.lower()
-        
-        # Skip if only modifier keys are pressed
-        if key in ('control_l', 'control_r', 'shift_l', 'shift_r',
-                   'alt_l', 'alt_r', 'super_l', 'super_r', 'meta_l', 'meta_r'):
-            return None
-        
-        # Build hotkey string - ONLY add modifiers if explicitly pressed
-        # Be very conservative to avoid spurious alt+ prefixes
-        parts = []
-        
-        # Check for Control (state bit 2, value 4)
-        # Control is reliable across platforms
-        if event.state & 0x4:
-            parts.append('ctrl')
-        
-        # Check for Shift (state bit 0, value 1)
-        # Only add if Shift was explicitly held (not just for capital letters)
-        if event.state & 0x1:
-            # Don't add shift for single capital letters or shifted symbols
-            if not (len(key) == 1):
-                parts.append('shift')
-        
-        # Check for Alt - ONLY use traditional bit 0x8
-        # Do NOT use 0x20000 as it's spuriously set on Windows
-        # Also, require Ctrl to be present for Alt to be recognized
-        # This avoids false positives from Alt-key release states
-        if event.state & 0x8:
-            # Only add alt if ctrl is also pressed, OR if this is a known alt combo key
-            if (event.state & 0x4) or key in ('tab', 'f4'):
-                parts.append('alt')
-        
-        # Normalize key names
-        if key == 'space':
-            parts.append('space')
-        elif key == 'escape':
-            parts.append('escape')
-        elif key == 'return':
-            parts.append('enter')
-        elif key == 'tab':
-            parts.append('tab')
-        elif key == 'pause':
-            parts.append('pause')
-        elif key.startswith('f') and len(key) <= 3 and key[1:].isdigit():
-            parts.append(key)  # F1, F2, etc.
-        elif len(key) == 1:
-            parts.append(key.lower())
-        else:
-            parts.append(key)
-        
-        # Set the value
-        self.delete(0, tk.END)
-        self.insert(0, '+'.join(parts))
-        return 'break'
+# Note: HotkeyEntry removed - hotkeys are now typed manually as text
+# e.g. "ctrl+space", "escape", "alt+tab"
 
 
 # =============================================================================
@@ -1340,14 +1256,27 @@ class SettingsWindow:
     
     def _add_hotkey_field(self, parent, row: int, key: str, label: str,
                          value: str, hint: str = None) -> int:
-        """Add a hotkey capture field to the form with optional hint."""
+        """Add a hotkey text entry field to the form with optional hint.
+        
+        Hotkeys are typed manually, e.g. 'ctrl+space', 'escape', 'alt+tab'.
+        """
         tk.Label(parent, text=label, font=("Segoe UI", 10),
                 bg=self.colors.bg, fg=self.colors.fg).grid(
                 row=row, column=0, sticky=tk.W, pady=5)
         
         self.vars[key] = tk.StringVar(master=self.root, value=value)
-        entry = HotkeyEntry(parent, self.colors, textvariable=self.vars[key],
-                           font=("Segoe UI", 10), width=20)
+        entry = tk.Entry(
+            parent,
+            textvariable=self.vars[key],
+            font=("Segoe UI", 10),
+            bg=self.colors.input_bg,
+            fg=self.colors.fg,
+            insertbackground=self.colors.fg,
+            relief=tk.FLAT,
+            highlightbackground=self.colors.border,
+            highlightthickness=1,
+            width=20
+        )
         entry.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0), ipady=4)
         self.widgets[key] = entry
         
@@ -1460,6 +1389,11 @@ class SettingsWindow:
                         web_server.KEY_MANAGERS[provider].current_index = 0
                         web_server.KEY_MANAGERS[provider].exhausted_keys.clear()
                         print(f"[Settings] Reloaded {len(new_keys)} {provider} API key(s)")
+                
+                # Hot-reload endpoints without restart
+                for endpoint_name, prompt in self.config_data.endpoints.items():
+                    web_server.ENDPOINTS[endpoint_name] = prompt
+                print(f"[Settings] Reloaded {len(self.config_data.endpoints)} endpoint(s)")
                 
             except (ImportError, AttributeError) as e:
                 print(f"[Settings] Note: Could not update in-memory config: {e}")

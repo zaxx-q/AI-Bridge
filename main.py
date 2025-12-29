@@ -197,6 +197,11 @@ def initialize_text_edit_tool(config, ai_params):
             options_file="text_edit_tool_options.json"
         )
         TEXT_EDIT_TOOL_APP.start()
+        
+        # Register instance for hot-reload
+        from src.gui.text_edit_tool import set_instance
+        set_instance(TEXT_EDIT_TOOL_APP)
+        
         return TEXT_EDIT_TOOL_APP
     except Exception as e:
         print(f"  ✗ TextEditTool: Failed to initialize: {e}")
