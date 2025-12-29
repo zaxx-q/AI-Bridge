@@ -59,6 +59,80 @@ DEFAULT_SETTINGS = {
             "name": "Suggestor",
             "items": ["Table", "Continue", "Reply Suggest", "Kaomoji"]
         }
+    ],
+    "modifiers": [
+        {
+            "key": "variations",
+            "icon": "🔢",
+            "label": "Variations",
+            "tooltip": "Generate 3 alternative versions to choose from",
+            "injection": "<modifier_variations>\nProvide exactly 3 alternative versions, labeled as:\n**Version 1:** (subtle refinement)\n**Version 2:** (moderate changes)\n**Version 3:** (more creative interpretation)\n</modifier_variations>",
+            "forces_chat_window": True
+        },
+        {
+            "key": "explain",
+            "icon": "📝",
+            "label": "Explain",
+            "tooltip": "Explain what changes were made and why",
+            "injection": "<modifier_explain>\nAfter the result, add a brief section:\n**Changes made:**\n- List the key changes and rationale\n</modifier_explain>",
+            "forces_chat_window": True
+        },
+        {
+            "key": "creative",
+            "icon": "🎨",
+            "label": "Creative",
+            "tooltip": "Be more creative, take liberties with phrasing",
+            "injection": "<modifier_creative>\nBe more creative and take liberties with the phrasing. Don't stick too close to the original structure.\n</modifier_creative>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "literal",
+            "icon": "📏",
+            "label": "Literal",
+            "tooltip": "Stay as close to original as possible",
+            "injection": "<modifier_literal>\nStay as close to the original as possible. Make only the minimum necessary changes.\n</modifier_literal>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "shorter",
+            "icon": "✂️",
+            "label": "Shorter",
+            "tooltip": "Make the result more concise",
+            "injection": "<modifier_shorter>\nMake the result significantly more concise than the original. Aim for 30-50% reduction.\n</modifier_shorter>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "longer",
+            "icon": "📖",
+            "label": "Longer",
+            "tooltip": "Expand with more detail",
+            "injection": "<modifier_longer>\nExpand the text with more detail and elaboration. Add context, examples, or nuance.\n</modifier_longer>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "formal",
+            "icon": "💼",
+            "label": "Formal",
+            "tooltip": "Professional/business context",
+            "injection": "<modifier_context>\nThis text is for a professional/business context. Ensure appropriate formality.\n</modifier_context>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "informal",
+            "icon": "💬",
+            "label": "Informal",
+            "tooltip": "Casual/personal context",
+            "injection": "<modifier_context>\nThis text is for informal/personal communication. Keep it relaxed and approachable.\n</modifier_context>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "global",
+            "icon": "🌐",
+            "label": "Global",
+            "tooltip": "Avoid idioms, globally understandable",
+            "injection": "<modifier_global>\nAvoid idioms, slang, and cultural references. Make it understandable to an international audience.\n</modifier_global>",
+            "forces_chat_window": False
+        }
     ]
 }
 
@@ -108,8 +182,8 @@ DEFAULT_OPTIONS = {
     "Refine": {
         "icon": "✨",
         "prompt_type": "edit",
-        "system_prompt": "You are a context-aware writing enhancer who improves text while preserving its essence.\n\n<constraints>\n- Preserve original tone, style, voice, and meaning.\n- Improve phrasing, clarity, and natural flow.\n- Respect the register (formal/casual) and perspective (first/third person).\n- Keep the same approximate length.\n- Only use emojis or contractions if present in the original.\n</constraints>",
-        "task": "Refine this text: improve its clarity and flow while preserving its tone, style, and meaning.",
+        "system_prompt": "You are a context-aware writing enhancer who polishes text while preserving its essence.\n\n<constraints>\n- Preserve original tone, style, voice, mood, and meaning completely.\n- Improve phrasing, clarity, and natural flow so the text reads smoothly.\n- Respect the register (formal/casual/playful) and perspective (first/third person).\n- Keep roughly the same length as the original.\n- Respect original formatting: line breaks, lists, punctuation style.\n- Match capitalization conventions of the original (don't \"fix\" intentional lowercase or unconventional caps).\n- Only use emojis or contractions if they fit the original vibe.\n</constraints>\n\n<critical_rule>\n- You MUST make at least 2-3 meaningful word or phrase changes. Never return the exact same text.\n- If the text is already excellent, make subtle improvements to word choice, rhythm, or flow.\n- If truly no changes improve it, rephrase slightly while keeping the meaning intact.\n</critical_rule>",
+        "task": "Refine this text: polish its clarity and flow while preserving its tone, style, and meaning. Make at least subtle improvements—never return identical text.",
         "show_chat_window_instead_of_replace": False
     },
     "Rewrite": {
@@ -143,8 +217,8 @@ DEFAULT_OPTIONS = {
     "Casual": {
         "icon": "😎",
         "prompt_type": "edit",
-        "system_prompt": "You are a communication specialist who transforms text into relaxed, casual language.\n\n<constraints>\n- Maintain the original meaning and key information.\n- Use informal vocabulary and natural contractions.\n- Keep it natural—like texting a friend or colleague you're comfortable with.\n- Don't overdo slang or try too hard to be cool.\n</constraints>",
-        "task": "Rewrite this text in a more casual, relaxed tone—like you're talking to a friend.",
+        "system_prompt": "You are rewriting text to sound like a real person texting or chatting casually.\n\n<style_rules>\n- Write like you're texting a friend—relaxed and natural.\n- Use contractions freely (don't, won't, gonna, wanna, kinda, etc.).\n- Capitalization can be imperfect—lowercase 'i' is fine, sentence-initial lowercase is fine.\n- NEVER use em dashes (—) or en dashes (–). Use commas, periods, or ellipses... instead.\n- Keep punctuation simple: periods, commas, question marks, exclamation points, ellipses.\n- Occasional sentence fragments are totally fine.\n- Don't try too hard to be cool or force slang that doesn't fit.\n</style_rules>\n\n<constraints>\n- Maintain the original meaning and key information.\n- Keep it natural—like a real message, not a corporate \"casual\" voice.\n</constraints>",
+        "task": "Rewrite this in a casual, relaxed way—like you're texting a friend. Keep it natural and real.",
         "show_chat_window_instead_of_replace": False
     },
     "Concise": {

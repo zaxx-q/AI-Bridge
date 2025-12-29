@@ -260,6 +260,166 @@ class Tooltip:
             self.tooltip_window = None
 
 
+class ModifierBar:
+    """
+    A horizontally scrollable bar of toggle buttons for modifiers.
+    Supports mouse wheel scrolling for horizontal navigation.
+    """
+    
+    def __init__(
+        self,
+        parent: tk.Frame,
+        modifiers: List[Dict],  # [{"key": "...", "icon": "...", "label": "...", "tooltip": "..."}, ...]
+        on_change: Optional[Callable[[List[str]], None]] = None  # Called with list of active modifier keys
+    ):
+        self.parent = parent
+        self.modifiers = modifiers
+        self.on_change = on_change
+        
+        self.colors = get_colors()
+        self.active_modifiers: set = set()
+        self.buttons: Dict[str, tk.Label] = {}
+        self.tooltips: List[Tooltip] = []
+        
+        self._create_widget()
+    
+    def _create_widget(self):
+        """Create the scrollable modifier bar."""
+        self.frame = tk.Frame(self.parent, bg=self.colors.base)
+        
+        # Container with fixed height and border
+        self.container = tk.Frame(
+            self.frame,
+            bg=self.colors.mantle,
+            height=40,
+            highlightbackground=self.colors.surface2,
+            highlightthickness=1
+        )
+        self.container.pack(fill=tk.X, pady=(0, 8))
+        self.container.pack_propagate(False)  # Fixed height
+        
+        # Canvas for horizontal scrolling
+        self.canvas = tk.Canvas(
+            self.container,
+            bg=self.colors.mantle,
+            height=38,
+            highlightthickness=0,
+            bd=0
+        )
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Inner frame for buttons
+        self.inner_frame = tk.Frame(self.canvas, bg=self.colors.mantle)
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.inner_frame, anchor=tk.NW)
+        
+        # Create modifier buttons
+        for mod in self.modifiers:
+            self._create_modifier_button(mod)
+        
+        # Configure scrolling
+        self.inner_frame.bind('<Configure>', self._on_inner_configure)
+        self.canvas.bind('<Configure>', self._on_canvas_configure)
+        
+        # Mouse wheel scrolling (horizontal)
+        self.canvas.bind('<MouseWheel>', self._on_mousewheel)  # Windows
+        self.canvas.bind('<Button-4>', self._on_mousewheel)    # Linux scroll up
+        self.canvas.bind('<Button-5>', self._on_mousewheel)    # Linux scroll down
+        self.inner_frame.bind('<MouseWheel>', self._on_mousewheel)
+    
+    def _create_modifier_button(self, mod: Dict):
+        """Create a single modifier toggle button."""
+        key = mod.get("key", "")
+        icon = mod.get("icon", "")
+        label = mod.get("label", key)
+        tooltip_text = mod.get("tooltip", "")
+        
+        btn = tk.Label(
+            self.inner_frame,
+            text=f"{icon} {label}",
+            font=("Arial", 9),
+            bg=self.colors.surface0,
+            fg=self.colors.text,
+            padx=10,
+            pady=8,
+            cursor="hand2"
+        )
+        btn.pack(side=tk.LEFT, padx=2, pady=4)
+        
+        # Bind events
+        btn.bind('<Button-1>', lambda e, k=key: self._toggle_modifier(k))
+        btn.bind('<Enter>', lambda e, b=btn, k=key: self._on_hover(b, k, True))
+        btn.bind('<Leave>', lambda e, b=btn, k=key: self._on_hover(b, k, False))
+        btn.bind('<MouseWheel>', self._on_mousewheel)
+        
+        self.buttons[key] = btn
+        
+        # Tooltip
+        if tooltip_text:
+            tooltip = Tooltip(btn, tooltip_text)
+            self.tooltips.append(tooltip)
+    
+    def _toggle_modifier(self, key: str):
+        """Toggle a modifier on/off."""
+        if key in self.active_modifiers:
+            self.active_modifiers.remove(key)
+        else:
+            self.active_modifiers.add(key)
+        
+        self._update_button_states()
+        
+        if self.on_change:
+            self.on_change(list(self.active_modifiers))
+    
+    def _update_button_states(self):
+        """Update button appearance based on active state."""
+        for key, btn in self.buttons.items():
+            is_active = key in self.active_modifiers
+            btn.config(
+                bg=self.colors.blue if is_active else self.colors.surface0,
+                fg="#ffffff" if is_active else self.colors.text
+            )
+    
+    def _on_hover(self, btn: tk.Label, key: str, entering: bool):
+        """Handle hover effect."""
+        is_active = key in self.active_modifiers
+        if is_active:
+            return  # Don't change active button on hover
+        
+        if entering:
+            btn.config(bg=self.colors.surface1)
+        else:
+            btn.config(bg=self.colors.surface0)
+    
+    def _on_inner_configure(self, event):
+        """Update scroll region when inner frame changes."""
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+    
+    def _on_canvas_configure(self, event):
+        """Update inner frame height to match canvas."""
+        self.canvas.itemconfig(self.canvas_window, height=event.height)
+    
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel scrolling (horizontal)."""
+        # Windows uses event.delta, Linux uses Button-4/5
+        if event.num == 4:
+            delta = -1
+        elif event.num == 5:
+            delta = 1
+        else:
+            delta = -1 if event.delta > 0 else 1
+        
+        self.canvas.xview_scroll(delta * 2, "units")
+        return "break"  # Prevent event propagation
+    
+    def get_active_modifiers(self) -> List[str]:
+        """Get list of active modifier keys."""
+        return list(self.active_modifiers)
+    
+    def pack(self, **kwargs):
+        """Pack the widget."""
+        self.frame.pack(**kwargs)
+
+
 class GroupedButtonList:
     """
     A list of buttons organized by groups with inline headers.
@@ -271,11 +431,13 @@ class GroupedButtonList:
         self,
         parent: tk.Frame,
         groups: List[Dict],  # [{"name": "Group Name", "items": [(key, display_text, icon, tooltip), ...]}, ...]
-        on_click: Callable[[str], None]
+        on_click: Callable[[str], None],
+        on_group_changed: Optional[Callable[[], None]] = None  # Called when group changes
     ):
         self.parent = parent
         self.groups = groups
         self.on_click = on_click
+        self.on_group_changed = on_group_changed
         
         self.colors = get_colors()
         self.current_group_idx = 0
@@ -479,17 +641,26 @@ class GroupedButtonList:
         """Go to next group (wraps around)."""
         self.current_group_idx = (self.current_group_idx + 1) % self.total_groups
         self._render_group()
+        # Notify about group change (for repositioning popup)
+        if self.on_group_changed:
+            self.on_group_changed()
     
     def _prev_group(self):
         """Go to previous group (wraps around)."""
         self.current_group_idx = (self.current_group_idx - 1) % self.total_groups
         self._render_group()
+        # Notify about group change (for repositioning popup)
+        if self.on_group_changed:
+            self.on_group_changed()
     
     def _go_to_group(self, idx: int):
         """Go to specific group."""
         if 0 <= idx < self.total_groups:
             self.current_group_idx = idx
             self._render_group()
+            # Notify about group change (for repositioning popup)
+            if self.on_group_changed:
+                self.on_group_changed()
     
     def pack(self, **kwargs):
         """Pack the widget."""
@@ -1463,6 +1634,8 @@ class AttachedPromptPopup:
         self.edit_input_var: Optional[tk.StringVar] = None  # For "Explain your changes..."
         self.ask_input_var: Optional[tk.StringVar] = None   # For "Ask about this text..."
         self.response_toggle: Optional[SegmentedToggle] = None
+        self.modifier_bar: Optional[ModifierBar] = None
+        self.active_modifiers: List[str] = []
         
         self._create_window()
     
@@ -1513,6 +1686,17 @@ class AttachedPromptPopup:
             default_value="default"
         )
         self.response_toggle.pack(anchor=tk.CENTER)
+        
+        # === Modifier bar (if modifiers defined in settings) ===
+        settings = self.options.get("_settings", {})
+        modifiers = settings.get("modifiers", [])
+        if modifiers:
+            self.modifier_bar = ModifierBar(
+                content_frame,
+                modifiers=modifiers,
+                on_change=self._on_modifiers_changed
+            )
+            self.modifier_bar.pack(fill=tk.X)
         
         # === Input area 1: Edit/Custom changes ===
         # Container holding both input and button
@@ -1661,12 +1845,13 @@ class AttachedPromptPopup:
                 groups.append({"name": group_name, "items": items})
         
         if groups:
-            grouped_list = GroupedButtonList(
+            self.grouped_list = GroupedButtonList(
                 parent,
                 groups=groups,
-                on_click=self._on_option_click
+                on_click=self._on_option_click,
+                on_group_changed=self._reposition_window
             )
-            grouped_list.pack(fill=tk.X)
+            self.grouped_list.pack(fill=tk.X)
         else:
             # Fallback if all groups are empty
             self._create_flat_carousel(parent, settings)
@@ -1711,9 +1896,47 @@ class AttachedPromptPopup:
         if x + window_width > screen_width:
             x = screen_width - window_width - 10
         if y + window_height > screen_height:
-            y = y - window_height - 30
+            y = screen_height - window_height - 10
+        
+        # Ensure not negative
+        x = max(10, x)
+        y = max(10, y)
         
         self.root.geometry(f"+{x}+{y}")
+    
+    def _reposition_window(self):
+        """Reposition window to ensure it stays on screen after content changes."""
+        if not self.root:
+            return
+        
+        self.root.update_idletasks()
+        
+        # Get current position
+        x = self.root.winfo_x()
+        y = self.root.winfo_y()
+        
+        # Get new dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        window_width = self.root.winfo_reqwidth()
+        window_height = self.root.winfo_reqheight()
+        
+        # Adjust if off screen
+        if x + window_width > screen_width:
+            x = screen_width - window_width - 10
+        if y + window_height > screen_height:
+            y = screen_height - window_height - 10
+        
+        # Ensure not negative
+        x = max(10, x)
+        y = max(10, y)
+        
+        self.root.geometry(f"+{x}+{y}")
+    
+    def _on_modifiers_changed(self, active_modifiers: List[str]):
+        """Handle modifier toggle changes."""
+        self.active_modifiers = active_modifiers
+        logging.debug(f'Active modifiers: {active_modifiers}')
     
     def _on_edit_focus_in(self):
         """Handle edit input focus in."""
@@ -1742,9 +1965,9 @@ class AttachedPromptPopup:
     def _on_option_click(self, option_key: str):
         """Handle action button click."""
         logging.debug(f'Option selected: {option_key}')
-        response_mode = self.response_toggle.get() if self.response_toggle else "default"
+        response_mode = self._get_effective_response_mode(option_key)
         self._close()
-        self.on_option_selected(option_key, self.selected_text, None, response_mode)
+        self.on_option_selected(option_key, self.selected_text, None, response_mode, self.active_modifiers)
     
     def _on_custom_submit(self):
         """Handle custom edit input submission."""
@@ -1753,9 +1976,9 @@ class AttachedPromptPopup:
             return
         
         logging.debug(f'Custom edit submitted: {custom_text[:50]}...')
-        response_mode = self.response_toggle.get() if self.response_toggle else "default"
+        response_mode = self._get_effective_response_mode("Custom")
         self._close()
-        self.on_option_selected("Custom", self.selected_text, custom_text, response_mode)
+        self.on_option_selected("Custom", self.selected_text, custom_text, response_mode, self.active_modifiers)
     
     def _on_ask_submit(self):
         """Handle ask/Q&A input submission."""
@@ -1764,10 +1987,29 @@ class AttachedPromptPopup:
             return
         
         logging.debug(f'Ask question submitted: {ask_text[:50]}...')
-        response_mode = self.response_toggle.get() if self.response_toggle else "default"
+        response_mode = self._get_effective_response_mode("_Ask")
         self._close()
         # Use "_Ask" as a special key to indicate Q&A mode
-        self.on_option_selected("_Ask", self.selected_text, ask_text, response_mode)
+        self.on_option_selected("_Ask", self.selected_text, ask_text, response_mode, self.active_modifiers)
+    
+    def _get_effective_response_mode(self, option_key: str) -> str:
+        """
+        Get effective response mode, considering modifiers that force chat window.
+        """
+        user_mode = self.response_toggle.get() if self.response_toggle else "default"
+        
+        # Check if any active modifier forces chat window
+        if self.active_modifiers:
+            settings = self.options.get("_settings", {})
+            modifiers = settings.get("modifiers", [])
+            for mod in modifiers:
+                if mod.get("key") in self.active_modifiers:
+                    if mod.get("forces_chat_window", False):
+                        # Force "show" mode if user hasn't explicitly chosen "replace"
+                        if user_mode != "replace":
+                            return "show"
+        
+        return user_mode
     
     def _close(self):
         """Close the popup."""
@@ -1795,7 +2037,7 @@ def create_attached_input_popup(
 def create_attached_prompt_popup(
     parent_root: tk.Tk,
     options: Dict,
-    on_option_selected: Callable[[str, str, Optional[str], str], None],
+    on_option_selected: Callable[[str, str, Optional[str], str, List[str]], None],
     on_close: Optional[Callable[[], None]],
     selected_text: str,
     x: Optional[int] = None,

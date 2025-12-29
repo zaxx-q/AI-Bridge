@@ -219,7 +219,7 @@ class TextEditToolApp:
             daemon=True
         ).start()
     
-    def _on_option_selected(self, option_key: str, selected_text: str, custom_input: Optional[str], response_mode: str = "default"):
+    def _on_option_selected(self, option_key: str, selected_text: str, custom_input: Optional[str], response_mode: str = "default", active_modifiers: list = None):
         """
         Handle option selection from popup.
         
@@ -228,14 +228,18 @@ class TextEditToolApp:
             selected_text: The selected text
             custom_input: Custom input text (for Custom option)
             response_mode: Response mode ("default", "replace", or "show")
+            active_modifiers: List of active modifier keys
         """
-        logging.debug(f'Option selected: {option_key}, mode: {response_mode}')
+        if active_modifiers is None:
+            active_modifiers = []
+        
+        logging.debug(f'Option selected: {option_key}, mode: {response_mode}, modifiers: {active_modifiers}')
         
         self.is_processing = True
         
         threading.Thread(
             target=self._process_option,
-            args=(option_key, selected_text, custom_input, response_mode),
+            args=(option_key, selected_text, custom_input, response_mode, active_modifiers),
             daemon=True
         ).start()
     
@@ -650,7 +654,7 @@ class TextEditToolApp:
         finally:
             self.is_processing = False
     
-    def _process_option(self, option_key: str, selected_text: str, custom_input: Optional[str], response_mode: str = "default"):
+    def _process_option(self, option_key: str, selected_text: str, custom_input: Optional[str], response_mode: str = "default", active_modifiers: list = None):
         """
         Process the selected option.
         
@@ -659,14 +663,17 @@ class TextEditToolApp:
             selected_text: The selected text
             custom_input: Custom input text (for Custom edit or _Ask question)
             response_mode: Response mode ("default", "replace", or "show")
+            active_modifiers: List of active modifier keys
         
         Display Mode Override Hierarchy:
             1. response_mode from popup radio button (if not "default")
-            2. show_chat_window_instead_of_replace per-action setting
-            3. Falls back to False (replace mode)
+            2. Modifiers with forces_chat_window=true
+            3. show_chat_window_instead_of_replace per-action setting
+            4. Falls back to False (replace mode)
         
         Prompt Structure:
             SYSTEM: {system_prompt}
+                    {modifier_injections}
             USER: {task}
                    {base_output_rules}
                    {text_delimiter}
@@ -678,16 +685,27 @@ class TextEditToolApp:
             - Use task template with {custom_input} placeholder
             - "Custom" uses custom_task_template, "_Ask" uses ask_task_template
         """
+        if active_modifiers is None:
+            active_modifiers = []
+        
         try:
             action_options = self._get_action_options()
             option = action_options.get(option_key, {})
             
+            # Get modifier definitions
+            modifier_defs = self._get_setting("modifiers", [])
+            
+            # Check if any active modifier forces chat window
+            forces_chat_window = self._modifiers_force_chat_window(active_modifiers, modifier_defs)
+            
             # Determine if this should open in a window based on response mode
-            # Hierarchy: radio button > per-action setting > default (False)
+            # Hierarchy: radio button > modifiers > per-action setting > default (False)
             if response_mode == "show":
                 show_in_chat_window = True
             elif response_mode == "replace":
                 show_in_chat_window = False
+            elif forces_chat_window:
+                show_in_chat_window = True
             else:  # "default" - use the action's setting
                 show_in_chat_window = option.get("show_chat_window_instead_of_replace", False)
             
@@ -696,6 +714,12 @@ class TextEditToolApp:
             # Legacy keys: instruction, prefix
             system_prompt = option.get("system_prompt") or option.get("instruction", "")
             task = option.get("task") or option.get("prefix", "")
+            
+            # Inject modifier prompts into system prompt
+            if active_modifiers:
+                modifier_injections = self._build_modifier_injections(active_modifiers, modifier_defs)
+                if modifier_injections:
+                    system_prompt = system_prompt + "\n\n" + modifier_injections
             
             # Get prompt type (default to "edit" for backward compatibility)
             # "edit" prompts use base_output_rules (strict, no explanations)
@@ -846,6 +870,43 @@ class TextEditToolApp:
             logging.error(f'Error processing option: {e}')
         finally:
             self.is_processing = False
+    
+    def _build_modifier_injections(self, active_modifiers: list, modifier_defs: list) -> str:
+        """
+        Build modifier injection text to append to system prompt.
+        
+        Args:
+            active_modifiers: List of active modifier keys
+            modifier_defs: List of modifier definitions from settings
+            
+        Returns:
+            Combined injection text from all active modifiers
+        """
+        injections = []
+        for mod in modifier_defs:
+            if mod.get("key") in active_modifiers:
+                injection = mod.get("injection", "")
+                if injection:
+                    injections.append(injection)
+        
+        return "\n".join(injections)
+    
+    def _modifiers_force_chat_window(self, active_modifiers: list, modifier_defs: list) -> bool:
+        """
+        Check if any active modifier forces chat window display.
+        
+        Args:
+            active_modifiers: List of active modifier keys
+            modifier_defs: List of modifier definitions from settings
+            
+        Returns:
+            True if any active modifier has forces_chat_window=True
+        """
+        for mod in modifier_defs:
+            if mod.get("key") in active_modifiers:
+                if mod.get("forces_chat_window", False):
+                    return True
+        return False
     
     def _replace_text(self, new_text: str):
         """Replace the selected text with new text."""
