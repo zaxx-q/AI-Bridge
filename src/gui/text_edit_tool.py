@@ -735,8 +735,8 @@ class TextEditToolApp:
             text_delimiter = self._get_setting("text_delimiter", "\n\n<text_to_process>\n")
             text_delimiter_close = self._get_setting("text_delimiter_close", "\n</text_to_process>")
             
-            # Handle Custom action - use custom_task_template
-            if option_key == "Custom" and custom_input:
+            # Handle _Custom action - use custom_task_template
+            if option_key == "_Custom" and custom_input:
                 custom_task_template = self._get_setting(
                     "custom_task_template",
                     "Apply the following change to the text: {custom_input}"

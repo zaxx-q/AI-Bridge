@@ -666,26 +666,40 @@ class PromptEditorWindow:
         row += 1
         
         # Items per page
-        tk.Label(scrollable_frame, text="Items per page:", font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+        items_frame = tk.Frame(scrollable_frame, bg=self.colors.bg)
+        items_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
+        tk.Label(items_frame, text="Items per page:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).pack(side=tk.LEFT)
         
         items_var = tk.IntVar(master=scrollable_frame, value=settings.get("popup_items_per_page", 6))
-        items_spin = ttk.Spinbox(scrollable_frame, textvariable=items_var,
+        items_spin = ttk.Spinbox(items_frame, textvariable=items_var,
                                 from_=3, to=20, width=10)
-        items_spin.grid(row=row, column=1, sticky=tk.W, pady=5)
+        items_spin.pack(side=tk.LEFT, padx=(10, 15))
+        
+        tk.Label(items_frame, text="(Only applies when 'Use groups' is OFF)",
+                font=("Segoe UI", 9), bg=self.colors.bg,
+                fg=self.colors.blockquote).pack(side=tk.LEFT)
+        
         self.settings_widgets["popup_items_per_page"] = ("int", items_var)
         row += 1
         
         # Use groups
-        tk.Label(scrollable_frame, text="Use groups:", font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+        groups_frame = tk.Frame(scrollable_frame, bg=self.colors.bg)
+        groups_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
+        tk.Label(groups_frame, text="Use groups:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).pack(side=tk.LEFT)
         
         groups_var = tk.BooleanVar(master=scrollable_frame, value=settings.get("popup_use_groups", True))
-        groups_check = tk.Checkbutton(scrollable_frame, variable=groups_var,
+        groups_check = tk.Checkbutton(groups_frame, variable=groups_var,
                                      bg=self.colors.bg, selectcolor=self.colors.input_bg)
-        groups_check.grid(row=row, column=1, sticky=tk.W, pady=5)
+        groups_check.pack(side=tk.LEFT, padx=(10, 15))
+        
+        tk.Label(groups_frame, text="(When OFF, lists all actions in pages based on 'Items per page')",
+                font=("Segoe UI", 9), bg=self.colors.bg,
+                fg=self.colors.blockquote).pack(side=tk.LEFT)
+        
         self.settings_widgets["popup_use_groups"] = ("bool", groups_var)
     
     def _create_modifiers_tab(self):

@@ -376,13 +376,13 @@ ui_theme_mode = auto
 # Get keys at: https://aistudio.google.com/app/apikey
 # AIzaSyXXXXXXXXXXXXXXXXXXXXXXX
 
+[endpoints]
 # ============================================================
 # ENDPOINTS - Define your custom endpoints and prompts
 # Format: endpoint_name = prompt text
 # Access via: POST http://host:port/endpoint_name
 # ============================================================
 
-[endpoints]
 # Use {lang} placeholder for dynamic language - pass ?lang=Japanese, ?lang=Indonesian, etc.
 ocr = Extract the text from this image. Preserve the original formatting, including line breaks, spacing, and layout, as accurately as possible. Return only the extracted text.
 

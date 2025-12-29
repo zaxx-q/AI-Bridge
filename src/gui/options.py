@@ -256,7 +256,7 @@ DEFAULT_OPTIONS = {
         "task": "Analyze the emotional tone of this text and suggest appropriate kaomoji that could accompany it.",
         "show_chat_window_instead_of_replace": True
     },
-    "Custom": {
+    "_Custom": {
         "icon": "⚡",
         "prompt_type": "edit",
         "system_prompt": "You are a versatile text and code assistant who makes precise modifications as requested.\n\n<constraints>\n- Make exactly the change requested—no more, no less.\n- Preserve the overall structure and style unless the change requires otherwise.\n- If the request is ambiguous, make the most reasonable interpretation.\n</constraints>",

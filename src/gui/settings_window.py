@@ -369,33 +369,33 @@ class HotkeyEntry(tk.Entry):
         
         # Skip if only modifier keys are pressed
         if key in ('control_l', 'control_r', 'shift_l', 'shift_r',
-                   'alt_l', 'alt_r', 'super_l', 'super_r'):
+                   'alt_l', 'alt_r', 'super_l', 'super_r', 'meta_l', 'meta_r'):
             return None
         
-        # Build hotkey string - only add modifiers if they were intentionally pressed
+        # Build hotkey string - ONLY add modifiers if explicitly pressed
+        # Be very conservative to avoid spurious alt+ prefixes
         parts = []
         
         # Check for Control (state bit 2, value 4)
+        # Control is reliable across platforms
         if event.state & 0x4:
             parts.append('ctrl')
         
-        # Check for Shift (state bit 0, value 1) - but only if key is not already shifted
-        # Don't add shift for regular shift+key combos like Shift+A
-        if event.state & 0x1 and not (len(key) == 1 and key.isupper()):
-            parts.append('shift')
+        # Check for Shift (state bit 0, value 1)
+        # Only add if Shift was explicitly held (not just for capital letters)
+        if event.state & 0x1:
+            # Don't add shift for single capital letters or shifted symbols
+            if not (len(key) == 1):
+                parts.append('shift')
         
-        # Check for Alt (state bit 3, value 8) - BUT on Windows, Alt is often 0x20000
-        # Only add alt if it was explicitly pressed with the key
-        # Note: We check both the traditional bit and Windows-specific
-        has_alt = bool(event.state & 0x8) or bool(event.state & 0x20000)
-        # However, many Tk implementations set alt bits spuriously, so we need to be careful
-        # Only count alt if it was pressed ALONG with the key (not as sole modifier)
-        # Actually, let's check if the raw keycode indicates alt was held
-        # For now, let's only add alt if explicitly needed for standard combos
-        if has_alt and (event.state & 0x4 or event.state & 0x1 or key in ('tab', 'f1', 'f2', 'f3', 'f4')):
-            parts.append('alt')
-        elif event.state & 0x8 and not (event.state & 0x20000):  # Traditional alt only
-            parts.append('alt')
+        # Check for Alt - ONLY use traditional bit 0x8
+        # Do NOT use 0x20000 as it's spuriously set on Windows
+        # Also, require Ctrl to be present for Alt to be recognized
+        # This avoids false positives from Alt-key release states
+        if event.state & 0x8:
+            # Only add alt if ctrl is also pressed, OR if this is a known alt combo key
+            if (event.state & 0x4) or key in ('tab', 'f4'):
+                parts.append('alt')
         
         # Normalize key names
         if key == 'space':
@@ -406,17 +406,18 @@ class HotkeyEntry(tk.Entry):
             parts.append('enter')
         elif key == 'tab':
             parts.append('tab')
-        elif key.startswith('f') and key[1:].isdigit():
+        elif key == 'pause':
+            parts.append('pause')
+        elif key.startswith('f') and len(key) <= 3 and key[1:].isdigit():
             parts.append(key)  # F1, F2, etc.
         elif len(key) == 1:
             parts.append(key.lower())
         else:
             parts.append(key)
         
-        # If no modifiers, just use the key alone
         # Set the value
         self.delete(0, tk.END)
-        self.insert(0, '+'.join(parts) if parts else key)
+        self.insert(0, '+'.join(parts))
         return 'break'
 
 
@@ -582,13 +583,13 @@ class SettingsWindow:
         # Host
         row = self._add_entry_field(inner, row, "host", "Host:",
                                    self.config_data.config.get("host", "127.0.0.1"),
-                                   hint="The IP address to bind the server to")
+                                   hint="⚠️ Restart required. IP address to bind.")
         
         # Port
         row = self._add_entry_field(inner, row, "port", "Port:",
                                    str(self.config_data.config.get("port", 5000)),
                                    validate="port",
-                                   hint="Port for Flask server (1-65535)")
+                                   hint="⚠️ Restart required. Port for Flask server (1-65535)")
         
         # Behavior settings
         tk.Label(inner, text="Behavior", font=("Segoe UI", 11, "bold"),
@@ -797,36 +798,41 @@ class SettingsWindow:
         
         row = self._add_toggle_field(inner, row, "text_edit_tool_enabled",
                                     "Enable TextEditTool",
-                                    self.config_data.config.get("text_edit_tool_enabled", True))
+                                    self.config_data.config.get("text_edit_tool_enabled", True),
+                                    hint="⚠️ Restart required")
         
         # Hotkeys
         tk.Label(inner, text="Hotkeys", font=("Segoe UI", 11, "bold"),
                 bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
+                row=row, column=0, columnspan=3, sticky=tk.W, pady=(20, 10))
         row += 1
         
         row = self._add_hotkey_field(inner, row, "text_edit_tool_hotkey",
                                     "Activation hotkey:",
-                                    self.config_data.config.get("text_edit_tool_hotkey", "ctrl+space"))
+                                    self.config_data.config.get("text_edit_tool_hotkey", "ctrl+space"),
+                                    hint="⚠️ Restart required")
         
         row = self._add_hotkey_field(inner, row, "text_edit_tool_abort_hotkey",
                                     "Abort hotkey:",
-                                    self.config_data.config.get("text_edit_tool_abort_hotkey", "escape"))
+                                    self.config_data.config.get("text_edit_tool_abort_hotkey", "escape"),
+                                    hint="⚠️ Restart required")
         
         # Typing settings
         tk.Label(inner, text="Typing Settings", font=("Segoe UI", 11, "bold"),
                 bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
+                row=row, column=0, columnspan=3, sticky=tk.W, pady=(20, 10))
         row += 1
         
         row = self._add_spinbox_field(inner, row, "streaming_typing_delay",
                                      "Typing delay (ms):",
                                      self.config_data.config.get("streaming_typing_delay", 5),
-                                     1, 100)
+                                     1, 100,
+                                     hint="Delay per character when streaming typing (replace mode)")
         
         row = self._add_toggle_field(inner, row, "streaming_typing_uncapped",
-                                    "Uncapped typing speed (⚠️ may cause issues)",
-                                    self.config_data.config.get("streaming_typing_uncapped", False))
+                                    "Uncapped typing speed",
+                                    self.config_data.config.get("streaming_typing_uncapped", False),
+                                    hint="⚠️ No delay between chars. May overwhelm some apps.")
     
     def _create_keys_tab(self):
         """Create the API Keys settings tab."""
@@ -1445,8 +1451,18 @@ class SettingsWindow:
                 from .. import web_server
                 for key, value in self.config_data.config.items():
                     web_server.CONFIG[key] = value
-            except (ImportError, AttributeError):
-                pass
+                
+                # Hot-reload API keys without restart
+                for provider in ["custom", "openrouter", "google"]:
+                    if provider in web_server.KEY_MANAGERS:
+                        new_keys = self.config_data.keys.get(provider, [])
+                        web_server.KEY_MANAGERS[provider].keys = [k for k in new_keys if k]
+                        web_server.KEY_MANAGERS[provider].current_index = 0
+                        web_server.KEY_MANAGERS[provider].exhausted_keys.clear()
+                        print(f"[Settings] Reloaded {len(new_keys)} {provider} API key(s)")
+                
+            except (ImportError, AttributeError) as e:
+                print(f"[Settings] Note: Could not update in-memory config: {e}")
             
             self.status_label.configure(text="✅ Settings saved!", fg=self.colors.accent_green)
             
