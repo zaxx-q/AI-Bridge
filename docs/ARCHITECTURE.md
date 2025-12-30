@@ -136,7 +136,7 @@ flowchart LR
 | `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) and ModifierBar |
 | `TypingIndicator` | Tooltip showing typing status and abort hotkey |
 | `SettingsWindow` | GUI editor for config.ini with tabbed interface |
-| `PromptEditorWindow` | GUI editor for text_edit_tool_options.json |
+| `PromptEditorWindow` | GUI editor for text_edit_tool_options.json with Playground testing |
 
 ## Request Pipeline
 
@@ -327,6 +327,7 @@ GUI editor for `text_edit_tool_options.json` (`src/gui/prompt_editor.py`):
 - **Settings Tab**: Edit global settings like output rules
 - **Modifiers Tab**: Manage modifier buttons and injections
 - **Groups Tab**: Organize actions into popup groups
+- **Playground Tab**: Test actions and endpoints with live preview and image support
 - **Hot-Reload**: Triggers `reload_options()` on save for immediate effect
 
 ### Access Methods
