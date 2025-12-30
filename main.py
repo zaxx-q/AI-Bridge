@@ -305,14 +305,8 @@ def main():
             f.write(generate_example_config())
         if HAVE_RICH:
             console.print(f"[green]✅ Created '{CONFIG_FILE}'[/green]")
-            console.print("\nPlease edit the config file to add your API keys, then restart.")
-            console.print("[dim]Press Enter to exit...[/dim]")
         else:
             print(f"✅ Created '{CONFIG_FILE}'")
-            print("\nPlease edit the config file to add your API keys, then restart.")
-            print("Press Enter to exit...")
-        input()  # Wait for user to read the message
-        sys.exit(0)
     
     # Initialize (new compact output)
     config, ai_params, endpoints = initialize()
@@ -320,14 +314,33 @@ def main():
     # Check for API keys
     has_any_keys = any(km.has_keys() for km in web_server.KEY_MANAGERS.values())
     if not has_any_keys:
-        if HAVE_RICH:
-            console.print("[bold yellow]⚠️  WARNING: No API keys configured![/bold yellow]")
-            console.print("   Please add your API keys to [cyan]config.ini[/cyan]")
-            console.print()
-        else:
-            print("⚠️  WARNING: No API keys configured!")
-            print("   Please add your API keys to config.ini")
-            print()
+        if HAVE_GUI:
+            if HAVE_RICH:
+                console.print("[bold yellow]⚠️  No API keys configured![/bold yellow]")
+                console.print("   Opening Settings Window...")
+                console.print()
+            else:
+                print("⚠️  No API keys configured!")
+                print("   Opening Settings Window...")
+                print()
+            
+            # Open Settings Window directly (blocking)
+            from src.gui.settings_window import SettingsWindow
+            settings = SettingsWindow()
+            settings.show(initial_tab="API Keys")
+            
+            # Reload keys after settings window closes
+            has_any_keys = any(km.has_keys() for km in web_server.KEY_MANAGERS.values())
+            
+        if not has_any_keys:
+            if HAVE_RICH:
+                console.print("[bold yellow]⚠️  WARNING: No API keys configured![/bold yellow]")
+                console.print("   Please add your API keys to [cyan]config.ini[/cyan] or use the Settings window.")
+                console.print()
+            else:
+                print("⚠️  WARNING: No API keys configured!")
+                print("   Please add your API keys to config.ini or use the Settings window.")
+                print()
     
     # ─── Server Info ──────────────────────────────────────────────────────
     host = web_server.CONFIG.get('host', '127.0.0.1')

@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/f9fcbea2-e403-4ea5-86d5-50edb79454f6
 
 - Latest version of [ShareX](https://getsharex.com/) installed
 - AI Bridge running:
-  - **Recommended**: Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases) - just extract, run, enter API key, and run again
+  - **Recommended**: Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases) - just extract, run, and enter your API key in the Settings window that appears
   - **Alternative**: `python main.py` (requires Python environment)
 
 ## Step 1: Create Custom Uploader

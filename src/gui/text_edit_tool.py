@@ -555,8 +555,7 @@ class TextEditToolApp:
                     show_gui = custom_option["show_chat_window_instead_of_replace"]
                 else:
                     # Fallback to global config
-                    show_setting = self.config.get("show_ai_response_in_chat_window",
-                                                   self.config.get("default_show", "no"))
+                    show_setting = self.config.get("show_ai_response_in_chat_window", "no")
                     show_gui = str(show_setting).lower() in ("yes", "true", "1")
             
             if show_gui:

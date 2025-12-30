@@ -366,8 +366,13 @@ class SettingsWindow:
         # Theme preview
         self.preview_frame: Optional[tk.Frame] = None
     
-    def show(self):
-        """Create and show the settings window."""
+    def show(self, initial_tab: str = None):
+        """
+        Create and show the settings window.
+        
+        Args:
+            initial_tab: Name of the tab to select initially (e.g. "API Keys")
+        """
         # Load current config
         self.config_data = parse_config_full()
         self.original_config = dict(self.config_data.config)
@@ -399,6 +404,16 @@ class SettingsWindow:
         
         # Notebook (tabs)
         self._create_notebook()
+        
+        # Select initial tab if specified
+        if initial_tab:
+            try:
+                for tab_id in self.notebook.tabs():
+                    if self.notebook.tab(tab_id, "text") == initial_tab:
+                        self.notebook.select(tab_id)
+                        break
+            except Exception as e:
+                print(f"[SettingsWindow] Failed to select initial tab '{initial_tab}': {e}")
         
         # Button bar
         self._create_button_bar()

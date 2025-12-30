@@ -57,9 +57,9 @@ Customizable appearance with:
 ### Download (Recommended)
 
 1. Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases)
-2. Run it - on first launch, it creates `config.ini` and exits
-3. Edit `config.ini` to add your API keys
-4. Run again - the app starts minimized to system tray
+2. Run it - on first launch, it creates `config.ini` and automatically opens the Settings window
+3. Enter your API keys in the **API Keys** tab and click **Save**
+4. The app starts minimized to system tray
 
 ### From Source (Alternative)
 
@@ -72,7 +72,7 @@ python main.py
 
 ### Configuration
 
-Edit `config.ini` to add your API keys:
+You can configure API keys via the **Settings** window (right-click tray icon -> Settings) or by editing `config.ini`.
 
 ```ini
 [google]

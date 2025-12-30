@@ -31,8 +31,6 @@ DEFAULT_CONFIG = {
     # For TextEditTool: overridden by show_chat_window_instead_of_replace per-action setting,
     #                   which is further overridden by popup radio button selection
     "show_ai_response_in_chat_window": "no",
-    # Legacy alias for backward compatibility
-    "default_show": "no",
     # Streaming and thinking settings
     "streaming_enabled": True,
     "thinking_enabled": False,
@@ -271,8 +269,8 @@ default_provider = google
 show_ai_response_in_chat_window = no
 
 # Custom API configuration
-# custom_url = https://api.openai.com/v1/chat/completions
-# custom_model = gpt-5.1
+custom_url = https://api.openai.com/v1/chat/completions
+custom_model = gpt-5.1
 #
 # NOTE: If custom_url contains "google" or "googleapis.com", the system will
 # automatically apply Google-specific settings (safety_settings, thinking_config).
@@ -295,9 +293,9 @@ request_timeout = 120
 max_sessions = 50
 
 # AI Parameters (optional)
-# temperature = 0.7
-# max_tokens = 4096
-# top_p = 1.0
+# temperature = 1
+# max_tokens = 8192
+# top_p = 0.95
 
 # ============================================================
 # STREAMING AND THINKING SETTINGS
@@ -342,7 +340,7 @@ streaming_typing_delay = 5
 # Uncap typing speed - type at maximum speed from server stream
 # WARNING: Setting to true may cause issues with some applications
 # (input lag, missed characters, application freezing). Use with caution!
-# streaming_typing_uncapped = false
+streaming_typing_uncapped = false
 
 # TextEditTool options are configured in text_edit_tool_options.json
 # including: action prompts, placeholders, and per-action display settings
