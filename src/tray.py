@@ -309,11 +309,13 @@ class TrayApp:
         # Users should use tray icon's Quit option instead
         disable_console_close_button()
         
+        # Enable dark mode for menus if applicable
+        self._enable_dark_mode()
+        
         # Define menu options
         # Format: (text, icon, callback)
         menu_options = (
-            ("Show Console", None, self._on_show_console),
-            ("Hide Console", None, self._on_hide_console),
+            ("Toggle Console", None, self._on_toggle_console),
             ("Session Browser", None, self._on_session_browser),
             ("Settings", None, self._on_settings),
             ("Prompt Editor", None, self._on_prompt_editor),
@@ -345,6 +347,45 @@ class TrayApp:
             print(f"[Error] Failed to start system tray: {e}")
             return False
     
+    def _enable_dark_mode(self):
+        """
+        Attempt to enable dark mode for the application menus.
+        Uses undocumented Windows APIs.
+        """
+        if sys.platform != 'win32':
+            return
+            
+        try:
+            # Check if we should use dark mode
+            try:
+                from .gui.themes import is_dark_mode
+                should_be_dark = is_dark_mode()
+            except ImportError:
+                should_be_dark = True # Default to dark if can't check
+            
+            if not should_be_dark:
+                return
+
+            # uxtheme.dll ordinal 135 is SetPreferredAppMode (Windows 10 1903+)
+            # 0 = Default, 1 = AllowDark, 2 = ForceDark, 3 = ForceLight, 4 = Max
+            try:
+                uxtheme = ctypes.windll.uxtheme
+                # Try to load the function by ordinal
+                if hasattr(uxtheme, "SetPreferredAppMode"):
+                    uxtheme.SetPreferredAppMode(2) # Force Dark
+                else:
+                    # Try by ordinal for older versions or if not exposed by name
+                    try:
+                        SetPreferredAppMode = uxtheme[135]
+                        SetPreferredAppMode(2)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+                
+        except Exception as e:
+            print(f"[Warning] Failed to enable dark mode for tray: {e}")
+
     def stop(self):
         """Stop the system tray icon"""
         if self.systray:
