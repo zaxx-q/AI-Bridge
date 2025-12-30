@@ -8,6 +8,7 @@ Features:
 - Action editor (icon, prompt_type, system_prompt, task)
 - Settings editor for _settings object
 - Modifier and group management
+- Playground for testing prompts with live preview
 """
 
 import json
@@ -15,10 +16,12 @@ import os
 import time
 import shutil
 import threading
+import base64
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 from typing import Dict, Optional, List, Callable, Any
 from pathlib import Path
+import pyperclip
 
 from .themes import ThemeRegistry, ThemeColors, get_colors
 from .core import get_next_window_id, register_window, unregister_window
@@ -276,6 +279,11 @@ class PromptEditorWindow:
         self.options_data: Dict = {}
         self.current_action: Optional[str] = None
         
+        # Playground image data (for endpoint testing)
+        self.playground_image_base64: Optional[str] = None
+        self.playground_image_mime: Optional[str] = None
+        self.playground_image_name: Optional[str] = None
+        
         # Widget references
         self.action_listbox: Optional[tk.Listbox] = None
         self.editor_widgets: Dict[str, Any] = {}
@@ -379,6 +387,7 @@ class PromptEditorWindow:
         self._create_settings_tab()
         self._create_modifiers_tab()
         self._create_groups_tab()
+        self._create_playground_tab()
     
     def _create_actions_tab(self):
         """Create the Actions editing tab."""
@@ -973,6 +982,1079 @@ class PromptEditorWindow:
                  relief=tk.FLAT, padx=15, pady=5,
                  command=self._save_current_group).grid(
                  row=4, column=0, columnspan=2, sticky=tk.W, pady=(15, 0))
+    
+    def _create_playground_tab(self):
+        """Create the Playground tab for testing prompts."""
+        frame = tk.Frame(self.notebook, bg=self.colors.bg)
+        self.notebook.add(frame, text="🧪 Playground")
+        
+        # Configure grid - left config, right preview
+        frame.columnconfigure(0, weight=1, minsize=320)
+        frame.columnconfigure(1, weight=2)
+        frame.rowconfigure(0, weight=1)
+        
+        # ===== Left Panel: Configuration =====
+        left_panel = tk.Frame(frame, bg=self.colors.bg)
+        left_panel.grid(row=0, column=0, sticky=tk.NSEW, padx=(15, 10), pady=15)
+        left_panel.columnconfigure(0, weight=1)
+        
+        row = 0
+        
+        # Mode selector
+        tk.Label(left_panel, text="🎯 Mode", font=("Segoe UI", 11, "bold"),
+                bg=self.colors.bg, fg=self.colors.accent).grid(
+                row=row, column=0, sticky=tk.W, pady=(0, 5))
+        row += 1
+        
+        self.playground_mode_var = tk.StringVar(master=self.root, value="action")
+        mode_frame = tk.Frame(left_panel, bg=self.colors.bg)
+        mode_frame.grid(row=row, column=0, sticky=tk.W, pady=(0, 15))
+        
+        tk.Radiobutton(mode_frame, text="TextEditTool Action",
+                      variable=self.playground_mode_var, value="action",
+                      font=("Segoe UI", 10), bg=self.colors.bg, fg=self.colors.fg,
+                      selectcolor=self.colors.input_bg, activebackground=self.colors.bg,
+                      command=self._on_playground_mode_change).pack(side=tk.LEFT, padx=(0, 15))
+        
+        tk.Radiobutton(mode_frame, text="API Endpoint",
+                      variable=self.playground_mode_var, value="endpoint",
+                      font=("Segoe UI", 10), bg=self.colors.bg, fg=self.colors.fg,
+                      selectcolor=self.colors.input_bg, activebackground=self.colors.bg,
+                      command=self._on_playground_mode_change).pack(side=tk.LEFT)
+        row += 1
+        
+        # ===== Action Mode Config =====
+        self.action_config_frame = tk.Frame(left_panel, bg=self.colors.bg)
+        self.action_config_frame.grid(row=row, column=0, sticky=tk.NSEW, pady=(0, 10))
+        self.action_config_frame.columnconfigure(0, weight=1)
+        
+        # Action selector
+        tk.Label(self.action_config_frame, text="Select Action:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).grid(
+                row=0, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.playground_action_var = tk.StringVar(master=self.root)
+        action_names = [name for name in sorted(self.options_data.keys()) if name != "_settings"]
+        self.playground_action_combo = ttk.Combobox(
+            self.action_config_frame,
+            textvariable=self.playground_action_var,
+            values=action_names,
+            state="readonly",
+            width=30
+        )
+        self.playground_action_combo.grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
+        self.playground_action_combo.bind('<<ComboboxSelected>>', self._on_playground_action_change)
+        
+        if action_names:
+            self.playground_action_combo.current(0)
+        
+        # Modifiers section
+        tk.Label(self.action_config_frame, text="🎛️ Modifiers:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).grid(
+                row=2, column=0, sticky=tk.W, pady=(5, 5))
+        
+        # Scrollable modifier frame
+        mod_canvas_frame = tk.Frame(self.action_config_frame, bg=self.colors.bg)
+        mod_canvas_frame.grid(row=3, column=0, sticky=tk.NSEW, pady=(0, 10))
+        mod_canvas_frame.columnconfigure(0, weight=1)
+        
+        mod_canvas = tk.Canvas(mod_canvas_frame, bg=self.colors.bg, highlightthickness=0, height=100)
+        mod_scrollbar = ttk.Scrollbar(mod_canvas_frame, orient=tk.VERTICAL, command=mod_canvas.yview)
+        self.modifier_check_frame = tk.Frame(mod_canvas, bg=self.colors.bg)
+        
+        self.modifier_check_frame.bind(
+            "<Configure>",
+            lambda e: mod_canvas.configure(scrollregion=mod_canvas.bbox("all"))
+        )
+        
+        mod_canvas.create_window((0, 0), window=self.modifier_check_frame, anchor=tk.NW)
+        mod_canvas.configure(yscrollcommand=mod_scrollbar.set)
+        
+        mod_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        mod_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Create modifier checkboxes
+        self.playground_modifier_vars = {}
+        settings = self.options_data.get("_settings", {})
+        modifiers = settings.get("modifiers", [])
+        
+        for i, mod in enumerate(modifiers):
+            key = mod.get("key", f"mod_{i}")
+            icon = mod.get("icon", "")
+            label = mod.get("label", key)
+            
+            var = tk.BooleanVar(master=self.root, value=False)
+            self.playground_modifier_vars[key] = var
+            
+            cb = tk.Checkbutton(
+                self.modifier_check_frame,
+                text=f"{icon} {label}",
+                variable=var,
+                font=("Segoe UI", 9),
+                bg=self.colors.bg, fg=self.colors.fg,
+                selectcolor=self.colors.input_bg,
+                activebackground=self.colors.bg,
+                command=self._update_playground_preview
+            )
+            cb.grid(row=i, column=0, sticky=tk.W, pady=1)
+        
+        # Custom input (for _Custom/_Ask)
+        self.custom_input_frame = tk.Frame(self.action_config_frame, bg=self.colors.bg)
+        self.custom_input_frame.grid(row=4, column=0, sticky=tk.EW, pady=(0, 10))
+        
+        tk.Label(self.custom_input_frame, text="✏️ Custom Input:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).pack(anchor=tk.W)
+        
+        self.playground_custom_var = tk.StringVar(master=self.root)
+        custom_entry = tk.Entry(
+            self.custom_input_frame,
+            textvariable=self.playground_custom_var,
+            font=("Segoe UI", 10),
+            bg=self.colors.input_bg, fg=self.colors.fg,
+            insertbackground=self.colors.fg,
+            relief=tk.FLAT, highlightbackground=self.colors.border,
+            highlightthickness=1
+        )
+        custom_entry.pack(fill=tk.X, pady=(5, 0), ipady=5)
+        custom_entry.bind('<KeyRelease>', lambda e: self._update_playground_preview())
+        
+        # Hide custom input initially
+        self.custom_input_frame.grid_remove()
+        
+        row += 1
+        
+        # ===== Endpoint Mode Config =====
+        self.endpoint_config_frame = tk.Frame(left_panel, bg=self.colors.bg)
+        self.endpoint_config_frame.grid(row=row, column=0, sticky=tk.NSEW, pady=(0, 10))
+        self.endpoint_config_frame.columnconfigure(0, weight=1)
+        self.endpoint_config_frame.grid_remove()  # Hidden by default
+        
+        # Endpoint selector
+        tk.Label(self.endpoint_config_frame, text="Select Endpoint:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).grid(
+                row=0, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.playground_endpoint_var = tk.StringVar(master=self.root)
+        # We'll populate this from web_server.ENDPOINTS
+        self.playground_endpoint_combo = ttk.Combobox(
+            self.endpoint_config_frame,
+            textvariable=self.playground_endpoint_var,
+            values=[],  # Populated on mode change
+            state="readonly",
+            width=30
+        )
+        self.playground_endpoint_combo.grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
+        self.playground_endpoint_combo.bind('<<ComboboxSelected>>', self._on_playground_endpoint_change)
+        
+        # Language input for {lang} placeholder
+        tk.Label(self.endpoint_config_frame, text="Language (for {lang}):", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).grid(
+                row=2, column=0, sticky=tk.W, pady=(0, 5))
+        
+        self.playground_lang_var = tk.StringVar(master=self.root, value="English")
+        lang_entry = tk.Entry(
+            self.endpoint_config_frame,
+            textvariable=self.playground_lang_var,
+            font=("Segoe UI", 10),
+            bg=self.colors.input_bg, fg=self.colors.fg,
+            insertbackground=self.colors.fg,
+            relief=tk.FLAT, highlightbackground=self.colors.border,
+            highlightthickness=1, width=20
+        )
+        lang_entry.grid(row=3, column=0, sticky=tk.W, pady=(0, 10), ipady=4)
+        lang_entry.bind('<KeyRelease>', lambda e: self._update_playground_preview())
+        
+        # ===== Image Selection for Endpoints =====
+        tk.Label(self.endpoint_config_frame, text="🖼️ Test Image:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).grid(
+                row=4, column=0, sticky=tk.W, pady=(10, 5))
+        
+        # Image container with border
+        self.image_container_frame = tk.Frame(
+            self.endpoint_config_frame,
+            bg=self.colors.surface0,
+            highlightbackground=self.colors.border,
+            highlightthickness=1
+        )
+        self.image_container_frame.grid(row=5, column=0, sticky=tk.EW, pady=(0, 10))
+        self.endpoint_config_frame.columnconfigure(0, weight=1)
+        
+        # Drop zone / preview area
+        self.image_drop_zone = tk.Label(
+            self.image_container_frame,
+            text="📁 Click 'Select Image' or drag & drop an image file here\n(Endpoints require an image for testing)",
+            font=("Segoe UI", 9),
+            bg=self.colors.surface0,
+            fg=self.colors.blockquote,
+            height=4,
+            justify=tk.CENTER,
+            cursor="hand2"
+        )
+        self.image_drop_zone.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.image_drop_zone.bind('<Button-1>', lambda e: self._select_playground_image())
+        
+        # Image preview frame (hidden initially)
+        self.image_preview_frame = tk.Frame(self.image_container_frame, bg=self.colors.surface0)
+        
+        self.image_preview_label = tk.Label(
+            self.image_preview_frame,
+            bg=self.colors.surface0,
+            text=""
+        )
+        self.image_preview_label.pack(side=tk.LEFT, padx=(10, 5), pady=5)
+        
+        self.image_info_frame = tk.Frame(self.image_preview_frame, bg=self.colors.surface0)
+        self.image_info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.image_name_label = tk.Label(
+            self.image_info_frame,
+            text="",
+            font=("Segoe UI", 9, "bold"),
+            bg=self.colors.surface0,
+            fg=self.colors.fg,
+            anchor=tk.W
+        )
+        self.image_name_label.pack(fill=tk.X)
+        
+        self.image_size_label = tk.Label(
+            self.image_info_frame,
+            text="",
+            font=("Segoe UI", 8),
+            bg=self.colors.surface0,
+            fg=self.colors.blockquote,
+            anchor=tk.W
+        )
+        self.image_size_label.pack(fill=tk.X)
+        
+        # Image action buttons
+        image_btn_frame = tk.Frame(self.endpoint_config_frame, bg=self.colors.bg)
+        image_btn_frame.grid(row=6, column=0, sticky=tk.W, pady=(0, 10))
+        
+        tk.Button(image_btn_frame, text="📁 Select Image", font=("Segoe UI", 9),
+                 bg=self.colors.surface1, fg=self.colors.fg,
+                 relief=tk.FLAT, padx=10, pady=3,
+                 command=self._select_playground_image).pack(side=tk.LEFT, padx=(0, 5))
+        
+        tk.Button(image_btn_frame, text="📋 Paste", font=("Segoe UI", 9),
+                 bg=self.colors.surface1, fg=self.colors.fg,
+                 relief=tk.FLAT, padx=10, pady=3,
+                 command=self._paste_playground_image).pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.clear_image_btn = tk.Button(image_btn_frame, text="🗑️ Clear", font=("Segoe UI", 9),
+                 bg=self.colors.accent_red, fg="#ffffff",
+                 relief=tk.FLAT, padx=10, pady=3,
+                 command=self._clear_playground_image, state=tk.DISABLED)
+        self.clear_image_btn.pack(side=tk.LEFT)
+        
+        row += 1
+        
+        # ===== Sample Text (Action Mode Only) =====
+        # Container frame for sample text section - hidden in endpoint mode
+        self.sample_text_container = tk.Frame(left_panel, bg=self.colors.bg)
+        self.sample_text_container.grid(row=row, column=0, sticky=tk.NSEW)
+        self.sample_text_container.columnconfigure(0, weight=1)
+        self.sample_text_container.rowconfigure(1, weight=1)
+        left_panel.rowconfigure(row, weight=1)
+        
+        tk.Label(self.sample_text_container, text="📄 Sample Text:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).grid(
+                row=0, column=0, sticky=tk.W, pady=(10, 5))
+        
+        sample_frame = tk.Frame(self.sample_text_container, bg=self.colors.bg)
+        sample_frame.grid(row=1, column=0, sticky=tk.NSEW, pady=(0, 10))
+        sample_frame.rowconfigure(0, weight=1)
+        sample_frame.columnconfigure(0, weight=1)
+        
+        self.playground_sample_text = tk.Text(
+            sample_frame,
+            font=("Segoe UI", 10),
+            height=6,
+            bg=self.colors.input_bg,
+            fg=self.colors.fg,
+            insertbackground=self.colors.fg,
+            relief=tk.FLAT,
+            highlightbackground=self.colors.border,
+            highlightthickness=1,
+            wrap=tk.WORD
+        )
+        self.playground_sample_text.grid(row=0, column=0, sticky=tk.NSEW)
+        self.playground_sample_text.insert("1.0", "The quick brown fox jumps over the lazy dog. This is sample text for testing prompts.")
+        self.playground_sample_text.bind('<KeyRelease>', lambda e: self._update_playground_preview())
+        
+        sample_scroll = ttk.Scrollbar(sample_frame, orient=tk.VERTICAL,
+                                     command=self.playground_sample_text.yview)
+        sample_scroll.grid(row=0, column=1, sticky=tk.NS)
+        self.playground_sample_text.configure(yscrollcommand=sample_scroll.set)
+        row += 1
+        
+        # Provider/Model Selection
+        tk.Label(left_panel, text="⚙️ API Settings:", font=("Segoe UI", 10),
+                bg=self.colors.bg, fg=self.colors.fg).grid(
+                row=row, column=0, sticky=tk.W, pady=(10, 5))
+        row += 1
+        
+        api_frame = tk.Frame(left_panel, bg=self.colors.bg)
+        api_frame.grid(row=row, column=0, sticky=tk.W, pady=(0, 10))
+        
+        tk.Label(api_frame, text="Provider:", font=("Segoe UI", 9),
+                bg=self.colors.bg, fg=self.colors.fg).pack(side=tk.LEFT)
+        
+        self.playground_provider_var = tk.StringVar(master=self.root, value="google")
+        provider_combo = ttk.Combobox(
+            api_frame,
+            textvariable=self.playground_provider_var,
+            values=["google", "openrouter", "custom"],
+            state="readonly",
+            width=12
+        )
+        provider_combo.pack(side=tk.LEFT, padx=(5, 15))
+        provider_combo.bind('<<ComboboxSelected>>', self._on_playground_provider_change)
+        
+        tk.Label(api_frame, text="Model:", font=("Segoe UI", 9),
+                bg=self.colors.bg, fg=self.colors.fg).pack(side=tk.LEFT)
+        
+        self.playground_model_var = tk.StringVar(master=self.root)
+        self.playground_model_entry = tk.Entry(
+            api_frame,
+            textvariable=self.playground_model_var,
+            font=("Segoe UI", 9),
+            width=25,
+            bg=self.colors.input_bg, fg=self.colors.fg,
+            insertbackground=self.colors.fg,
+            relief=tk.FLAT, highlightbackground=self.colors.border,
+            highlightthickness=1
+        )
+        self.playground_model_entry.pack(side=tk.LEFT, padx=(5, 0), ipady=2)
+        
+        # Load current config to set defaults
+        try:
+            from ..config import load_config
+            config, _, _, _ = load_config()
+            default_provider = config.get("default_provider", "google")
+            self.playground_provider_var.set(default_provider)
+            default_model = config.get(f"{default_provider}_model", "")
+            self.playground_model_var.set(default_model)
+        except:
+            pass
+        
+        row += 1
+        
+        # Test with API button
+        btn_frame = tk.Frame(left_panel, bg=self.colors.bg)
+        btn_frame.grid(row=row, column=0, sticky=tk.W, pady=(10, 0))
+        
+        tk.Button(btn_frame, text="🧪 Test with API", font=("Segoe UI", 10),
+                 bg=self.colors.accent, fg="#ffffff",
+                 relief=tk.FLAT, padx=15, pady=5,
+                 command=self._test_playground_with_api).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.playground_test_status = tk.Label(btn_frame, text="", font=("Segoe UI", 9),
+                                              bg=self.colors.bg, fg=self.colors.fg)
+        self.playground_test_status.pack(side=tk.LEFT)
+        
+        # ===== Right Panel: Live Preview =====
+        right_panel = tk.Frame(frame, bg=self.colors.bg)
+        right_panel.grid(row=0, column=1, sticky=tk.NSEW, padx=(10, 15), pady=15)
+        right_panel.columnconfigure(0, weight=1)
+        right_panel.rowconfigure(1, weight=1)
+        right_panel.rowconfigure(3, weight=1)
+        
+        # System Prompt Preview
+        sys_header = tk.Frame(right_panel, bg=self.colors.bg)
+        sys_header.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
+        
+        tk.Label(sys_header, text="📝 System Prompt", font=("Segoe UI", 11, "bold"),
+                bg=self.colors.bg, fg=self.colors.accent).pack(side=tk.LEFT)
+        
+        tk.Button(sys_header, text="📋 Copy", font=("Segoe UI", 9),
+                 bg=self.colors.surface1, fg=self.colors.fg,
+                 relief=tk.FLAT, padx=8, pady=2,
+                 command=lambda: self._copy_preview("system")).pack(side=tk.RIGHT)
+        
+        sys_frame = tk.Frame(right_panel, bg=self.colors.bg)
+        sys_frame.grid(row=1, column=0, sticky=tk.NSEW, pady=(0, 10))
+        sys_frame.rowconfigure(0, weight=1)
+        sys_frame.columnconfigure(0, weight=1)
+        
+        self.playground_system_preview = tk.Text(
+            sys_frame,
+            font=("Consolas", 9),
+            bg=self.colors.surface0,
+            fg=self.colors.fg,
+            relief=tk.FLAT,
+            highlightbackground=self.colors.border,
+            highlightthickness=1,
+            wrap=tk.WORD,
+            state=tk.DISABLED
+        )
+        self.playground_system_preview.grid(row=0, column=0, sticky=tk.NSEW)
+        
+        # Configure tags for highlighting
+        self.playground_system_preview.tag_configure("modifier", foreground=self.colors.accent_green)
+        self.playground_system_preview.tag_configure("xml", foreground=self.colors.lavender)
+        
+        sys_scroll = ttk.Scrollbar(sys_frame, orient=tk.VERTICAL,
+                                  command=self.playground_system_preview.yview)
+        sys_scroll.grid(row=0, column=1, sticky=tk.NS)
+        self.playground_system_preview.configure(yscrollcommand=sys_scroll.set)
+        
+        # User Message Preview
+        user_header = tk.Frame(right_panel, bg=self.colors.bg)
+        user_header.grid(row=2, column=0, sticky=tk.EW, pady=(0, 5))
+        
+        tk.Label(user_header, text="💬 User Message", font=("Segoe UI", 11, "bold"),
+                bg=self.colors.bg, fg=self.colors.accent).pack(side=tk.LEFT)
+        
+        tk.Button(user_header, text="📋 Copy", font=("Segoe UI", 9),
+                 bg=self.colors.surface1, fg=self.colors.fg,
+                 relief=tk.FLAT, padx=8, pady=2,
+                 command=lambda: self._copy_preview("user")).pack(side=tk.RIGHT)
+        
+        user_frame = tk.Frame(right_panel, bg=self.colors.bg)
+        user_frame.grid(row=3, column=0, sticky=tk.NSEW, pady=(0, 10))
+        user_frame.rowconfigure(0, weight=1)
+        user_frame.columnconfigure(0, weight=1)
+        
+        self.playground_user_preview = tk.Text(
+            user_frame,
+            font=("Consolas", 9),
+            bg=self.colors.surface0,
+            fg=self.colors.fg,
+            relief=tk.FLAT,
+            highlightbackground=self.colors.border,
+            highlightthickness=1,
+            wrap=tk.WORD,
+            state=tk.DISABLED
+        )
+        self.playground_user_preview.grid(row=0, column=0, sticky=tk.NSEW)
+        
+        # Configure tags for highlighting
+        self.playground_user_preview.tag_configure("delimiter", foreground=self.colors.accent_yellow)
+        self.playground_user_preview.tag_configure("xml", foreground=self.colors.lavender)
+        self.playground_user_preview.tag_configure("sample", foreground=self.colors.accent_green)
+        
+        user_scroll = ttk.Scrollbar(user_frame, orient=tk.VERTICAL,
+                                   command=self.playground_user_preview.yview)
+        user_scroll.grid(row=0, column=1, sticky=tk.NS)
+        self.playground_user_preview.configure(yscrollcommand=user_scroll.set)
+        
+        # Metadata footer
+        meta_frame = tk.Frame(right_panel, bg=self.colors.bg)
+        meta_frame.grid(row=4, column=0, sticky=tk.EW, pady=(0, 5))
+        
+        self.playground_meta_label = tk.Label(
+            meta_frame,
+            text="📊 Tokens: ~0 | Type: edit | Mode: Replace",
+            font=("Segoe UI", 9),
+            bg=self.colors.bg,
+            fg=self.colors.blockquote
+        )
+        self.playground_meta_label.pack(side=tk.LEFT)
+        
+        # Initial preview update
+        self.root.after(100, self._update_playground_preview)
+    
+    def _on_playground_mode_change(self):
+        """Handle mode switch between action and endpoint."""
+        mode = self.playground_mode_var.get()
+        
+        if mode == "action":
+            self.action_config_frame.grid()
+            self.endpoint_config_frame.grid_remove()
+            # Show sample text for action mode
+            self.sample_text_container.grid()
+        else:
+            self.action_config_frame.grid_remove()
+            self.endpoint_config_frame.grid()
+            # Hide sample text for endpoint mode (uses images instead)
+            self.sample_text_container.grid_remove()
+            # Populate endpoints from web_server
+            self._populate_endpoint_list()
+        
+        self._update_playground_preview()
+    
+    def _populate_endpoint_list(self):
+        """Populate endpoint dropdown from web_server.ENDPOINTS."""
+        try:
+            from ..web_server import ENDPOINTS
+            endpoint_names = list(ENDPOINTS.keys())
+            self.playground_endpoint_combo['values'] = endpoint_names
+            if endpoint_names:
+                self.playground_endpoint_combo.current(0)
+        except Exception as e:
+            print(f"[Playground] Could not load endpoints: {e}")
+    
+    def _on_playground_action_change(self, event=None):
+        """Handle action selection change."""
+        action_name = self.playground_action_var.get()
+        
+        # Show/hide custom input based on action
+        if action_name in ("_Custom", "_Ask"):
+            self.custom_input_frame.grid()
+        else:
+            self.custom_input_frame.grid_remove()
+        
+        self._update_playground_preview()
+    
+    def _on_playground_endpoint_change(self, event=None):
+        """Handle endpoint selection change."""
+        self._update_playground_preview()
+    
+    def _on_playground_provider_change(self, event=None):
+        """Handle provider selection change - update model field."""
+        try:
+            from ..config import load_config
+            config, _, _, _ = load_config()
+            provider = self.playground_provider_var.get()
+            model = config.get(f"{provider}_model", "")
+            self.playground_model_var.set(model)
+        except:
+            pass
+    
+    def _update_playground_preview(self):
+        """Update the live preview based on current configuration."""
+        mode = self.playground_mode_var.get()
+        
+        if mode == "action":
+            self._update_action_preview()
+        else:
+            self._update_endpoint_preview()
+    
+    def _update_action_preview(self):
+        """Update preview for TextEditTool action mode."""
+        action_name = self.playground_action_var.get()
+        if not action_name:
+            return
+        
+        action_data = self.options_data.get(action_name, {})
+        settings = self.options_data.get("_settings", {})
+        
+        # Get active modifiers
+        active_modifiers = [key for key, var in self.playground_modifier_vars.items() if var.get()]
+        modifier_defs = settings.get("modifiers", [])
+        
+        # Build system prompt with modifier injections
+        system_prompt = action_data.get("system_prompt", action_data.get("instruction", ""))
+        modifier_injections = ""
+        
+        for mod in modifier_defs:
+            if mod.get("key") in active_modifiers:
+                injection = mod.get("injection", "")
+                if injection:
+                    modifier_injections += "\n\n" + injection
+        
+        full_system = system_prompt + modifier_injections
+        
+        # Build user message
+        task = action_data.get("task", action_data.get("prefix", ""))
+        custom_input = self.playground_custom_var.get()
+        
+        # Handle _Custom and _Ask actions
+        if action_name == "_Custom" and custom_input:
+            template = settings.get("custom_task_template", "Apply this change to the text: {custom_input}")
+            task = template.format(custom_input=custom_input)
+        elif action_name == "_Ask" and custom_input:
+            template = settings.get("ask_task_template", "Regarding the text below, {custom_input}")
+            task = template.format(custom_input=custom_input)
+        
+        # Get prompt type and output rules
+        prompt_type = action_data.get("prompt_type", "edit")
+        if prompt_type == "general":
+            output_rules = settings.get("base_output_rules_general", "")
+        else:
+            output_rules = settings.get("base_output_rules", "")
+        
+        # Get delimiters
+        text_delimiter = settings.get("text_delimiter", "\n\n<text_to_process>\n")
+        text_delimiter_close = settings.get("text_delimiter_close", "\n</text_to_process>")
+        
+        # Get sample text
+        sample_text = self.playground_sample_text.get("1.0", tk.END).strip()
+        
+        # Build user message
+        user_parts = []
+        if task:
+            user_parts.append(task)
+        if output_rules:
+            user_parts.append(output_rules)
+        
+        user_message = "\n\n".join(user_parts)
+        user_message += text_delimiter + sample_text + text_delimiter_close
+        
+        # Update previews
+        self._set_preview_text(self.playground_system_preview, full_system, "system")
+        self._set_preview_text(self.playground_user_preview, user_message, "user")
+        
+        # Update metadata
+        total_chars = len(full_system) + len(user_message)
+        token_estimate = total_chars // 4
+        show_chat = action_data.get("show_chat_window_instead_of_replace", False)
+        response_mode = "Chat Window" if show_chat else "Replace"
+        
+        self.playground_meta_label.config(
+            text=f"📊 Tokens: ~{token_estimate} | Type: {prompt_type} | Mode: {response_mode}"
+        )
+    
+    def _update_endpoint_preview(self):
+        """Update preview for endpoint mode."""
+        endpoint_name = self.playground_endpoint_var.get()
+        if not endpoint_name:
+            return
+        
+        try:
+            from ..web_server import ENDPOINTS
+            prompt_template = ENDPOINTS.get(endpoint_name, "")
+        except:
+            prompt_template = "(Could not load endpoint)"
+        
+        # Substitute {lang} placeholder
+        lang = self.playground_lang_var.get() or "English"
+        prompt = prompt_template.replace("{lang}", lang)
+        
+        # For endpoints, there's no system prompt - just the user message
+        self._set_preview_text(self.playground_system_preview, "(Endpoints use direct prompts without system message)", "system")
+        self._set_preview_text(self.playground_user_preview, prompt, "user")
+        
+        # Update metadata with image info
+        token_estimate = len(prompt) // 4
+        image_info = ""
+        if self.playground_image_base64:
+            image_info = f" | 🖼️ {self.playground_image_name}"
+        else:
+            image_info = " | ⚠️ No image"
+        
+        self.playground_meta_label.config(
+            text=f"📊 Tokens: ~{token_estimate} | Endpoint: {endpoint_name}{image_info}"
+        )
+    
+    def _select_playground_image(self):
+        """Open file dialog to select an image for playground testing."""
+        filetypes = [
+            ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+            ("PNG", "*.png"),
+            ("JPEG", "*.jpg *.jpeg"),
+            ("All files", "*.*")
+        ]
+        
+        filepath = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select Test Image",
+            filetypes=filetypes
+        )
+        
+        if filepath:
+            self._load_playground_image(filepath)
+    
+    def _paste_playground_image(self):
+        """Paste image from clipboard."""
+        try:
+            # Try to get image from clipboard using Pillow
+            from PIL import Image, ImageGrab
+            import io
+            
+            img = ImageGrab.grabclipboard()
+            if img is None:
+                self.playground_test_status.config(
+                    text="❌ No image in clipboard",
+                    fg=self.colors.accent_red
+                )
+                self.root.after(2000, lambda: self.playground_test_status.config(text=""))
+                return
+            
+            if isinstance(img, Image.Image):
+                # Convert to bytes
+                buffer = io.BytesIO()
+                img.save(buffer, format="PNG")
+                image_bytes = buffer.getvalue()
+                
+                self.playground_image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                self.playground_image_mime = "image/png"
+                self.playground_image_name = "clipboard_image.png"
+                
+                # Show preview
+                self._show_image_preview(img)
+                
+                self.playground_test_status.config(
+                    text="✅ Image pasted from clipboard",
+                    fg=self.colors.accent_green
+                )
+                self.root.after(2000, lambda: self.playground_test_status.config(text=""))
+                self._update_playground_preview()
+            else:
+                self.playground_test_status.config(
+                    text="❌ Clipboard content is not an image",
+                    fg=self.colors.accent_red
+                )
+                self.root.after(2000, lambda: self.playground_test_status.config(text=""))
+                
+        except ImportError:
+            self.playground_test_status.config(
+                text="❌ Pillow not installed for clipboard paste",
+                fg=self.colors.accent_red
+            )
+            self.root.after(2000, lambda: self.playground_test_status.config(text=""))
+        except Exception as e:
+            self.playground_test_status.config(
+                text=f"❌ Paste failed: {e}",
+                fg=self.colors.accent_red
+            )
+            self.root.after(2000, lambda: self.playground_test_status.config(text=""))
+    
+    def _load_playground_image(self, filepath: str):
+        """Load an image file for playground testing."""
+        try:
+            with open(filepath, 'rb') as f:
+                image_bytes = f.read()
+            
+            # Determine MIME type from extension
+            ext = Path(filepath).suffix.lower()
+            mime_map = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.bmp': 'image/bmp',
+                '.webp': 'image/webp'
+            }
+            mime_type = mime_map.get(ext, 'image/png')
+            
+            self.playground_image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            self.playground_image_mime = mime_type
+            self.playground_image_name = Path(filepath).name
+            
+            # Load image for preview
+            try:
+                from PIL import Image
+                img = Image.open(filepath)
+                self._show_image_preview(img)
+            except ImportError:
+                # Show text-only preview if Pillow not available
+                self._show_image_preview_text_only(filepath, len(image_bytes))
+            
+            self._update_playground_preview()
+            
+        except Exception as e:
+            self.playground_test_status.config(
+                text=f"❌ Failed to load image: {e}",
+                fg=self.colors.accent_red
+            )
+            self.root.after(2000, lambda: self.playground_test_status.config(text=""))
+    
+    def _show_image_preview(self, pil_image):
+        """Show image preview with thumbnail."""
+        try:
+            from PIL import Image, ImageTk
+            
+            # Create thumbnail
+            thumb_size = (80, 80)
+            img_copy = pil_image.copy()
+            img_copy.thumbnail(thumb_size, Image.Resampling.LANCZOS)
+            
+            # Convert to PhotoImage
+            photo = ImageTk.PhotoImage(img_copy)
+            
+            # Store reference to prevent garbage collection
+            self.image_preview_label.photo = photo
+            self.image_preview_label.config(image=photo)
+            
+            # Update labels
+            self.image_name_label.config(text=self.playground_image_name)
+            file_size = len(base64.b64decode(self.playground_image_base64))
+            size_str = f"{file_size / 1024:.1f} KB" if file_size < 1024*1024 else f"{file_size / (1024*1024):.1f} MB"
+            self.image_size_label.config(text=f"{pil_image.width}×{pil_image.height} | {size_str} | {self.playground_image_mime}")
+            
+            # Show preview frame, hide drop zone
+            self.image_drop_zone.pack_forget()
+            self.image_preview_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Enable clear button
+            self.clear_image_btn.config(state=tk.NORMAL)
+            
+        except Exception as e:
+            print(f"[Playground] Image preview error: {e}")
+            self._show_image_preview_text_only(self.playground_image_name, len(base64.b64decode(self.playground_image_base64)))
+    
+    def _show_image_preview_text_only(self, filename: str, file_size: int):
+        """Show text-only image info when Pillow is not available."""
+        self.image_preview_label.config(text="🖼️", font=("Segoe UI", 24))
+        self.image_name_label.config(text=filename)
+        size_str = f"{file_size / 1024:.1f} KB" if file_size < 1024*1024 else f"{file_size / (1024*1024):.1f} MB"
+        self.image_size_label.config(text=f"{size_str} | {self.playground_image_mime}")
+        
+        # Show preview frame, hide drop zone
+        self.image_drop_zone.pack_forget()
+        self.image_preview_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Enable clear button
+        self.clear_image_btn.config(state=tk.NORMAL)
+    
+    def _clear_playground_image(self):
+        """Clear the selected playground image."""
+        self.playground_image_base64 = None
+        self.playground_image_mime = None
+        self.playground_image_name = None
+        
+        # Reset preview
+        self.image_preview_label.config(image='', text='')
+        self.image_preview_label.photo = None
+        self.image_name_label.config(text='')
+        self.image_size_label.config(text='')
+        
+        # Show drop zone, hide preview
+        self.image_preview_frame.pack_forget()
+        self.image_drop_zone.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Disable clear button
+        self.clear_image_btn.config(state=tk.DISABLED)
+        
+        self._update_playground_preview()
+    
+    def _set_preview_text(self, widget: tk.Text, text: str, preview_type: str):
+        """Set preview text with highlighting."""
+        widget.config(state=tk.NORMAL)
+        widget.delete("1.0", tk.END)
+        widget.insert("1.0", text)
+        
+        # Apply highlighting
+        if preview_type == "system":
+            # Highlight modifier injections
+            self._highlight_pattern(widget, r"<modifier_\w+>.*?</modifier_\w+>", "modifier")
+        elif preview_type == "user":
+            # Highlight delimiters
+            self._highlight_pattern(widget, r"<text_to_process>", "delimiter")
+            self._highlight_pattern(widget, r"</text_to_process>", "delimiter")
+            self._highlight_pattern(widget, r"<output_rules>.*?</output_rules>", "xml")
+        
+        widget.config(state=tk.DISABLED)
+    
+    def _highlight_pattern(self, widget: tk.Text, pattern: str, tag: str):
+        """Apply tag to all matches of pattern in text widget."""
+        import re
+        content = widget.get("1.0", tk.END)
+        for match in re.finditer(pattern, content, re.DOTALL):
+            start_idx = f"1.0+{match.start()}c"
+            end_idx = f"1.0+{match.end()}c"
+            widget.tag_add(tag, start_idx, end_idx)
+    
+    def _copy_preview(self, preview_type: str):
+        """Copy preview content to clipboard."""
+        if preview_type == "system":
+            widget = self.playground_system_preview
+        else:
+            widget = self.playground_user_preview
+        
+        content = widget.get("1.0", tk.END).strip()
+        try:
+            pyperclip.copy(content)
+            self.playground_test_status.config(text="✅ Copied!", fg=self.colors.accent_green)
+            self.root.after(2000, lambda: self.playground_test_status.config(text=""))
+        except Exception as e:
+            self.playground_test_status.config(text=f"❌ Copy failed: {e}", fg=self.colors.accent_red)
+    
+    def _test_playground_with_api(self):
+        """Send the current prompt to the API for testing."""
+        mode = self.playground_mode_var.get()
+        
+        self.playground_test_status.config(text="⏳ Sending request...", fg=self.colors.fg)
+        self.root.update()
+        
+        # Run synchronously since we're already in a separate Tk thread
+        # Using threading here causes issues with tk.after() across threads
+        try:
+            if mode == "action":
+                result, error = self._test_action_prompt()
+            else:
+                result, error = self._test_endpoint_prompt()
+            
+            self._show_test_result(result, error)
+        except Exception as e:
+            self.playground_test_status.config(
+                text=f"❌ Error: {e}", fg=self.colors.accent_red
+            )
+    
+    def _test_action_prompt(self):
+        """Test an action prompt with the API."""
+        from ..api_client import call_api_with_retry
+        from ..config import load_config
+        
+        # Load current config
+        config, ai_params_loaded, endpoints, loaded_keys = load_config()
+        
+        # Build key managers from loaded keys
+        from ..key_manager import KeyManager
+        key_managers = {}
+        for provider in ["custom", "openrouter", "google"]:
+            key_managers[provider] = KeyManager(loaded_keys.get(provider, []), provider)
+        
+        # Build messages
+        action_name = self.playground_action_var.get()
+        action_data = self.options_data.get(action_name, {})
+        settings = self.options_data.get("_settings", {})
+        
+        # Get active modifiers
+        active_modifiers = [key for key, var in self.playground_modifier_vars.items() if var.get()]
+        modifier_defs = settings.get("modifiers", [])
+        
+        # Build system prompt
+        system_prompt = action_data.get("system_prompt", action_data.get("instruction", ""))
+        for mod in modifier_defs:
+            if mod.get("key") in active_modifiers:
+                injection = mod.get("injection", "")
+                if injection:
+                    system_prompt += "\n\n" + injection
+        
+        # Build task
+        task = action_data.get("task", action_data.get("prefix", ""))
+        custom_input = self.playground_custom_var.get()
+        
+        if action_name == "_Custom" and custom_input:
+            template = settings.get("custom_task_template", "Apply this change to the text: {custom_input}")
+            task = template.format(custom_input=custom_input)
+        elif action_name == "_Ask" and custom_input:
+            template = settings.get("ask_task_template", "Regarding the text below, {custom_input}")
+            task = template.format(custom_input=custom_input)
+        
+        # Get output rules
+        prompt_type = action_data.get("prompt_type", "edit")
+        if prompt_type == "general":
+            output_rules = settings.get("base_output_rules_general", "")
+        else:
+            output_rules = settings.get("base_output_rules", "")
+        
+        # Get delimiters and sample text
+        text_delimiter = settings.get("text_delimiter", "\n\n<text_to_process>\n")
+        text_delimiter_close = settings.get("text_delimiter_close", "\n</text_to_process>")
+        sample_text = self.playground_sample_text.get("1.0", tk.END).strip()
+        
+        # Build user message
+        user_parts = []
+        if task:
+            user_parts.append(task)
+        if output_rules:
+            user_parts.append(output_rules)
+        
+        user_message = "\n\n".join(user_parts)
+        user_message += text_delimiter + sample_text + text_delimiter_close
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+        
+        # Use AI params from config loading
+        ai_params = {k: v for k, v in ai_params_loaded.items() if v is not None}
+        
+        # Get provider and model from playground settings
+        provider = self.playground_provider_var.get()
+        model = self.playground_model_var.get() or None
+        
+        return call_api_with_retry(provider, messages, model, config, ai_params, key_managers)
+    
+    def _test_endpoint_prompt(self):
+        """Test an endpoint prompt with image support."""
+        from ..api_client import call_api_with_retry
+        from ..config import load_config
+        from ..web_server import ENDPOINTS
+        
+        # Check if image is provided
+        if not self.playground_image_base64:
+            return None, "No image selected. Endpoints require an image for testing. Please select an image first."
+        
+        # Load current config
+        config, ai_params_loaded, endpoints_loaded, keys = load_config()
+        
+        # Build key managers
+        from ..key_manager import KeyManager
+        key_managers = {}
+        for provider in ["custom", "openrouter", "google"]:
+            key_managers[provider] = KeyManager(keys.get(provider, []), provider)
+        
+        # Get endpoint prompt
+        endpoint_name = self.playground_endpoint_var.get()
+        prompt_template = ENDPOINTS.get(endpoint_name, "")
+        
+        # Substitute {lang}
+        lang = self.playground_lang_var.get() or "English"
+        prompt = prompt_template.replace("{lang}", lang)
+        
+        # Build message with image (same format as web_server.py)
+        data_url = f"data:{self.playground_image_mime};base64,{self.playground_image_base64}"
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": prompt}
+            ]
+        }]
+        
+        # Use AI params from config loading
+        ai_params = {k: v for k, v in ai_params_loaded.items() if v is not None}
+        
+        # Get provider and model from playground settings
+        provider = self.playground_provider_var.get()
+        model = self.playground_model_var.get() or None
+        
+        return call_api_with_retry(provider, messages, model, config, ai_params, key_managers)
+    
+    def _show_test_result(self, result: Optional[str], error: Optional[str]):
+        """Show API test result in a popup."""
+        if error:
+            self.playground_test_status.config(text=f"❌ {error[:50]}...", fg=self.colors.accent_red)
+            messagebox.showerror("API Test Error", error, parent=self.root)
+        else:
+            self.playground_test_status.config(text="✅ Success!", fg=self.colors.accent_green)
+            
+            # Show result in a new window
+            result_window = tk.Toplevel(self.root)
+            result_window.title("API Test Result")
+            result_window.geometry("600x400")
+            result_window.configure(bg=self.colors.bg)
+            result_window.transient(self.root)
+            
+            tk.Label(result_window, text="📤 API Response:", font=("Segoe UI", 11, "bold"),
+                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor=tk.W, padx=15, pady=(15, 10))
+            
+            text_frame = tk.Frame(result_window, bg=self.colors.bg)
+            text_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
+            
+            result_text = tk.Text(
+                text_frame,
+                font=("Consolas", 10),
+                bg=self.colors.surface0,
+                fg=self.colors.fg,
+                relief=tk.FLAT,
+                highlightbackground=self.colors.border,
+                highlightthickness=1,
+                wrap=tk.WORD
+            )
+            result_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            result_text.insert("1.0", result or "(empty response)")
+            result_text.config(state=tk.DISABLED)
+            
+            scroll = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=result_text.yview)
+            scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            result_text.configure(yscrollcommand=scroll.set)
+            
+            btn_frame = tk.Frame(result_window, bg=self.colors.bg)
+            btn_frame.pack(fill=tk.X, padx=15, pady=(0, 15))
+            
+            def copy_result():
+                try:
+                    pyperclip.copy(result or "")
+                except:
+                    pass
+            
+            tk.Button(btn_frame, text="📋 Copy", font=("Segoe UI", 10),
+                     bg=self.colors.surface1, fg=self.colors.fg,
+                     relief=tk.FLAT, padx=15, pady=5,
+                     command=copy_result).pack(side=tk.LEFT, padx=(0, 10))
+            
+            tk.Button(btn_frame, text="Close", font=("Segoe UI", 10),
+                     bg=self.colors.accent, fg="#ffffff",
+                     relief=tk.FLAT, padx=15, pady=5,
+                     command=result_window.destroy).pack(side=tk.LEFT)
+        
+        self.root.after(3000, lambda: self.playground_test_status.config(text=""))
     
     # Event handlers
     
