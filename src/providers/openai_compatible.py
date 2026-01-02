@@ -184,10 +184,14 @@ class OpenAICompatibleProvider(BaseProvider):
             "messages": messages
         }
         
-        # Streaming configuration
+        # Streaming configuration - MUST explicitly set stream to false
+        # because some servers default to streaming
+        # unless stream is explicitly set to false
         if streaming:
             body["stream"] = True
             body["stream_options"] = {"include_usage": True}
+        else:
+            body["stream"] = False
         
         # Copy generation parameters
         for key, value in params.items():
@@ -310,6 +314,7 @@ class OpenAICompatibleProvider(BaseProvider):
             # Process streaming response
             response.encoding = 'utf-8'
             
+            chunk_count = 0
             for line in response.iter_lines(decode_unicode=True):
                 if not line:
                     continue
@@ -321,16 +326,42 @@ class OpenAICompatibleProvider(BaseProvider):
                     break
                 
                 if not line.startswith("data: "):
+                    # Log unexpected line format for debugging
+                    if line:
+                        self.log("debug", f"Unexpected line format: {line[:100]}")
                     continue
                 
                 try:
-                    data = json.loads(line[6:])
+                    json_str = line[6:]
+                    data = json.loads(json_str)
+                    chunk_count += 1
                     
                     # Get choices array - may be empty in usage-only chunks
                     choices = data.get("choices", [])
                     if choices:
                         choice = choices[0]
-                        delta = choice.get("delta", {})
+                        
+                        # Defensive check: ensure choice is not None
+                        if choice is None:
+                            self.log("warn", f"Chunk {chunk_count}: choices[0] is None, raw: {json_str[:200]}")
+                            continue
+                        
+                        # Defensive check: ensure choice is a dict
+                        if not isinstance(choice, dict):
+                            self.log("warn", f"Chunk {chunk_count}: choice is not dict: {type(choice)}, raw: {json_str[:200]}")
+                            continue
+                        
+                        delta = choice.get("delta")
+                        
+                        # Defensive check: ensure delta is not None
+                        if delta is None:
+                            # Some servers send delta: null, use empty dict
+                            delta = {}
+                        
+                        # Defensive check: ensure delta is a dict
+                        if not isinstance(delta, dict):
+                            self.log("warn", f"Chunk {chunk_count}: delta is not dict: {type(delta)}, raw: {json_str[:200]}")
+                            continue
                         
                         # Handle regular content
                         content = delta.get("content", "")
@@ -344,6 +375,12 @@ class OpenAICompatibleProvider(BaseProvider):
                             accumulated_thinking += reasoning
                             callback(CallbackType.THINKING, reasoning)
                         
+                        # Also check for "reasoning" field (some servers use this)
+                        reasoning_alt = delta.get("reasoning", "")
+                        if reasoning_alt:
+                            accumulated_thinking += reasoning_alt
+                            callback(CallbackType.THINKING, reasoning_alt)
+                        
                         # Handle tool calls
                         tool_calls = delta.get("tool_calls")
                         if tool_calls:
@@ -354,14 +391,16 @@ class OpenAICompatibleProvider(BaseProvider):
                     # This may come in a chunk with empty choices array
                     if "usage" in data:
                         usage = data["usage"]
-                        usage_data = UsageData(
-                            prompt_tokens=usage.get("prompt_tokens", 0),
-                            completion_tokens=usage.get("completion_tokens", 0),
-                            total_tokens=usage.get("total_tokens", 0)
-                        )
-                        callback(CallbackType.USAGE, usage_data.to_dict())
+                        if usage and isinstance(usage, dict):
+                            usage_data = UsageData(
+                                prompt_tokens=usage.get("prompt_tokens", 0),
+                                completion_tokens=usage.get("completion_tokens", 0),
+                                total_tokens=usage.get("total_tokens", 0)
+                            )
+                            callback(CallbackType.USAGE, usage_data.to_dict())
                 
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    self.log("warn", f"Chunk {chunk_count}: JSON decode error: {e}, raw: {line[:200]}")
                     continue
             
             # Check for empty response
@@ -546,17 +585,52 @@ class OpenAICompatibleProvider(BaseProvider):
                     retry_count=retry_count
                 )
             
-            # Parse response
-            data = response.json()
-            choice = data.get("choices", [{}])[0]
-            message = choice.get("message", {})
+            # Parse response - with better error handling for malformed responses
+            response_text = response.text
             
-            content = message.get("content", "")
-            reasoning = message.get("reasoning_content", "")
-            tool_calls = message.get("tool_calls", [])
+            # Debug: log raw response if it looks problematic
+            if not response_text or not response_text.strip():
+                self.log_error(f"Empty response body (Content-Length: {response.headers.get('Content-Length', 'not set')})")
+                raise ValueError("Empty response body from server")
+            
+            try:
+                data = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                self.log_error(f"JSON decode error: {e}, raw response: {response_text[:500]}")
+                raise
+            
+            # Defensive parsing of choices
+            choices = data.get("choices", [])
+            if not choices:
+                self.log("warn", f"No choices in response: {json.dumps(data)[:500]}")
+                choice = {}
+            else:
+                choice = choices[0]
+                if choice is None:
+                    self.log("warn", f"choices[0] is None, full response: {json.dumps(data)[:500]}")
+                    choice = {}
+                elif not isinstance(choice, dict):
+                    self.log("warn", f"choice is not dict: {type(choice)}, raw: {json.dumps(data)[:500]}")
+                    choice = {}
+            
+            message = choice.get("message") if isinstance(choice, dict) else None
+            if message is None:
+                message = {}
+            elif not isinstance(message, dict):
+                self.log("warn", f"message is not dict: {type(message)}")
+                message = {}
+            
+            content = message.get("content", "") or ""
+            reasoning = message.get("reasoning_content", "") or ""
+            # Also check for "reasoning" field (some servers use this)
+            if not reasoning:
+                reasoning = message.get("reasoning", "") or ""
+            tool_calls = message.get("tool_calls", []) or []
             
             # Parse usage
-            usage = data.get("usage", {})
+            usage = data.get("usage")
+            if usage is None or not isinstance(usage, dict):
+                usage = {}
             usage_data = UsageData(
                 prompt_tokens=usage.get("prompt_tokens", 0),
                 completion_tokens=usage.get("completion_tokens", 0),
