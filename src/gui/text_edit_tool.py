@@ -547,9 +547,9 @@ class TextEditToolApp:
             elif response_mode == "replace":
                 show_gui = False
             else:  # "default"
-                # Check "Custom" option first
+                # Check "_Custom" option first
                 action_options = self._get_action_options()
-                custom_option = action_options.get("Custom", {})
+                custom_option = action_options.get("_Custom", {})
                 
                 if "show_chat_window_instead_of_replace" in custom_option:
                     show_gui = custom_option["show_chat_window_instead_of_replace"]

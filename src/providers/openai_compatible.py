@@ -73,10 +73,9 @@ class OpenAICompatibleProvider(BaseProvider):
             key_manager: Key manager for API key rotation
             config: Configuration dict with thinking settings etc.
         """
-        super().__init__(f"OpenAI-Compat/{endpoint_type}", key_manager)
+        super().__init__(f"OpenAI-Compat/{endpoint_type}", key_manager, config)
         self.endpoint_type = endpoint_type
         self.base_url = self._normalize_url(base_url)
-        self.config = config or {}
     
     def _normalize_url(self, url: str) -> str:
         """Normalize the base URL - strip trailing slash and /chat/completions"""

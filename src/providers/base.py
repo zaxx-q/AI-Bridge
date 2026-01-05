@@ -84,17 +84,23 @@ class BaseProvider(ABC):
     - 5xx Server Error: 2 second delay, then retry
     - Empty Response (0 tokens + no content): Key rotation, 2 second delay
     - Network Error: Key rotation, 1 second delay
+    
+    Configuration (from config dict):
+    - max_retries: Maximum number of retry attempts (default: 3)
+    - retry_delay: Delay between retries in seconds (default: 5, used for server errors)
     """
     
-    # Retry configuration
-    MAX_RETRIES = 3
-    RETRY_DELAY_SERVER_ERROR = 2.0  # seconds
-    RETRY_DELAY_EMPTY_RESPONSE = 2.0
-    RETRY_DELAY_NETWORK_ERROR = 1.0
+    # Default retry configuration (used when not specified in config)
+    DEFAULT_MAX_RETRIES = 3
+    DEFAULT_RETRY_DELAY = 5.0  # seconds - configurable from config.ini
+    RETRY_DELAY_RATE_LIMITED = 0.0  # Immediate retry with key rotation
+    RETRY_DELAY_AUTH_ERROR = 0.0  # Immediate retry with key rotation
+    RETRY_DELAY_NETWORK_ERROR = 1.0  # seconds
     
-    def __init__(self, name: str, key_manager=None):
+    def __init__(self, name: str, key_manager=None, config: Optional[Dict] = None):
         self.name = name
         self.key_manager = key_manager
+        self.config = config or {}
     
     @abstractmethod
     def generate_stream(
@@ -185,11 +191,15 @@ class BaseProvider(ABC):
         """
         if reason == RetryReason.NON_RETRYABLE:
             return False
-        return retry_count < self.MAX_RETRIES
+        max_retries = self.config.get("max_retries", self.DEFAULT_MAX_RETRIES)
+        return retry_count < max_retries
     
     def get_retry_delay(self, reason: RetryReason) -> float:
         """
         Get the delay before retrying based on reason.
+        
+        Uses config.retry_delay for server errors and empty responses,
+        with fixed delays for rate limiting (0) and network errors (1s).
         
         Args:
             reason: The RetryReason
@@ -197,14 +207,17 @@ class BaseProvider(ABC):
         Returns:
             Delay in seconds (0 for immediate retry)
         """
+        # Get configurable delay (used for server errors and empty responses)
+        retry_delay = self.config.get("retry_delay", self.DEFAULT_RETRY_DELAY)
+        
         if reason == RetryReason.RATE_LIMITED:
-            return 0  # Immediate retry with different key
+            return self.RETRY_DELAY_RATE_LIMITED  # Immediate retry with different key
         if reason == RetryReason.AUTH_ERROR:
-            return 0  # Immediate retry with different key
+            return self.RETRY_DELAY_AUTH_ERROR  # Immediate retry with different key
         if reason == RetryReason.SERVER_ERROR:
-            return self.RETRY_DELAY_SERVER_ERROR
+            return float(retry_delay)  # Use config value
         if reason == RetryReason.EMPTY_RESPONSE:
-            return self.RETRY_DELAY_EMPTY_RESPONSE
+            return float(retry_delay)  # Use config value
         if reason == RetryReason.NETWORK_ERROR:
             return self.RETRY_DELAY_NETWORK_ERROR
         return 0
@@ -280,9 +293,10 @@ class BaseProvider(ABC):
     
     def log_retry(self, reason: RetryReason, retry_count: int, delay: float, error_detail: str = ""):
         """Log retry attempt with optional error detail"""
+        max_retries = self.config.get("max_retries", self.DEFAULT_MAX_RETRIES)
         delay_str = f" after {delay}s delay" if delay > 0 else " immediately"
         detail_str = f": {error_detail}" if error_detail else ""
-        self.log("warn", f"{reason.value}{detail_str}, retrying{delay_str} ({retry_count}/{self.MAX_RETRIES})")
+        self.log("warn", f"{reason.value}{detail_str}, retrying{delay_str} ({retry_count}/{max_retries})")
     
     def log_error(self, message: str, status_code: int = 0):
         """Log error"""

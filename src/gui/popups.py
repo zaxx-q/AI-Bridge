@@ -1307,7 +1307,7 @@ class PromptSelectionPopup(BasePopup):
         col = 0
         
         for key, option in self.options.items():
-            if key == "Custom":
+            if key == "Custom" or key.startswith("_"):
                 continue
             
             btn = tk.Button(
@@ -1355,7 +1355,7 @@ class PromptSelectionPopup(BasePopup):
         logging.debug(f'Custom input submitted: {custom_text[:50]}...')
         response_mode = self.response_mode_var.get() if self.response_mode_var else "default"
         self._close()
-        self.on_option_selected("Custom", self.selected_text, custom_text, response_mode)
+        self.on_option_selected("_Custom", self.selected_text, custom_text, response_mode)
     
     def _close(self):
         super()._close()
@@ -1938,9 +1938,9 @@ class AttachedPromptPopup:
             return
         
         logging.debug(f'Custom edit submitted: {custom_text[:50]}...')
-        response_mode = self._get_effective_response_mode("Custom")
+        response_mode = self._get_effective_response_mode("_Custom")
         self._close()
-        self.on_option_selected("Custom", self.selected_text, custom_text, response_mode, self.active_modifiers)
+        self.on_option_selected("_Custom", self.selected_text, custom_text, response_mode, self.active_modifiers)
     
     def _on_ask_submit(self):
         """Handle ask/Q&A input submission."""

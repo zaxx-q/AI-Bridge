@@ -51,6 +51,8 @@ def get_provider_for_type(
     """
     provider_config = {
         "request_timeout": config.get("request_timeout", 120),
+        "max_retries": config.get("max_retries", 3),
+        "retry_delay": config.get("retry_delay", 5),
         "reasoning_effort": config.get("reasoning_effort", "high"),
         "thinking_budget": config.get("thinking_budget", -1),
         "thinking_level": config.get("thinking_level", "high"),

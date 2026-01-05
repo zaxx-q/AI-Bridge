@@ -66,8 +66,7 @@ class GeminiNativeProvider(BaseProvider):
                 - thinking_budget: Token budget for 2.5 models (-1 = auto)
                 - thinking_level: Level for 3.x models ("high" or "low")
         """
-        super().__init__("Gemini-Native", key_manager)
-        self.config = config or {}
+        super().__init__("Gemini-Native", key_manager, config)
     
     def _extract_error_brief(self, error_text: str, status_code: int = 0) -> str:
         """
