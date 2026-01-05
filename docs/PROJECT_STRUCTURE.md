@@ -32,12 +32,12 @@ AI-Bridge/
     ├── utils.py                # Utility functions (strip_markdown, etc.)
     ├── web_server.py           # Flask server and API endpoints
     │
-    ├── gui/                    # GUI Package (Tkinter)
+    ├── gui/                    # GUI Package (CustomTkinter)
     │   ├── __init__.py
     │   ├── core.py             # GUICoordinator singleton for thread-safe GUI
     │   ├── hotkey.py           # Global hotkey listener (pynput)
     │   ├── options.py          # Default options and settings constants
-    │   ├── popups.py           # Modern themed popups with ModifierBar
+    │   ├── popups.py           # Modern themed popups with scrollable ModifierBar
     │   ├── prompt_editor.py    # GUI editor for text_edit_tool_options.json
     │   ├── settings_window.py  # GUI editor for config.ini
     │   ├── text_edit_tool.py   # TextEditTool application controller
@@ -71,10 +71,10 @@ AI-Bridge/
 
 | Module | Purpose |
 |--------|---------|
-| `core.py` | GUICoordinator singleton managing all Tkinter windows |
+| `core.py` | GUICoordinator singleton managing all CustomTkinter windows |
 | `text_edit_tool.py` | Global hotkey TextEditTool application |
 | `windows.py` | Chat window and session browser implementations |
-| `popups.py` | Themed popup dialogs with dual inputs (Edit/Ask) and ModifierBar |
+| `popups.py` | Themed popup dialogs with dual inputs (Edit/Ask) and scrollable ModifierBar |
 | `hotkey.py` | pynput-based global hotkey listener |
 | `themes.py` | ThemeRegistry with 7 themes, dark/light variants, system detection |
 | `settings_window.py` | GUI editor for config.ini with tabbed interface |

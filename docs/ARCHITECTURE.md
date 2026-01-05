@@ -8,7 +8,7 @@ AI Bridge is a Windows application consisting of:
 
 1. **Flask Web Server** - REST API endpoints for image/text processing
 2. **System Tray Application** - Background process management with `infi.systray`
-3. **Tkinter GUI** - Chat windows, session browser, popups with multi-theme support
+3. **CustomTkinter GUI** - Modern chat windows, session browser, and popups with multi-theme support
 4. **TextEditTool** - Global hotkey integration with `pynput` and interactive popups
 5. **AI Provider System** - Unified abstraction for multiple AI backends
 6. **Theme System** - Multi-theme support with dark/light modes and system detection
@@ -23,7 +23,7 @@ flowchart TB
         Flask["Flask Server<br/>(web_server.py)"]
         TET["TextEditTool<br/>(text_edit_tool.py)"]
         Popups["Popups<br/>(popups.py)"]
-        Modifiers["ModifierBar<br/>(popups.py)"]
+        Modifiers["Scrollable ModifierBar<br/>(popups.py)"]
         TypingInd["TypingIndicator<br/>(popups.py)"]
     end
     
@@ -99,10 +99,10 @@ The provider system includes automatic retry with key rotation:
 flowchart LR
     subgraph MainThread["Main Thread"]
         GC["GUICoordinator<br/>(singleton)"]
-        Root["tk.Tk()<br/>(single root)"]
+        Root["ctk.CTk()<br/>(single root)"]
     end
     
-    subgraph Windows["Windows (Toplevel)"]
+    subgraph Windows["Windows (CTkToplevel)"]
         Chat["ChatWindow"]
         Browser["SessionBrowser"]
         Popup["PopupWindow"]
@@ -122,10 +122,10 @@ flowchart LR
 
 ### Rules
 
-1. **Single tk.Tk() root** - Only one Tk root exists, created by GUICoordinator
-2. **Queue-based window creation** - All windows requested via `GUICoordinator.request_window()`
-3. **Toplevel children** - All windows are `tk.Toplevel`, not new roots
-4. **Polling loop** - Standalone windows use `_polling_loop()` instead of `mainloop()`
+1. **Single ctk.CTk() root** - Managed by `GUICoordinator` on a dedicated GUI thread.
+2. **Thread-Safe Requests** - Windows are created via a thread-safe queue.
+3. **CTkToplevel for Windows** - All application windows are children of the single root.
+4. **Update Loop** - Standalone windows use an update-based loop to coexist with other threads.
 
 ### Window Types
 
@@ -133,7 +133,7 @@ flowchart LR
 | -------- | --------- |
 | `ChatWindow` | Interactive AI chat with streaming |
 | `SessionBrowserWindow` | Browse and restore saved sessions |
-| `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) and ModifierBar |
+| `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) and scrollable ModifierBar |
 | `TypingIndicator` | Tooltip showing typing status and abort hotkey |
 | `SettingsWindow` | GUI editor for config.ini with tabbed interface |
 | `PromptEditorWindow` | GUI editor for text_edit_tool_options.json with Playground testing |

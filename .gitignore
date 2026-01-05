@@ -4,3 +4,5 @@ config.ini
 chat_sessions.json
 **/__pycache__
 build
+plans
+*.bak
