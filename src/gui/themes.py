@@ -740,7 +740,7 @@ def list_themes() -> list:
 
 def get_ctk_font(size: int = 12, weight: str = "normal", family: str = None):
     """
-    Get a CTkFont with appropriate defaults for the platform.
+    Get a font specification with appropriate defaults for the platform.
     
     Args:
         size: Font size in points
@@ -748,7 +748,13 @@ def get_ctk_font(size: int = 12, weight: str = "normal", family: str = None):
         family: Font family (auto-detected if None)
     
     Returns:
-        CTkFont instance or tuple fallback if CTk not available
+        Tuple font specification (family, size, weight) - works with both
+        standard tkinter and CustomTkinter widgets, and is thread-safe.
+        
+    Note:
+        We return a tuple instead of CTkFont because CTkFont cannot be
+        created from non-main threads (causes RuntimeError). Tuple fonts
+        work perfectly with CTk widgets.
     """
     if family is None:
         if sys.platform == "win32":
@@ -758,11 +764,8 @@ def get_ctk_font(size: int = 12, weight: str = "normal", family: str = None):
         else:
             family = "DejaVu Sans"
     
-    if HAVE_CTK:
-        return ctk.CTkFont(family=family, size=size, weight=weight)
-    else:
-        # Fallback for pure tk
-        return (family, size, weight)
+    # Always return tuple - works with both tk and CTk, and is thread-safe
+    return (family, size, weight)
 
 
 def get_ctk_button_colors(colors: ThemeColors, variant: str = "primary") -> dict:

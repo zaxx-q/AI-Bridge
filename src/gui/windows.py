@@ -54,36 +54,54 @@ def get_icon_path():
     return None
 
 
-def set_window_icon(window):
-    """Set the window icon to the AI-Bridge icon."""
+def set_window_icon(window, delay_ms: int = 100):
+    """
+    Set the window icon to the AI-Bridge icon.
+    
+    For CustomTkinter windows, the icon must be set AFTER the window
+    is fully initialized, because CTk overrides the icon during setup.
+    We use after() to delay the icon setting.
+    
+    Args:
+        window: The Tk/CTk window
+        delay_ms: Delay in milliseconds before setting icon (default 100)
+    """
     icon_path = get_icon_path()
     if icon_path and sys.platform == "win32":
+        def _set_icon():
+            try:
+                if window.winfo_exists():
+                    window.iconbitmap(icon_path)
+            except Exception:
+                pass  # Icon setting may fail on some systems
+        
+        # Use after() to set icon after CTk has finished its internal setup
         try:
-            window.iconbitmap(icon_path)
+            window.after(delay_ms, _set_icon)
         except Exception:
-            pass  # Icon setting may fail on some systems
+            pass
 
 
 # =============================================================================
-# Session List Components (replacing ttk.Treeview)
+# Session List Components (lightweight tk-based for performance)
 # =============================================================================
 
-class SessionListItem(ctk.CTkFrame if HAVE_CTK else object):
+class SessionListItem(tk.Frame):
     """
     A single session row in the session browser list.
-    Clickable with hover effects.
+    Uses lightweight tk widgets for fast creation (instead of heavy CTk widgets).
     """
     
     def __init__(self, parent, session_data: Dict, colors: ThemeColors,
                  on_click, on_double_click, **kwargs):
-        if not HAVE_CTK:
-            return
-            
+        # Remove CTk-specific kwargs
+        kwargs.pop('fg_color', None)
+        kwargs.pop('corner_radius', None)
+        
         super().__init__(
             parent,
-            fg_color=colors.surface0,
-            corner_radius=6,
-            height=38,
+            bg=colors.surface0,
+            height=36,
             **kwargs
         )
         self.session_data = session_data
@@ -91,77 +109,41 @@ class SessionListItem(ctk.CTkFrame if HAVE_CTK else object):
         self.on_click_callback = on_click
         self.on_double_click_callback = on_double_click
         self.selected = False
+        self.bg_color = colors.surface0
         
         # Prevent height shrinking
         self.pack_propagate(False)
         
-        # Grid layout for columns
-        self.columnconfigure(0, weight=0, minsize=50)   # ID
-        self.columnconfigure(1, weight=1, minsize=200)  # Title
-        self.columnconfigure(2, weight=0, minsize=80)   # Endpoint
-        self.columnconfigure(3, weight=0, minsize=60)   # Messages
-        self.columnconfigure(4, weight=0, minsize=130)  # Updated
-        
-        # ID column
-        self.id_label = ctk.CTkLabel(
-            self,
-            text=str(session_data.get('id', '')),
-            font=get_ctk_font(size=11),
-            text_color=colors.fg,
-            anchor="w"
-        )
-        self.id_label.grid(row=0, column=0, padx=(10, 5), sticky="w")
-        
-        # Title column (truncated)
+        # Build row text as a single formatted string for speed
+        sid = str(session_data.get('id', ''))
         title = session_data.get('title', '')[:35]
         if len(session_data.get('title', '')) > 35:
             title += '...'
-        self.title_label = ctk.CTkLabel(
-            self,
-            text=title,
-            font=get_ctk_font(size=11),
-            text_color=colors.fg,
-            anchor="w"
-        )
-        self.title_label.grid(row=0, column=1, padx=5, sticky="w")
-        
-        # Endpoint column
-        self.endpoint_label = ctk.CTkLabel(
-            self,
-            text=session_data.get('endpoint', ''),
-            font=get_ctk_font(size=11),
-            text_color=colors.overlay0,
-            anchor="w"
-        )
-        self.endpoint_label.grid(row=0, column=2, padx=5, sticky="w")
-        
-        # Messages column
-        self.msgs_label = ctk.CTkLabel(
-            self,
-            text=str(session_data.get('messages', 0)),
-            font=get_ctk_font(size=11),
-            text_color=colors.overlay0,
-            anchor="center"
-        )
-        self.msgs_label.grid(row=0, column=3, padx=5)
-        
-        # Updated column
+        endpoint = session_data.get('endpoint', '')
+        msgs = str(session_data.get('messages', 0))
         updated = session_data.get('updated', '')
         if updated:
             updated = updated[:16].replace('T', ' ')
-        self.updated_label = ctk.CTkLabel(
-            self,
-            text=updated,
-            font=get_ctk_font(size=10),
-            text_color=colors.overlay0,
-            anchor="w"
-        )
-        self.updated_label.grid(row=0, column=4, padx=(5, 10), sticky="w")
         
-        # Bind events to all widgets
-        all_widgets = [self, self.id_label, self.title_label, 
-                       self.endpoint_label, self.msgs_label, self.updated_label]
-        for widget in all_widgets:
+        # Single row label with formatted columns (much faster than 5 separate labels)
+        # Use fixed-width formatting for column alignment
+        row_text = f"{sid:<5}  {title:<38}  {endpoint:<8}  {msgs:^5}  {updated}"
+        
+        self.row_label = tk.Label(
+            self,
+            text=row_text,
+            font=("Segoe UI", 10),
+            bg=colors.surface0,
+            fg=colors.fg,
+            anchor="w",
+            padx=10,
+            pady=8,
+            cursor="hand2"
+        )
+        self.row_label.pack(fill="both", expand=True)
+        
+        # Bind events to both frame and label
+        for widget in [self, self.row_label]:
             widget.bind("<Button-1>", lambda e: self._on_click())
             widget.bind("<Double-1>", lambda e: self._on_double_click())
             widget.bind("<Enter>", lambda e: self._on_hover(True))
@@ -183,41 +165,39 @@ class SessionListItem(ctk.CTkFrame if HAVE_CTK else object):
             return
         
         color = self.colors.surface1 if entering else self.colors.surface0
-        self.configure(fg_color=color)
+        self.configure(bg=color)
+        self.row_label.configure(bg=color)
     
     def set_selected(self, selected: bool):
         """Set selection state."""
         self.selected = selected
         
         if selected:
-            self.configure(fg_color=self.colors.accent)
-            text_color = "#ffffff"
+            bg = self.colors.accent
+            fg = "#ffffff"
         else:
-            self.configure(fg_color=self.colors.surface0)
-            text_color = self.colors.fg
+            bg = self.colors.surface0
+            fg = self.colors.fg
         
-        # Update text colors
-        self.id_label.configure(text_color=text_color)
-        self.title_label.configure(text_color=text_color)
-        self.endpoint_label.configure(text_color=text_color if selected else self.colors.overlay0)
-        self.msgs_label.configure(text_color=text_color if selected else self.colors.overlay0)
-        self.updated_label.configure(text_color=text_color if selected else self.colors.overlay0)
+        self.configure(bg=bg)
+        self.row_label.configure(bg=bg, fg=fg)
 
 
-class SessionListHeader(ctk.CTkFrame if HAVE_CTK else object):
+class SessionListHeader(tk.Frame):
     """
     Column headers for session list with click-to-sort functionality.
+    Uses lightweight tk widgets for fast creation.
     """
     
     def __init__(self, parent, colors: ThemeColors, on_sort, current_sort, descending, **kwargs):
-        if not HAVE_CTK:
-            return
-            
+        # Remove CTk-specific kwargs
+        kwargs.pop('fg_color', None)
+        kwargs.pop('corner_radius', None)
+        
         super().__init__(
             parent,
-            fg_color=colors.surface1,
-            corner_radius=6,
-            height=32,
+            bg=colors.surface1,
+            height=30,
             **kwargs
         )
         self.colors = colors
@@ -227,46 +207,51 @@ class SessionListHeader(ctk.CTkFrame if HAVE_CTK else object):
         
         self.pack_propagate(False)
         
-        # Same column config as items
-        self.columnconfigure(0, weight=0, minsize=50)
-        self.columnconfigure(1, weight=1, minsize=200)
-        self.columnconfigure(2, weight=0, minsize=80)
-        self.columnconfigure(3, weight=0, minsize=60)
-        self.columnconfigure(4, weight=0, minsize=130)
+        # Build header text matching the row format
+        sort_indicator_map = {
+            "ID": " ▼" if current_sort == "ID" and descending else " ▲" if current_sort == "ID" else "",
+            "Title": " ▼" if current_sort == "Title" and descending else " ▲" if current_sort == "Title" else "",
+            "Endpoint": " ▼" if current_sort == "Endpoint" and descending else " ▲" if current_sort == "Endpoint" else "",
+            "Msgs": " ▼" if current_sort == "Messages" and descending else " ▲" if current_sort == "Messages" else "",
+            "Updated": " ▼" if current_sort == "Updated" and descending else " ▲" if current_sort == "Updated" else "",
+        }
         
-        # Columns: (name, col_idx, anchor_for_label, sticky_for_grid, padx)
-        # Note: sticky values must be n/s/e/w combinations, not "center"
-        columns = [
-            ("ID", 0, "w", "w", (10, 5)),
-            ("Title", 1, "w", "w", (5, 5)),
-            ("Endpoint", 2, "w", "w", (5, 5)),
-            ("Msgs", 3, "center", "", (5, 5)),  # empty sticky for center
-            ("Updated", 4, "w", "w", (5, 10)),
-        ]
+        header_text = f"{'ID' + sort_indicator_map['ID']:<7}  {'Title' + sort_indicator_map['Title']:<40}  {'Endpoint' + sort_indicator_map['Endpoint']:<10}  {'Msgs' + sort_indicator_map['Msgs']:^7}  {'Updated' + sort_indicator_map['Updated']}"
         
-        self.labels = {}
-        for name, col, anchor, sticky, padx in columns:
-            sort_indicator = ""
-            if name == current_sort or (name == "Msgs" and current_sort == "Messages"):
-                sort_indicator = " ▼" if descending else " ▲"
-            
-            label = ctk.CTkLabel(
-                self,
-                text=name + sort_indicator,
-                font=get_ctk_font(size=11, weight="bold"),
-                text_color=colors.fg,
-                anchor=anchor,
-                cursor="hand2"
-            )
-            label.grid(row=0, column=col, padx=padx, sticky=sticky)
-            label.bind("<Button-1>", lambda e, n=name: self._on_header_click(n))
-            self.labels[name] = label
+        self.header_label = tk.Label(
+            self,
+            text=header_text,
+            font=("Segoe UI", 10, "bold"),
+            bg=colors.surface1,
+            fg=colors.fg,
+            anchor="w",
+            padx=10,
+            pady=6,
+            cursor="hand2"
+        )
+        self.header_label.pack(fill="both", expand=True)
+        
+        # Store label refs for click detection
+        self.labels = {"ID": None, "Title": None, "Endpoint": None, "Msgs": None, "Updated": None}
+        
+        # Bind click to detect which column was clicked based on x position
+        self.header_label.bind("<Button-1>", self._on_header_click)
     
-    def _on_header_click(self, column_name: str):
-        """Handle header click for sorting."""
-        # Map display name to sort key
-        sort_map = {"Msgs": "Messages"}
-        sort_key = sort_map.get(column_name, column_name)
+    def _on_header_click(self, event):
+        """Handle header click for sorting based on x position."""
+        x = event.x
+        # Approximate column boundaries based on formatting
+        if x < 60:
+            sort_key = "ID"
+        elif x < 320:
+            sort_key = "Title"
+        elif x < 420:
+            sort_key = "Endpoint"
+        elif x < 500:
+            sort_key = "Messages"
+        else:
+            sort_key = "Updated"
+        
         if self.on_sort:
             self.on_sort(sort_key)
     
@@ -275,14 +260,16 @@ class SessionListHeader(ctk.CTkFrame if HAVE_CTK else object):
         self.current_sort = current_sort
         self.descending = descending
         
-        sort_display_map = {"Messages": "Msgs"}
-        current_display = sort_display_map.get(current_sort, current_sort)
+        sort_indicator_map = {
+            "ID": " ▼" if current_sort == "ID" and descending else " ▲" if current_sort == "ID" else "",
+            "Title": " ▼" if current_sort == "Title" and descending else " ▲" if current_sort == "Title" else "",
+            "Endpoint": " ▼" if current_sort == "Endpoint" and descending else " ▲" if current_sort == "Endpoint" else "",
+            "Msgs": " ▼" if current_sort == "Messages" and descending else " ▲" if current_sort == "Messages" else "",
+            "Updated": " ▼" if current_sort == "Updated" and descending else " ▲" if current_sort == "Updated" else "",
+        }
         
-        for name, label in self.labels.items():
-            sort_indicator = ""
-            if name == current_display:
-                sort_indicator = " ▼" if descending else " ▲"
-            label.configure(text=name + sort_indicator)
+        header_text = f"{'ID' + sort_indicator_map['ID']:<7}  {'Title' + sort_indicator_map['Title']:<40}  {'Endpoint' + sort_indicator_map['Endpoint']:<10}  {'Msgs' + sort_indicator_map['Msgs']:^7}  {'Updated' + sort_indicator_map['Updated']}"
+        self.header_label.configure(text=header_text)
 
 
 # =============================================================================
@@ -355,9 +342,6 @@ class StandaloneChatWindow:
         self.root.geometry("750x620")
         self.root.minsize(500, 400)
         
-        # Set window icon
-        set_window_icon(self.root)
-        
         # Position window
         offset = (self.window_id % 5) * 30
         self.root.geometry(f"+{80 + offset}+{80 + offset}")
@@ -403,8 +387,14 @@ class StandaloneChatWindow:
         # Initial display
         self._update_chat_display(scroll_to_bottom=True)
         
-        # Show window after UI is built (prevents flashing)
+        # Force Tk to process all pending drawing commands before showing
+        self.root.update_idletasks()
+        
+        # Show window after UI is fully rendered
         self.root.deiconify()
+        
+        # Set window icon AFTER deiconify (CTk overrides icon during setup)
+        set_window_icon(self.root)
         
         # Focus - use after() for reliable focus
         self.root.after(50, lambda: self._focus_window())
@@ -1117,9 +1107,6 @@ class StandaloneSessionBrowserWindow:
         self.root.geometry("880x520")
         self.root.minsize(600, 350)
         
-        # Set window icon
-        set_window_icon(self.root)
-        
         offset = (self.window_id % 3) * 30
         self.root.geometry(f"+{50 + offset}+{50 + offset}")
         
@@ -1148,8 +1135,14 @@ class StandaloneSessionBrowserWindow:
         # Load sessions
         self._refresh()
         
-        # Show window after UI is built
+        # Force Tk to process all pending drawing commands before showing
+        self.root.update_idletasks()
+        
+        # Show window after UI is fully rendered
         self.root.deiconify()
+        
+        # Set window icon AFTER deiconify (CTk overrides icon during setup)
+        set_window_icon(self.root)
         
         # Focus
         self.root.lift()
@@ -1494,9 +1487,6 @@ class AttachedChatWindow:
         self.root.geometry("750x620")
         self.root.minsize(500, 400)
         
-        # Set window icon
-        set_window_icon(self.root)
-        
         offset = (self.window_id % 5) * 30
         self.root.geometry(f"+{80 + offset}+{80 + offset}")
         
@@ -1533,8 +1523,14 @@ class AttachedChatWindow:
         
         self._update_chat_display(scroll_to_bottom=True)
         
-        # Show window after UI is built
+        # Force Tk to process all pending drawing commands before showing
+        self.root.update_idletasks()
+        
+        # Show window after UI is fully rendered
         self.root.deiconify()
+        
+        # Set window icon AFTER deiconify (CTk overrides icon during setup)
+        set_window_icon(self.root)
         
         # Use after() for reliable focus on new window
         self.root.after(100, lambda: self._focus_window())
@@ -2113,9 +2109,6 @@ class AttachedBrowserWindow:
         self.root.geometry("880x520")
         self.root.minsize(600, 350)
         
-        # Set window icon
-        set_window_icon(self.root)
-        
         offset = (self.window_id % 3) * 30
         self.root.geometry(f"+{50 + offset}+{50 + offset}")
         
@@ -2161,8 +2154,14 @@ class AttachedBrowserWindow:
         
         self._refresh()
         
-        # Show window after UI is built
+        # Force Tk to process all pending drawing commands before showing
+        self.root.update_idletasks()
+        
+        # Show window after UI is fully rendered
         self.root.deiconify()
+        
+        # Set window icon AFTER deiconify (CTk overrides icon during setup)
+        set_window_icon(self.root)
         
         self.root.lift()
         self.root.focus_force()

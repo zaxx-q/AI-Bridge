@@ -282,6 +282,14 @@ class Tooltip:
         self.tooltip_window.wm_overrideredirect(True)
         self.tooltip_window.wm_attributes('-topmost', True)
         
+        # Apply transparency for rounded corners on Windows
+        if sys.platform == "win32":
+            try:
+                self.tooltip_window.attributes('-transparentcolor', TRANSPARENCY_COLOR)
+                self.tooltip_window.configure(bg=TRANSPARENCY_COLOR)
+            except tk.TclError:
+                pass
+        
         if HAVE_CTK:
             frame = ctk.CTkFrame(
                 self.tooltip_window,
@@ -1153,8 +1161,9 @@ class InputPopup(BasePopup):
             input_entry.bind('<Return>', lambda e: self._submit())
             self.input_entry = input_entry
         
-        # Position window
+        # Position window and force rendering before showing
         self._position_window(x, y)
+        self.root.update_idletasks()
         self.root.deiconify()
         self.root.bind('<Escape>', lambda e: self._close())
         self.root.lift()
@@ -1332,7 +1341,9 @@ class PromptSelectionPopup(BasePopup):
             self.root.configure(bg=self.bg_color)
             # ... simplified tk implementation
         
+        # Position window and force rendering before showing
         self._position_window(x, y)
+        self.root.update_idletasks()
         self.root.deiconify()
         self.root.bind('<Escape>', lambda e: self._close())
         self.root.lift()
@@ -1463,6 +1474,9 @@ class AttachedInputPopup:
         else:
             self.root = tk.Toplevel(self.parent_root)
         
+        # Hide window while building UI (prevents flickering)
+        self.root.withdraw()
+        
         self.root.title("AI Chat")
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
@@ -1549,11 +1563,24 @@ class AttachedInputPopup:
             self.root.configure(bg=self.colors.base)
             # ... simplified implementation
         
+        # Force Tk to process all pending drawing commands before showing
         self._position_window()
-        self.root.bind('<Escape>', lambda e: self._close())
-        self.root.lift()
-        self.root.focus_force()
-        self.input_entry.focus_set()
+        self.root.update_idletasks()
+        # Use delayed deiconify to let CTk finish internal rendering
+        self.root.after(10, self._show_and_focus)
+    
+    def _show_and_focus(self):
+        """Show window after CTk has finished rendering (prevents flickering)."""
+        if not self.root:
+            return
+        try:
+            self.root.deiconify()
+            self.root.bind('<Escape>', lambda e: self._close())
+            self.root.lift()
+            self.root.focus_force()
+            self.input_entry.focus_set()
+        except tk.TclError:
+            pass
     
     def _position_window(self):
         """Position the window near the cursor."""
@@ -1638,6 +1665,9 @@ class AttachedPromptPopup:
             self.root = ctk.CTkToplevel(self.parent_root)
         else:
             self.root = tk.Toplevel(self.parent_root)
+        
+        # Hide window while building UI (prevents flickering)
+        self.root.withdraw()
         
         self.root.title("Text Edit Tool")
         self.root.overrideredirect(True)
@@ -1728,7 +1758,7 @@ class AttachedPromptPopup:
                 text="✏️",
                 width=44,
                 height=40,
-                corner_radius=0,
+                corner_radius=8,
                 fg_color=self.colors.blue,
                 hover_color=self.colors.lavender,
                 text_color="#ffffff",
@@ -1767,7 +1797,7 @@ class AttachedPromptPopup:
                 text="❓",
                 width=44,
                 height=40,
-                corner_radius=0,
+                corner_radius=8,
                 fg_color=self.colors.green,
                 hover_color=self.colors.peach,
                 text_color="#ffffff",
@@ -1783,12 +1813,25 @@ class AttachedPromptPopup:
             # Fallback to tk
             self.root.configure(bg=self.colors.base)
         
+        # Force Tk to process all pending drawing commands before showing
         self._position_window()
-        self.root.bind('<Escape>', lambda e: self._close())
-        self.root.lift()
-        self.root.focus_force()
-        if HAVE_CTK:
-            self.edit_input.focus_set()
+        self.root.update_idletasks()
+        # Use delayed deiconify to let CTk finish internal rendering
+        self.root.after(10, self._show_and_focus)
+    
+    def _show_and_focus(self):
+        """Show window after CTk has finished rendering (prevents flickering)."""
+        if not self.root:
+            return
+        try:
+            self.root.deiconify()
+            self.root.bind('<Escape>', lambda e: self._close())
+            self.root.lift()
+            self.root.focus_force()
+            if HAVE_CTK:
+                self.edit_input.focus_set()
+        except tk.TclError:
+            pass
     
     def _create_carousel(self, parent):
         """Create the carousel with action buttons."""
@@ -2019,6 +2062,9 @@ class TypingIndicator:
         else:
             self.root = tk.Toplevel(self.parent_root)
         
+        # Hide window while building UI (prevents flickering)
+        self.root.withdraw()
+        
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
         
@@ -2089,8 +2135,21 @@ class TypingIndicator:
                 fg=self.colors.overlay0
             ).pack(side=tk.LEFT)
         
-        self.is_visible = True
-        self._update_position()
+        # Force Tk to process all pending drawing commands before showing
+        self.root.update_idletasks()
+        # Use delayed deiconify for smoother appearance
+        self.root.after(10, self._show_indicator)
+    
+    def _show_indicator(self):
+        """Show indicator after CTk has finished rendering."""
+        if not self.root:
+            return
+        try:
+            self.root.deiconify()
+            self.is_visible = True
+            self._update_position()
+        except tk.TclError:
+            pass
     
     def _update_position(self):
         """Set window position near cursor."""

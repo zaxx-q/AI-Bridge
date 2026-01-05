@@ -8,19 +8,44 @@ Features:
 - Theme selector with live preview
 - Validation for fields like ports, hotkeys
 - Save/Cancel with backup creation
+
+CustomTkinter Migration: Uses CTk widgets for modern UI.
 """
 
 import os
+import sys
 import re
 import time
 import shutil
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 from typing import Dict, Optional, List, Callable, Any
 from pathlib import Path
 
-from .themes import ThemeRegistry, ThemeColors, get_colors, list_themes
+import threading
+
+# Import CustomTkinter with fallback
+try:
+    import customtkinter as ctk
+    _CTK_AVAILABLE = True
+except ImportError:
+    _CTK_AVAILABLE = False
+    ctk = None
+
+
+def _can_use_ctk() -> bool:
+    """
+    Check if CustomTkinter can be safely used.
+    """
+    return _CTK_AVAILABLE
+
+from .themes import (
+    ThemeRegistry, ThemeColors, get_colors, list_themes, sync_ctk_appearance,
+    get_ctk_button_colors, get_ctk_frame_colors, get_ctk_entry_colors,
+    get_ctk_textbox_colors, get_ctk_combobox_colors, get_ctk_label_colors,
+    get_ctk_font
+)
 from .core import get_next_window_id, register_window, unregister_window
 
 
@@ -282,11 +307,11 @@ def _find_section_end(lines: List[str], section: str) -> int:
 
 
 # =============================================================================
-# Custom Widgets
+# Custom Toggle Switch (CTk version)
 # =============================================================================
 
 class ToggleSwitch(tk.Canvas):
-    """Custom toggle switch widget."""
+    """Custom toggle switch widget for non-CTk mode."""
     
     def __init__(self, parent, variable: tk.BooleanVar, colors: ThemeColors, 
                  command: Optional[Callable] = None, **kwargs):
@@ -333,26 +358,22 @@ class ToggleSwitch(tk.Canvas):
             self.command()
 
 
-# Note: HotkeyEntry removed - hotkeys are now typed manually as text
-# e.g. "ctrl+space", "escape", "alt+tab"
-
-
 # =============================================================================
-# Settings Window
+# Settings Window (CTk version)
 # =============================================================================
 
 class SettingsWindow:
     """
-    Standalone settings window that creates its own Tk root.
-    Used when launching from non-GUI contexts.
+    Standalone settings window using CustomTkinter.
     """
     
-    def __init__(self):
+    def __init__(self, master=None):
         self.window_id = get_next_window_id()
         self.window_tag = f"settings_{self.window_id}"
         
+        self.master = master
         self.colors = get_colors()
-        self.root: Optional[tk.Tk] = None
+        self.root = None  # type: ignore
         self._destroyed = False
         
         # Config data
@@ -364,7 +385,10 @@ class SettingsWindow:
         self.vars: Dict[str, tk.Variable] = {}
         
         # Theme preview
-        self.preview_frame: Optional[tk.Frame] = None
+        self.preview_frame: Optional[ctk.CTkFrame] = None
+        
+        # Determine if we can use CTk (must be in main thread)
+        self.use_ctk = _can_use_ctk()
     
     def show(self, initial_tab: str = None):
         """
@@ -373,6 +397,10 @@ class SettingsWindow:
         Args:
             initial_tab: Name of the tab to select initially (e.g. "API Keys")
         """
+        # Sync CTk appearance mode only if we can use CTk
+        if self.use_ctk:
+            sync_ctk_appearance()
+        
         # Load current config
         self.config_data = parse_config_full()
         self.original_config = dict(self.config_data.config)
@@ -385,38 +413,64 @@ class SettingsWindow:
         except (ImportError, AttributeError):
             pass
         
-        self.root = tk.Tk()
+        if self.master:
+            # Attached mode - child window
+            if self.use_ctk:
+                self.root = ctk.CTkToplevel(self.master)
+                self.root.configure(fg_color=self.colors.bg)
+            else:
+                self.root = tk.Toplevel(self.master)
+                self.root.configure(bg=self.colors.bg)
+        else:
+            # Standalone mode - root window
+            if self.use_ctk:
+                self.root = ctk.CTk()
+                self.root.configure(fg_color=self.colors.bg)
+            else:
+                self.root = tk.Tk()
+                self.root.configure(bg=self.colors.bg)
+        
         self.root.title("AI Bridge Settings")
-        self.root.geometry("950x700")
-        self.root.configure(bg=self.colors.bg)
-        self.root.minsize(900, 600)
+        self.root.geometry("1100x800")
+        self.root.minsize(1000, 700)
+        
+        # Set icon - use repeated after() calls to override CTk's default icon
+        self._icon_path = Path(__file__).parent.parent.parent / "icon.ico"
+        def _set_icon():
+            try:
+                if self._icon_path.exists() and self.root and not self._destroyed:
+                    self.root.iconbitmap(str(self._icon_path))
+            except Exception:
+                pass
+        
+        # Apply icon multiple times to override CTk default
+        self.root.after(50, _set_icon)
+        self.root.after(150, _set_icon)
+        self.root.after(300, _set_icon)
         
         # Position window
         offset = (self.window_id % 3) * 30
         self.root.geometry(f"+{100 + offset}+{100 + offset}")
         
-        # Configure grid
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
+        # Main container
+        main_container = ctk.CTkFrame(self.root, fg_color=self.colors.bg) if self.use_ctk else tk.Frame(self.root, bg=self.colors.bg)
+        main_container.pack(fill="both", expand=True, padx=10, pady=10)
         
         # Title bar
-        self._create_title_bar()
+        self._create_title_bar(main_container)
         
         # Notebook (tabs)
-        self._create_notebook()
+        self._create_notebook(main_container)
         
         # Select initial tab if specified
-        if initial_tab:
+        if initial_tab and self.use_ctk:
             try:
-                for tab_id in self.notebook.tabs():
-                    if self.notebook.tab(tab_id, "text") == initial_tab:
-                        self.notebook.select(tab_id)
-                        break
-            except Exception as e:
-                print(f"[SettingsWindow] Failed to select initial tab '{initial_tab}': {e}")
+                self.tabview.set(initial_tab)
+            except Exception:
+                pass
         
         # Button bar
-        self._create_button_bar()
+        self._create_button_bar(main_container)
         
         # Register and bind
         register_window(self.window_tag)
@@ -427,8 +481,9 @@ class SettingsWindow:
         self.root.lift()
         self.root.focus_force()
         
-        # Event loop
-        self._run_event_loop()
+        # Event loop (only if standalone)
+        if not self.master:
+            self._run_event_loop()
     
     def _run_event_loop(self):
         """Run event loop without blocking other Tk instances."""
@@ -444,430 +499,472 @@ class SettingsWindow:
         except Exception:
             pass
     
-    def _create_title_bar(self):
+    def _create_title_bar(self, parent):
         """Create the title bar."""
-        title_frame = tk.Frame(self.root, bg=self.colors.bg)
-        title_frame.grid(row=0, column=0, sticky=tk.EW, padx=20, pady=(15, 10))
+        title_frame = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
+        title_frame.pack(fill="x", pady=(0, 15))
         
-        tk.Label(
-            title_frame,
-            text="⚙️ Settings",
-            font=("Segoe UI", 16, "bold"),
-            bg=self.colors.bg,
-            fg=self.colors.fg
-        ).pack(side=tk.LEFT)
-        
-        tk.Label(
-            title_frame,
-            text="Edit config.ini",
-            font=("Segoe UI", 10),
-            bg=self.colors.bg,
-            fg=self.colors.blockquote
-        ).pack(side=tk.LEFT, padx=(15, 0))
+        if self.use_ctk:
+            ctk.CTkLabel(
+                title_frame,
+                text="⚙️ Settings",
+                font=get_ctk_font(24, "bold"),
+                **get_ctk_label_colors(self.colors)
+            ).pack(side="left")
+            
+            ctk.CTkLabel(
+                title_frame,
+                text="Edit config.ini",
+                font=get_ctk_font(14),
+                **get_ctk_label_colors(self.colors, muted=True)
+            ).pack(side="left", padx=(20, 0))
+        else:
+            tk.Label(title_frame, text="⚙️ Settings",
+                    font=("Segoe UI", 16, "bold"),
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            tk.Label(title_frame, text="Edit config.ini",
+                    font=("Segoe UI", 10),
+                    bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
     
-    def _create_notebook(self):
+    def _create_notebook(self, parent):
         """Create the tabbed notebook."""
-        # Style for notebook
-        style = ttk.Style(self.root)
-        style.theme_use('clam')
-        
-        style.configure('TNotebook', background=self.colors.bg, borderwidth=0)
-        style.configure('TNotebook.Tab', 
-                       background=self.colors.surface0,
-                       foreground=self.colors.fg,
-                       padding=[12, 6],
-                       font=('Segoe UI', 10))
-        style.map('TNotebook.Tab',
-                 background=[('selected', self.colors.accent)],
-                 foreground=[('selected', '#ffffff')])
-        
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.grid(row=1, column=0, sticky=tk.NSEW, padx=20, pady=5)
-        
-        # Create tabs
-        self._create_general_tab()
-        self._create_provider_tab()
-        self._create_streaming_tab()
-        self._create_textedit_tab()
-        self._create_keys_tab()
-        self._create_endpoints_tab()
-        self._create_theme_tab()
+        if self.use_ctk:
+            self.tabview = ctk.CTkTabview(
+                parent,
+                fg_color=self.colors.bg,
+                segmented_button_fg_color=self.colors.surface0,
+                segmented_button_selected_color=self.colors.accent,
+                segmented_button_selected_hover_color=self.colors.lavender,
+                segmented_button_unselected_color=self.colors.surface0,
+                segmented_button_unselected_hover_color=self.colors.surface1,
+                text_color=self.colors.fg,
+                corner_radius=8
+            )
+            self.tabview.pack(fill="both", expand=True, pady=(0, 10))
+            
+            # Create tabs
+            self.tabview.add("General")
+            self.tabview.add("Provider")
+            self.tabview.add("Streaming")
+            self.tabview.add("TextEditTool")
+            self.tabview.add("API Keys")
+            self.tabview.add("Endpoints")
+            self.tabview.add("Theme")
+            
+            self._create_general_tab(self.tabview.tab("General"))
+            self._create_provider_tab(self.tabview.tab("Provider"))
+            self._create_streaming_tab(self.tabview.tab("Streaming"))
+            self._create_textedit_tab(self.tabview.tab("TextEditTool"))
+            self._create_keys_tab(self.tabview.tab("API Keys"))
+            self._create_endpoints_tab(self.tabview.tab("Endpoints"))
+            self._create_theme_tab(self.tabview.tab("Theme"))
+        else:
+            from tkinter import ttk
+            style = ttk.Style(self.root)
+            style.theme_use('clam')
+            self.tabview = ttk.Notebook(parent)
+            self.tabview.pack(fill="both", expand=True, pady=(0, 10))
+            
+            tabs = ["General", "Provider", "Streaming", "TextEditTool", "API Keys", "Endpoints", "Theme"]
+            frames = {}
+            for tab_name in tabs:
+                frame = tk.Frame(self.tabview, bg=self.colors.bg)
+                self.tabview.add(frame, text=tab_name)
+                frames[tab_name] = frame
+            
+            self._create_general_tab(frames["General"])
+            self._create_provider_tab(frames["Provider"])
+            self._create_streaming_tab(frames["Streaming"])
+            self._create_textedit_tab(frames["TextEditTool"])
+            self._create_keys_tab(frames["API Keys"])
+            self._create_endpoints_tab(frames["Endpoints"])
+            self._create_theme_tab(frames["Theme"])
     
-    def _create_general_tab(self):
+    def _create_general_tab(self, frame):
         """Create the General settings tab."""
-        frame = tk.Frame(self.notebook, bg=self.colors.bg)
-        self.notebook.add(frame, text="General")
+        if self.use_ctk:
+            scroll_frame = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        else:
+            scroll_frame = tk.Frame(frame, bg=self.colors.bg)
+        scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # Inner frame with padding
-        inner = tk.Frame(frame, bg=self.colors.bg)
-        inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-        inner.columnconfigure(2, weight=1)  # Description column expands
-        
-        row = 0
-        
-        # Server settings
-        tk.Label(inner, text="Server Settings", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
-        row += 1
+        # Server settings section
+        self._add_section_header(scroll_frame, "Server Settings")
         
         # Host
-        row = self._add_entry_field(inner, row, "host", "Host:",
-                                   self.config_data.config.get("host", "127.0.0.1"),
-                                   hint="⚠️ Restart required. IP address to bind.")
+        self._add_entry_field(scroll_frame, "host", "Host:",
+                             self.config_data.config.get("host", "127.0.0.1"),
+                             hint="⚠️ Restart required. IP address to bind.")
         
         # Port
-        row = self._add_entry_field(inner, row, "port", "Port:",
-                                   str(self.config_data.config.get("port", 5000)),
-                                   validate="port",
-                                   hint="⚠️ Restart required. Port for Flask server (1-65535)")
+        self._add_entry_field(scroll_frame, "port", "Port:",
+                             str(self.config_data.config.get("port", 5000)),
+                             hint="⚠️ Restart required. Port for Flask server (1-65535)")
         
-        # Behavior settings
-        tk.Label(inner, text="Behavior", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=3, sticky=tk.W, pady=(20, 10))
-        row += 1
+        # Behavior section
+        self._add_section_header(scroll_frame, "Behavior", top_padding=20)
         
         # Show AI response in chat window
-        row = self._add_toggle_field(inner, row, "show_ai_response_in_chat_window",
-                                    "Show AI response in chat window",
-                                    self.config_data.config.get("show_ai_response_in_chat_window", "no") == "yes",
-                                    hint="For endpoint requests only. TextEditTool actions/modifiers override this.")
+        self._add_toggle_field(scroll_frame, "show_ai_response_in_chat_window",
+                              "Show AI response in chat window",
+                              str(self.config_data.config.get("show_ai_response_in_chat_window", "no")).lower() == "yes",
+                              hint="For endpoint requests. Actions/modifiers override this.")
         
-        # Limits
-        tk.Label(inner, text="Limits", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=3, sticky=tk.W, pady=(20, 10))
-        row += 1
+        # Limits section
+        self._add_section_header(scroll_frame, "Limits", top_padding=20)
         
         # Max sessions
-        row = self._add_spinbox_field(inner, row, "max_sessions", "Max sessions:",
-                                     self.config_data.config.get("max_sessions", 50),
-                                     1, 1000,
-                                     hint="Maximum number of chat sessions to keep")
+        self._add_spinbox_field(scroll_frame, "max_sessions", "Max sessions:",
+                               self.config_data.config.get("max_sessions", 50),
+                               1, 1000, hint="Maximum chat sessions to keep")
         
         # Max retries
-        row = self._add_spinbox_field(inner, row, "max_retries", "Max retries:",
-                                     self.config_data.config.get("max_retries", 3),
-                                     0, 10,
-                                     hint="Retries before giving up on API calls")
+        self._add_spinbox_field(scroll_frame, "max_retries", "Max retries:",
+                               self.config_data.config.get("max_retries", 3),
+                               0, 10, hint="Retries before giving up on API calls")
         
         # Retry delay
-        row = self._add_spinbox_field(inner, row, "retry_delay", "Retry delay (s):",
-                                     self.config_data.config.get("retry_delay", 5),
-                                     1, 60,
-                                     hint="Seconds to wait between retries")
+        self._add_spinbox_field(scroll_frame, "retry_delay", "Retry delay (s):",
+                               self.config_data.config.get("retry_delay", 5),
+                               1, 60, hint="Seconds to wait between retries")
         
         # Request timeout
-        row = self._add_spinbox_field(inner, row, "request_timeout", "Request timeout (s):",
-                                     self.config_data.config.get("request_timeout", 120),
-                                     10, 600,
-                                     hint="Timeout for API requests")
+        self._add_spinbox_field(scroll_frame, "request_timeout", "Request timeout (s):",
+                               self.config_data.config.get("request_timeout", 120),
+                               10, 600, hint="Timeout for API requests")
     
-    def _create_provider_tab(self):
+    def _create_provider_tab(self, frame):
         """Create the Provider settings tab."""
-        frame = tk.Frame(self.notebook, bg=self.colors.bg)
-        self.notebook.add(frame, text="Provider")
-        
-        inner = tk.Frame(frame, bg=self.colors.bg)
-        inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-        
-        row = 0
+        if self.use_ctk:
+            scroll_frame = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        else:
+            scroll_frame = tk.Frame(frame, bg=self.colors.bg)
+        scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Default provider
-        tk.Label(inner, text="Default Provider", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
-        row += 1
+        self._add_section_header(scroll_frame, "Default Provider")
+        
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         current_provider = self.config_data.config.get("default_provider", "google")
         self.vars["default_provider"] = tk.StringVar(master=self.root, value=current_provider)
         
-        tk.Label(inner, text="Provider:", font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
-        
-        provider_combo = ttk.Combobox(inner, textvariable=self.vars["default_provider"],
-                                     values=["custom", "openrouter", "google"],
-                                     state="readonly", width=25)
-        provider_combo.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-        self.widgets["default_provider"] = provider_combo
-        row += 1
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Provider:", font=get_ctk_font(13), width=160, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            self.widgets["default_provider"] = ctk.CTkComboBox(
+                row, variable=self.vars["default_provider"],
+                values=["custom", "openrouter", "google"],
+                width=220, height=32, state="readonly", font=get_ctk_font(13),
+                **get_ctk_combobox_colors(self.colors)
+            )
+        else:
+            from tkinter import ttk
+            tk.Label(row, text="Provider:", font=("Segoe UI", 10), width=15, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            self.widgets["default_provider"] = ttk.Combobox(
+                row, textvariable=self.vars["default_provider"],
+                values=["custom", "openrouter", "google"],
+                state="readonly", width=25
+            )
+        self.widgets["default_provider"].pack(side="left", padx=(10, 0))
         
         # Custom provider settings
-        tk.Label(inner, text="Custom Provider", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
-        row += 1
+        self._add_section_header(scroll_frame, "Custom Provider", top_padding=20)
         
-        row = self._add_entry_field(inner, row, "custom_url", "URL:",
-                                   self.config_data.config.get("custom_url", "") or "",
-                                   width=50)
+        self._add_entry_field(scroll_frame, "custom_url", "URL:",
+                             self.config_data.config.get("custom_url", "") or "",
+                             width=400)
         
-        row = self._add_entry_field(inner, row, "custom_model", "Model:",
-                                   self.config_data.config.get("custom_model", "") or "",
-                                   width=40)
+        self._add_entry_field(scroll_frame, "custom_model", "Model:",
+                             self.config_data.config.get("custom_model", "") or "",
+                             width=300)
         
         # OpenRouter settings
-        tk.Label(inner, text="OpenRouter", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
-        row += 1
+        self._add_section_header(scroll_frame, "OpenRouter", top_padding=20)
         
-        row = self._add_entry_field(inner, row, "openrouter_model", "Model:",
-                                   self.config_data.config.get("openrouter_model", ""),
-                                   width=40)
+        self._add_entry_field(scroll_frame, "openrouter_model", "Model:",
+                             self.config_data.config.get("openrouter_model", ""),
+                             width=300)
         
         # Google settings
-        tk.Label(inner, text="Google Gemini", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
-        row += 1
+        self._add_section_header(scroll_frame, "Google Gemini", top_padding=20)
         
-        row = self._add_entry_field(inner, row, "google_model", "Model:",
-                                   self.config_data.config.get("google_model", ""),
-                                   width=40)
+        self._add_entry_field(scroll_frame, "google_model", "Model:",
+                             self.config_data.config.get("google_model", ""),
+                             width=300)
     
-    def _create_streaming_tab(self):
+    def _create_streaming_tab(self, frame):
         """Create the Streaming/Thinking settings tab."""
-        frame = tk.Frame(self.notebook, bg=self.colors.bg)
-        self.notebook.add(frame, text="Streaming")
+        if self.use_ctk:
+            scroll_frame = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        else:
+            scroll_frame = tk.Frame(frame, bg=self.colors.bg)
+        scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        inner = tk.Frame(frame, bg=self.colors.bg)
-        inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
+        # Streaming section
+        self._add_section_header(scroll_frame, "Streaming")
         
-        row = 0
+        self._add_toggle_field(scroll_frame, "streaming_enabled",
+                              "Enable streaming responses",
+                              self.config_data.config.get("streaming_enabled", True))
         
-        # Streaming
-        tk.Label(inner, text="Streaming", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
-        row += 1
+        # Thinking section
+        self._add_section_header(scroll_frame, "Thinking / Reasoning", top_padding=20)
         
-        row = self._add_toggle_field(inner, row, "streaming_enabled",
-                                    "Enable streaming responses",
-                                    self.config_data.config.get("streaming_enabled", True))
+        self._add_toggle_field(scroll_frame, "thinking_enabled",
+                              "Enable thinking mode",
+                              self.config_data.config.get("thinking_enabled", False))
         
-        # Thinking
-        tk.Label(inner, text="Thinking / Reasoning", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
-        row += 1
-        
-        row = self._add_toggle_field(inner, row, "thinking_enabled",
-                                    "Enable thinking mode",
-                                    self.config_data.config.get("thinking_enabled", False))
-        
-        # Thinking output
-        tk.Label(inner, text="Thinking output:", font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+        # Thinking output dropdown
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         self.vars["thinking_output"] = tk.StringVar(
             master=self.root, value=self.config_data.config.get("thinking_output", "reasoning_content"))
-        thinking_combo = ttk.Combobox(inner, textvariable=self.vars["thinking_output"],
-                                     values=["filter", "raw", "reasoning_content"],
-                                     state="readonly", width=20)
-        thinking_combo.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-        self.widgets["thinking_output"] = thinking_combo
-        row += 1
         
-        # Thinking config
-        tk.Label(inner, text="Thinking Configuration", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
-        row += 1
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Thinking output:", font=get_ctk_font(13), width=180, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            self.widgets["thinking_output"] = ctk.CTkComboBox(
+                row, variable=self.vars["thinking_output"],
+                values=["filter", "raw", "reasoning_content"],
+                width=200, height=32, state="readonly", font=get_ctk_font(13),
+                **get_ctk_combobox_colors(self.colors)
+            )
+        else:
+            from tkinter import ttk
+            tk.Label(row, text="Thinking output:", font=("Segoe UI", 10), width=18, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            self.widgets["thinking_output"] = ttk.Combobox(
+                row, textvariable=self.vars["thinking_output"],
+                values=["filter", "raw", "reasoning_content"],
+                state="readonly", width=20
+            )
+        self.widgets["thinking_output"].pack(side="left", padx=(10, 0))
+        
+        # Thinking config section
+        self._add_section_header(scroll_frame, "Thinking Configuration", top_padding=20)
         
         # Reasoning effort (OpenAI)
-        tk.Label(inner, text="Reasoning effort (OpenAI):", font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         self.vars["reasoning_effort"] = tk.StringVar(
             master=self.root, value=self.config_data.config.get("reasoning_effort", "high"))
-        effort_combo = ttk.Combobox(inner, textvariable=self.vars["reasoning_effort"],
-                                   values=["low", "medium", "high"],
-                                   state="readonly", width=15)
-        effort_combo.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-        self.widgets["reasoning_effort"] = effort_combo
-        row += 1
+        
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Reasoning effort (OpenAI):", font=get_ctk_font(13), width=200, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            self.widgets["reasoning_effort"] = ctk.CTkComboBox(
+                row, variable=self.vars["reasoning_effort"],
+                values=["low", "medium", "high"],
+                width=150, height=32, state="readonly", font=get_ctk_font(13),
+                **get_ctk_combobox_colors(self.colors)
+            )
+        else:
+            from tkinter import ttk
+            tk.Label(row, text="Reasoning effort (OpenAI):", font=("Segoe UI", 10), width=22, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            self.widgets["reasoning_effort"] = ttk.Combobox(
+                row, textvariable=self.vars["reasoning_effort"],
+                values=["low", "medium", "high"],
+                state="readonly", width=12
+            )
+        self.widgets["reasoning_effort"].pack(side="left", padx=(10, 0))
         
         # Thinking budget (Gemini 2.5)
-        row = self._add_spinbox_field(inner, row, "thinking_budget", 
-                                     "Thinking budget (Gemini 2.5):",
-                                     self.config_data.config.get("thinking_budget", -1),
-                                     -1, 100000)
+        self._add_spinbox_field(scroll_frame, "thinking_budget", "Thinking budget (Gemini 2.5):",
+                               self.config_data.config.get("thinking_budget", -1),
+                               -1, 100000)
         
         # Thinking level (Gemini 3.x)
-        tk.Label(inner, text="Thinking level (Gemini 3.x):", font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         self.vars["thinking_level"] = tk.StringVar(
             master=self.root, value=self.config_data.config.get("thinking_level", "high"))
-        level_combo = ttk.Combobox(inner, textvariable=self.vars["thinking_level"],
-                                  values=["low", "high"],
-                                  state="readonly", width=15)
-        level_combo.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-        self.widgets["thinking_level"] = level_combo
+        
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Thinking level (Gemini 3.x):", font=get_ctk_font(13), width=200, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            self.widgets["thinking_level"] = ctk.CTkComboBox(
+                row, variable=self.vars["thinking_level"],
+                values=["low", "high"],
+                width=150, height=32, state="readonly", font=get_ctk_font(13),
+                **get_ctk_combobox_colors(self.colors)
+            )
+        else:
+            from tkinter import ttk
+            tk.Label(row, text="Thinking level (Gemini 3.x):", font=("Segoe UI", 10), width=22, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            self.widgets["thinking_level"] = ttk.Combobox(
+                row, textvariable=self.vars["thinking_level"],
+                values=["low", "high"],
+                state="readonly", width=12
+            )
+        self.widgets["thinking_level"].pack(side="left", padx=(10, 0))
     
-    def _create_textedit_tab(self):
+    def _create_textedit_tab(self, frame):
         """Create the TextEditTool settings tab."""
-        frame = tk.Frame(self.notebook, bg=self.colors.bg)
-        self.notebook.add(frame, text="TextEditTool")
+        if self.use_ctk:
+            scroll_frame = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        else:
+            scroll_frame = tk.Frame(frame, bg=self.colors.bg)
+        scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        inner = tk.Frame(frame, bg=self.colors.bg)
-        inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
+        # Enable/Disable section
+        self._add_section_header(scroll_frame, "TextEditTool")
         
-        row = 0
+        self._add_toggle_field(scroll_frame, "text_edit_tool_enabled",
+                              "Enable TextEditTool",
+                              self.config_data.config.get("text_edit_tool_enabled", True),
+                              hint="⚠️ Restart required")
         
-        # Enable/Disable
-        tk.Label(inner, text="TextEditTool", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
-        row += 1
+        # Hotkeys section
+        self._add_section_header(scroll_frame, "Hotkeys", top_padding=20)
         
-        row = self._add_toggle_field(inner, row, "text_edit_tool_enabled",
-                                    "Enable TextEditTool",
-                                    self.config_data.config.get("text_edit_tool_enabled", True),
-                                    hint="⚠️ Restart required")
+        self._add_entry_field(scroll_frame, "text_edit_tool_hotkey", "Activation hotkey:",
+                             self.config_data.config.get("text_edit_tool_hotkey", "ctrl+space"),
+                             width=200, hint="⚠️ Restart required")
         
-        # Hotkeys
-        tk.Label(inner, text="Hotkeys", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=3, sticky=tk.W, pady=(20, 10))
-        row += 1
+        self._add_entry_field(scroll_frame, "text_edit_tool_abort_hotkey", "Abort hotkey:",
+                             self.config_data.config.get("text_edit_tool_abort_hotkey", "escape"),
+                             width=200, hint="⚠️ Restart required")
         
-        row = self._add_hotkey_field(inner, row, "text_edit_tool_hotkey",
-                                    "Activation hotkey:",
-                                    self.config_data.config.get("text_edit_tool_hotkey", "ctrl+space"),
-                                    hint="⚠️ Restart required")
+        # Typing settings section
+        self._add_section_header(scroll_frame, "Typing Settings", top_padding=20)
         
-        row = self._add_hotkey_field(inner, row, "text_edit_tool_abort_hotkey",
-                                    "Abort hotkey:",
-                                    self.config_data.config.get("text_edit_tool_abort_hotkey", "escape"),
-                                    hint="⚠️ Restart required")
+        self._add_spinbox_field(scroll_frame, "streaming_typing_delay", "Typing delay (ms):",
+                               self.config_data.config.get("streaming_typing_delay", 5),
+                               1, 100, hint="Delay per character in replace mode")
         
-        # Typing settings
-        tk.Label(inner, text="Typing Settings", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=3, sticky=tk.W, pady=(20, 10))
-        row += 1
-        
-        row = self._add_spinbox_field(inner, row, "streaming_typing_delay",
-                                     "Typing delay (ms):",
-                                     self.config_data.config.get("streaming_typing_delay", 5),
-                                     1, 100,
-                                     hint="Delay per character when streaming typing (replace mode)")
-        
-        row = self._add_toggle_field(inner, row, "streaming_typing_uncapped",
-                                    "Uncapped typing speed",
-                                    self.config_data.config.get("streaming_typing_uncapped", False),
-                                    hint="⚠️ No delay between chars. May overwhelm some apps.")
+        self._add_toggle_field(scroll_frame, "streaming_typing_uncapped",
+                              "Uncapped typing speed",
+                              self.config_data.config.get("streaming_typing_uncapped", False),
+                              hint="⚠️ No delay between chars. May overwhelm some apps.")
     
-    def _create_keys_tab(self):
+    def _create_keys_tab(self, frame):
         """Create the API Keys settings tab."""
-        frame = tk.Frame(self.notebook, bg=self.colors.bg)
-        self.notebook.add(frame, text="API Keys")
+        container = ctk.CTkFrame(frame, fg_color="transparent") if self.use_ctk else tk.Frame(frame, bg=self.colors.bg)
+        container.pack(fill="both", expand=True, padx=15, pady=15)
         
-        inner = tk.Frame(frame, bg=self.colors.bg)
-        inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-        
-        # Create sub-notebook for each provider
-        keys_notebook = ttk.Notebook(inner)
-        keys_notebook.pack(fill=tk.BOTH, expand=True)
-        
-        for provider in ["custom", "openrouter", "google"]:
-            self._create_keys_section(keys_notebook, provider)
+        # Create inner tabview for provider keys
+        if self.use_ctk:
+            keys_tabview = ctk.CTkTabview(
+                container,
+                fg_color=self.colors.bg,
+                segmented_button_fg_color=self.colors.surface0,
+                segmented_button_selected_color=self.colors.accent,
+                segmented_button_unselected_color=self.colors.surface0,
+                text_color=self.colors.fg
+            )
+            keys_tabview.pack(fill="both", expand=True)
+            
+            for provider in ["custom", "openrouter", "google"]:
+                keys_tabview.add(provider.capitalize())
+                self._create_keys_section(keys_tabview.tab(provider.capitalize()), provider)
+        else:
+            from tkinter import ttk
+            keys_tabview = ttk.Notebook(container)
+            keys_tabview.pack(fill="both", expand=True)
+            
+            for provider in ["custom", "openrouter", "google"]:
+                frame_tab = tk.Frame(keys_tabview, bg=self.colors.bg)
+                keys_tabview.add(frame_tab, text=provider.capitalize())
+                self._create_keys_section(frame_tab, provider)
     
-    def _create_keys_section(self, parent: ttk.Notebook, provider: str):
+    def _create_keys_section(self, parent, provider: str):
         """Create a key management section for a provider."""
-        frame = tk.Frame(parent, bg=self.colors.bg)
-        parent.add(frame, text=provider.capitalize())
+        container = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
+        container.pack(fill="both", expand=True, padx=10, pady=10)
         
         # Instructions
-        tk.Label(
-            frame,
-            text=f"Manage {provider} API keys (one per line, keys are masked for security)",
-            font=("Segoe UI", 9),
-            bg=self.colors.bg,
-            fg=self.colors.blockquote
-        ).pack(anchor=tk.W, pady=(10, 5), padx=10)
+        if self.use_ctk:
+            ctk.CTkLabel(
+                container,
+                text=f"Manage {provider} API keys (keys are masked for security)",
+                font=get_ctk_font(12),
+                **get_ctk_label_colors(self.colors, muted=True)
+            ).pack(anchor="w", pady=(0, 12))
+        else:
+            tk.Label(container, text=f"Manage {provider} API keys (keys are masked for security)",
+                    font=("Segoe UI", 9), bg=self.colors.bg, fg=self.colors.blockquote).pack(anchor="w", pady=(0, 10))
         
-        # Key list frame
-        list_frame = tk.Frame(frame, bg=self.colors.bg)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # Key list
+        list_frame = ctk.CTkFrame(container, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(container, bg=self.colors.input_bg)
+        list_frame.pack(fill="both", expand=True)
         
-        # Listbox
         listbox = tk.Listbox(
             list_frame,
-            font=("Consolas", 10),
+            font=("Consolas", 12),
             bg=self.colors.input_bg,
             fg=self.colors.fg,
             selectbackground=self.colors.accent,
             selectforeground="#ffffff",
-            relief=tk.FLAT,
-            highlightbackground=self.colors.border,
-            highlightthickness=1,
-            height=8
+            relief="flat",
+            highlightthickness=0,
+            borderwidth=0,
+            height=12
         )
-        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=listbox.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        listbox.configure(yscrollcommand=scrollbar.set)
+        listbox.pack(fill="both", expand=True, padx=4, pady=4)
         
         # Populate with masked keys
         for key in self.config_data.keys.get(provider, []):
             masked = self._mask_key(key)
-            listbox.insert(tk.END, masked)
+            listbox.insert("end", masked)
         
         self.widgets[f"keys_{provider}_listbox"] = listbox
         self.widgets[f"keys_{provider}_data"] = list(self.config_data.keys.get(provider, []))
         
         # Button frame
-        btn_frame = tk.Frame(frame, bg=self.colors.bg)
-        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        btn_frame = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
+        btn_frame.pack(fill="x", pady=(10, 0))
         
         # Add key entry
-        entry_var = tk.StringVar(master=frame)
-        key_entry = tk.Entry(
-            btn_frame,
-            textvariable=entry_var,
-            font=("Consolas", 10),
-            bg=self.colors.input_bg,
-            fg=self.colors.fg,
-            insertbackground=self.colors.fg,
-            relief=tk.FLAT,
-            highlightbackground=self.colors.border,
-            highlightthickness=1,
-            width=40
-        )
-        key_entry.pack(side=tk.LEFT, padx=(0, 10), ipady=5)
-        key_entry.insert(0, "Paste new API key here...")
-        key_entry.configure(fg=self.colors.blockquote)
+        if self.use_ctk:
+            entry_var = tk.StringVar(master=self.root)
+            key_entry = ctk.CTkEntry(
+                btn_frame, textvariable=entry_var,
+                font=get_ctk_font(12), width=400, height=36,
+                placeholder_text="Paste new API key here...",
+                **get_ctk_entry_colors(self.colors)
+            )
+        else:
+            entry_var = tk.StringVar(master=self.root)
+            key_entry = tk.Entry(btn_frame, textvariable=entry_var,
+                                font=("Consolas", 10), width=40,
+                                bg=self.colors.input_bg, fg=self.colors.fg)
+            key_entry.insert(0, "Paste new API key here...")
+            key_entry.configure(fg=self.colors.blockquote)
+            
+            def on_focus_in(e):
+                if key_entry.get() == "Paste new API key here...":
+                    key_entry.delete(0, "end")
+                    key_entry.configure(fg=self.colors.fg)
+            
+            def on_focus_out(e):
+                if not key_entry.get():
+                    key_entry.insert(0, "Paste new API key here...")
+                    key_entry.configure(fg=self.colors.blockquote)
+            
+            key_entry.bind('<FocusIn>', on_focus_in)
+            key_entry.bind('<FocusOut>', on_focus_out)
         
-        def on_focus_in(e):
-            if key_entry.get() == "Paste new API key here...":
-                key_entry.delete(0, tk.END)
-                key_entry.configure(fg=self.colors.fg)
-        
-        def on_focus_out(e):
-            if not key_entry.get():
-                key_entry.insert(0, "Paste new API key here...")
-                key_entry.configure(fg=self.colors.blockquote)
-        
-        key_entry.bind('<FocusIn>', on_focus_in)
-        key_entry.bind('<FocusOut>', on_focus_out)
+        key_entry.pack(side="left", padx=(0, 10))
         
         def add_key():
             key = entry_var.get().strip()
             if key and key != "Paste new API key here...":
                 self.widgets[f"keys_{provider}_data"].append(key)
-                listbox.insert(tk.END, self._mask_key(key))
+                listbox.insert("end", self._mask_key(key))
                 entry_var.set("")
-                key_entry.insert(0, "Paste new API key here...")
-                key_entry.configure(fg=self.colors.blockquote)
+                if self.use_ctk:
+                    key_entry.configure(placeholder_text="Paste new API key here...")
+                else:
+                    key_entry.insert(0, "Paste new API key here...")
+                    key_entry.configure(fg=self.colors.blockquote)
         
         def remove_key():
             selection = listbox.curselection()
@@ -876,31 +973,25 @@ class SettingsWindow:
                 listbox.delete(idx)
                 del self.widgets[f"keys_{provider}_data"][idx]
         
-        tk.Button(
-            btn_frame,
-            text="Add",
-            font=("Segoe UI", 10),
-            bg=self.colors.accent_green,
-            fg="#ffffff",
-            activebackground="#45a049",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            command=add_key
-        ).pack(side=tk.LEFT, padx=2)
-        
-        tk.Button(
-            btn_frame,
-            text="Remove",
-            font=("Segoe UI", 10),
-            bg=self.colors.accent_red,
-            fg="#ffffff",
-            activebackground="#c0392b",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            command=remove_key
-        ).pack(side=tk.LEFT, padx=2)
+        if self.use_ctk:
+            ctk.CTkButton(
+                btn_frame, text="Add", font=get_ctk_font(13),
+                width=80, height=36, **get_ctk_button_colors(self.colors, "success"),
+                command=add_key
+            ).pack(side="left", padx=4)
+            
+            ctk.CTkButton(
+                btn_frame, text="Remove", font=get_ctk_font(13),
+                width=90, height=36, **get_ctk_button_colors(self.colors, "danger"),
+                command=remove_key
+            ).pack(side="left", padx=4)
+        else:
+            tk.Button(btn_frame, text="Add", font=("Segoe UI", 10),
+                     bg=self.colors.accent_green, fg="#ffffff",
+                     command=add_key).pack(side="left", padx=2)
+            tk.Button(btn_frame, text="Remove", font=("Segoe UI", 10),
+                     bg=self.colors.accent_red, fg="#ffffff",
+                     command=remove_key).pack(side="left", padx=2)
     
     def _mask_key(self, key: str) -> str:
         """Mask an API key for display."""
@@ -908,93 +999,87 @@ class SettingsWindow:
             return "*" * len(key)
         return key[:4] + "..." + key[-4:]
     
-    def _create_endpoints_tab(self):
+    def _create_endpoints_tab(self, frame):
         """Create the Endpoints settings tab."""
-        frame = tk.Frame(self.notebook, bg=self.colors.bg)
-        self.notebook.add(frame, text="Endpoints")
-        
-        inner = tk.Frame(frame, bg=self.colors.bg)
-        inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-        inner.columnconfigure(0, weight=1)
-        inner.columnconfigure(1, weight=2)
-        inner.rowconfigure(1, weight=1)
+        container = ctk.CTkFrame(frame, fg_color="transparent") if self.use_ctk else tk.Frame(frame, bg=self.colors.bg)
+        container.pack(fill="both", expand=True, padx=15, pady=15)
         
         # Left: endpoint list
-        tk.Label(inner, text="Endpoints", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=0, column=0, sticky=tk.W, pady=(0, 10))
+        left_panel = ctk.CTkFrame(container, fg_color="transparent", width=240) if self.use_ctk else tk.Frame(container, bg=self.colors.bg, width=240)
+        left_panel.pack(side="left", fill="y", padx=(0, 15))
+        left_panel.pack_propagate(False)
         
-        list_frame = tk.Frame(inner, bg=self.colors.bg)
-        list_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=(0, 10))
+        if self.use_ctk:
+            ctk.CTkLabel(left_panel, text="Endpoints", font=get_ctk_font(14, "bold"),
+                        text_color=self.colors.accent).pack(anchor="w", pady=(0, 12))
+        else:
+            tk.Label(left_panel, text="Endpoints", font=("Segoe UI", 11, "bold"),
+                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        
+        list_frame = ctk.CTkFrame(left_panel, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(left_panel, bg=self.colors.input_bg)
+        list_frame.pack(fill="both", expand=True)
         
         self.endpoint_listbox = tk.Listbox(
             list_frame,
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 12),
             bg=self.colors.input_bg,
             fg=self.colors.fg,
             selectbackground=self.colors.accent,
             selectforeground="#ffffff",
-            relief=tk.FLAT,
-            highlightbackground=self.colors.border,
-            highlightthickness=1
+            relief="flat",
+            highlightthickness=0,
+            borderwidth=0
         )
-        self.endpoint_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, 
-                                 command=self.endpoint_listbox.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.endpoint_listbox.configure(yscrollcommand=scrollbar.set)
+        self.endpoint_listbox.pack(fill="both", expand=True, padx=4, pady=4)
         
         # Populate endpoints
         for name in sorted(self.config_data.endpoints.keys()):
-            self.endpoint_listbox.insert(tk.END, name)
+            self.endpoint_listbox.insert("end", name)
         
         self.endpoint_listbox.bind('<<ListboxSelect>>', self._on_endpoint_select)
         
         # Right: prompt editor
-        tk.Label(inner, text="Prompt", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=0, column=1, sticky=tk.W, pady=(0, 10))
+        right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
+        right_panel.pack(side="left", fill="both", expand=True)
         
-        self.endpoint_text = tk.Text(
-            inner,
-            font=("Segoe UI", 10),
-            bg=self.colors.input_bg,
-            fg=self.colors.fg,
-            insertbackground=self.colors.fg,
-            relief=tk.FLAT,
-            highlightbackground=self.colors.border,
-            highlightthickness=1,
-            wrap=tk.WORD,
-            height=10
-        )
-        self.endpoint_text.grid(row=1, column=1, sticky=tk.NSEW)
+        if self.use_ctk:
+            ctk.CTkLabel(right_panel, text="Prompt", font=get_ctk_font(14, "bold"),
+                        text_color=self.colors.accent).pack(anchor="w", pady=(0, 12))
+            
+            self.endpoint_text = ctk.CTkTextbox(
+                right_panel, font=get_ctk_font(12),
+                **get_ctk_textbox_colors(self.colors)
+            )
+        else:
+            tk.Label(right_panel, text="Prompt", font=("Segoe UI", 11, "bold"),
+                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+            
+            self.endpoint_text = tk.Text(
+                right_panel, font=("Segoe UI", 10),
+                bg=self.colors.input_bg, fg=self.colors.fg, wrap="word"
+            )
+        self.endpoint_text.pack(fill="both", expand=True, pady=(0, 10))
         
         # Button row
-        btn_frame = tk.Frame(inner, bg=self.colors.bg)
-        btn_frame.grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=(10, 0))
+        btn_frame = ctk.CTkFrame(right_panel, fg_color="transparent") if self.use_ctk else tk.Frame(right_panel, bg=self.colors.bg)
+        btn_frame.pack(fill="x")
         
-        tk.Button(
-            btn_frame,
-            text="Save Prompt",
-            font=("Segoe UI", 10),
-            bg=self.colors.accent_green,
-            fg="#ffffff",
-            activebackground="#45a049",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            command=self._save_endpoint
-        ).pack(side=tk.LEFT, padx=2)
-        
-        self.endpoint_status = tk.Label(
-            btn_frame,
-            text="",
-            font=("Segoe UI", 9),
-            bg=self.colors.bg,
-            fg=self.colors.accent_green
-        )
-        self.endpoint_status.pack(side=tk.LEFT, padx=15)
+        if self.use_ctk:
+            ctk.CTkButton(
+                btn_frame, text="Save Prompt", font=get_ctk_font(13),
+                width=140, height=38, **get_ctk_button_colors(self.colors, "success"),
+                command=self._save_endpoint
+            ).pack(side="left", padx=4)
+            
+            self.endpoint_status = ctk.CTkLabel(btn_frame, text="", font=get_ctk_font(12),
+                                               text_color=self.colors.accent_green)
+        else:
+            tk.Button(btn_frame, text="Save Prompt", font=("Segoe UI", 10),
+                     bg=self.colors.accent_green, fg="#ffffff",
+                     command=self._save_endpoint).pack(side="left", padx=2)
+            self.endpoint_status = tk.Label(btn_frame, text="", font=("Segoe UI", 9),
+                                           bg=self.colors.bg, fg=self.colors.accent_green)
+        self.endpoint_status.pack(side="left", padx=15)
     
     def _on_endpoint_select(self, event):
         """Handle endpoint selection."""
@@ -1002,77 +1087,106 @@ class SettingsWindow:
         if selection:
             name = self.endpoint_listbox.get(selection[0])
             prompt = self.config_data.endpoints.get(name, "")
-            self.endpoint_text.delete("1.0", tk.END)
-            self.endpoint_text.insert("1.0", prompt)
+            if self.use_ctk:
+                self.endpoint_text.delete("0.0", "end")
+                self.endpoint_text.insert("0.0", prompt)
+            else:
+                self.endpoint_text.delete("1.0", "end")
+                self.endpoint_text.insert("1.0", prompt)
     
     def _save_endpoint(self):
         """Save the currently edited endpoint."""
         selection = self.endpoint_listbox.curselection()
         if selection:
             name = self.endpoint_listbox.get(selection[0])
-            prompt = self.endpoint_text.get("1.0", tk.END).strip()
+            if self.use_ctk:
+                prompt = self.endpoint_text.get("0.0", "end").strip()
+            else:
+                prompt = self.endpoint_text.get("1.0", "end").strip()
             self.config_data.endpoints[name] = prompt
-            self.endpoint_status.configure(text=f"✅ Saved '{name}'", fg=self.colors.accent_green)
+            if self.use_ctk:
+                self.endpoint_status.configure(text=f"✅ Saved '{name}'", text_color=self.colors.accent_green)
+            else:
+                self.endpoint_status.configure(text=f"✅ Saved '{name}'", fg=self.colors.accent_green)
     
-    def _create_theme_tab(self):
+    def _create_theme_tab(self, frame):
         """Create the Theme settings tab."""
-        frame = tk.Frame(self.notebook, bg=self.colors.bg)
-        self.notebook.add(frame, text="Theme")
-        
-        inner = tk.Frame(frame, bg=self.colors.bg)
-        inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-        
-        row = 0
+        if self.use_ctk:
+            scroll_frame = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        else:
+            scroll_frame = tk.Frame(frame, bg=self.colors.bg)
+        scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Theme selection
-        tk.Label(inner, text="UI Theme", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
-        row += 1
+        self._add_section_header(scroll_frame, "UI Theme")
         
         # Theme dropdown
-        tk.Label(inner, text="Theme:", font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         current_theme = self.config_data.config.get("ui_theme", "catppuccin")
         self.vars["ui_theme"] = tk.StringVar(master=self.root, value=current_theme)
         
-        theme_combo = ttk.Combobox(inner, textvariable=self.vars["ui_theme"],
-                                  values=list_themes(),
-                                  state="readonly", width=20)
-        theme_combo.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-        theme_combo.bind('<<ComboboxSelected>>', self._update_theme_preview)
-        self.widgets["ui_theme"] = theme_combo
-        row += 1
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Theme:", font=get_ctk_font(14), width=120, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            self.widgets["ui_theme"] = ctk.CTkComboBox(
+                row, variable=self.vars["ui_theme"],
+                values=list_themes(), width=200, height=34, state="readonly", font=get_ctk_font(13),
+                **get_ctk_combobox_colors(self.colors),
+                command=lambda x: self._update_theme_preview()
+            )
+        else:
+            from tkinter import ttk
+            tk.Label(row, text="Theme:", font=("Segoe UI", 10), width=12, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            self.widgets["ui_theme"] = ttk.Combobox(
+                row, textvariable=self.vars["ui_theme"],
+                values=list_themes(), state="readonly", width=20
+            )
+            self.widgets["ui_theme"].bind('<<ComboboxSelected>>', lambda e: self._update_theme_preview())
+        self.widgets["ui_theme"].pack(side="left", padx=(10, 0))
         
         # Mode dropdown
-        tk.Label(inner, text="Mode:", font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         current_mode = self.config_data.config.get("ui_theme_mode", "auto")
         self.vars["ui_theme_mode"] = tk.StringVar(master=self.root, value=current_mode)
         
-        mode_combo = ttk.Combobox(inner, textvariable=self.vars["ui_theme_mode"],
-                                 values=["auto", "dark", "light"],
-                                 state="readonly", width=15)
-        mode_combo.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-        mode_combo.bind('<<ComboboxSelected>>', self._update_theme_preview)
-        self.widgets["ui_theme_mode"] = mode_combo
-        row += 1
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Mode:", font=get_ctk_font(14), width=120, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            self.widgets["ui_theme_mode"] = ctk.CTkComboBox(
+                row, variable=self.vars["ui_theme_mode"],
+                values=["auto", "dark", "light"], width=150, height=34, state="readonly", font=get_ctk_font(13),
+                **get_ctk_combobox_colors(self.colors),
+                command=lambda x: self._update_theme_preview()
+            )
+        else:
+            from tkinter import ttk
+            tk.Label(row, text="Mode:", font=("Segoe UI", 10), width=12, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            self.widgets["ui_theme_mode"] = ttk.Combobox(
+                row, textvariable=self.vars["ui_theme_mode"],
+                values=["auto", "dark", "light"], state="readonly", width=12
+            )
+            self.widgets["ui_theme_mode"].bind('<<ComboboxSelected>>', lambda e: self._update_theme_preview())
+        self.widgets["ui_theme_mode"].pack(side="left", padx=(10, 0))
         
         # Preview section
-        tk.Label(inner, text="Preview", font=("Segoe UI", 11, "bold"),
-                bg=self.colors.bg, fg=self.colors.accent).grid(
-                row=row, column=0, columnspan=2, sticky=tk.W, pady=(20, 10))
-        row += 1
+        self._add_section_header(scroll_frame, "Preview", top_padding=20)
         
         # Preview frame
-        self.preview_frame = tk.Frame(inner, bg=self.colors.surface0,
-                                     highlightbackground=self.colors.border,
-                                     highlightthickness=1)
-        self.preview_frame.grid(row=row, column=0, columnspan=2, sticky=tk.NSEW, pady=5)
+        if self.use_ctk:
+            self.preview_frame = ctk.CTkFrame(
+                scroll_frame, fg_color=self.colors.surface0,
+                corner_radius=10, border_width=1, border_color=self.colors.border
+            )
+        else:
+            self.preview_frame = tk.Frame(scroll_frame, bg=self.colors.surface0,
+                                         highlightbackground=self.colors.border, highlightthickness=1)
+        self.preview_frame.pack(fill="x", pady=5)
         
         self._update_theme_preview()
     
@@ -1097,251 +1211,231 @@ class SettingsWindow:
         preview_colors = ThemeRegistry.get_theme(theme_name, "dark" if is_dark else "light")
         
         # Update preview frame background
-        self.preview_frame.configure(bg=preview_colors.bg)
+        if self.use_ctk:
+            self.preview_frame.configure(fg_color=preview_colors.bg)
+        else:
+            self.preview_frame.configure(bg=preview_colors.bg)
         
         # Add sample elements
-        inner = tk.Frame(self.preview_frame, bg=preview_colors.bg)
-        inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        inner = ctk.CTkFrame(self.preview_frame, fg_color="transparent") if self.use_ctk else tk.Frame(self.preview_frame, bg=preview_colors.bg)
+        inner.pack(fill="both", expand=True, padx=15, pady=15)
         
         # Title
-        tk.Label(
-            inner,
-            text=f"Theme: {theme_name.title()} ({'Dark' if is_dark else 'Light'})",
-            font=("Segoe UI", 12, "bold"),
-            bg=preview_colors.bg,
-            fg=preview_colors.fg
-        ).pack(anchor=tk.W)
-        
-        # Sample text
-        tk.Label(
-            inner,
-            text="This is how text will look in this theme.",
-            font=("Segoe UI", 10),
-            bg=preview_colors.bg,
-            fg=preview_colors.fg
-        ).pack(anchor=tk.W, pady=(5, 0))
-        
-        # Sample muted text
-        tk.Label(
-            inner,
-            text="Muted/secondary text appears like this.",
-            font=("Segoe UI", 9),
-            bg=preview_colors.bg,
-            fg=preview_colors.blockquote
-        ).pack(anchor=tk.W)
+        if self.use_ctk:
+            ctk.CTkLabel(
+                inner,
+                text=f"Theme: {theme_name.title()} ({'Dark' if is_dark else 'Light'})",
+                font=get_ctk_font(16, "bold"),
+                text_color=preview_colors.fg
+            ).pack(anchor="w")
+            
+            ctk.CTkLabel(
+                inner,
+                text="This is how text will look in this theme.",
+                font=get_ctk_font(13),
+                text_color=preview_colors.fg
+            ).pack(anchor="w", pady=(8, 0))
+            
+            ctk.CTkLabel(
+                inner,
+                text="Muted/secondary text appears like this.",
+                font=get_ctk_font(12),
+                text_color=preview_colors.blockquote
+            ).pack(anchor="w")
+        else:
+            tk.Label(inner, text=f"Theme: {theme_name.title()} ({'Dark' if is_dark else 'Light'})",
+                    font=("Segoe UI", 12, "bold"),
+                    bg=preview_colors.bg, fg=preview_colors.fg).pack(anchor="w")
+            tk.Label(inner, text="This is how text will look in this theme.",
+                    font=("Segoe UI", 10),
+                    bg=preview_colors.bg, fg=preview_colors.fg).pack(anchor="w", pady=(5, 0))
+            tk.Label(inner, text="Muted/secondary text appears like this.",
+                    font=("Segoe UI", 9),
+                    bg=preview_colors.bg, fg=preview_colors.blockquote).pack(anchor="w")
         
         # Sample buttons row
-        btn_row = tk.Frame(inner, bg=preview_colors.bg)
-        btn_row.pack(anchor=tk.W, pady=(10, 0))
+        btn_row = ctk.CTkFrame(inner, fg_color="transparent") if self.use_ctk else tk.Frame(inner, bg=preview_colors.bg)
+        btn_row.pack(anchor="w", pady=(10, 0))
         
-        tk.Label(
-            btn_row,
-            text="Primary",
-            font=("Segoe UI", 9),
-            bg=preview_colors.accent,
-            fg="#ffffff",
-            padx=10,
-            pady=3
-        ).pack(side=tk.LEFT, padx=2)
-        
-        tk.Label(
-            btn_row,
-            text="Success",
-            font=("Segoe UI", 9),
-            bg=preview_colors.accent_green,
-            fg="#ffffff",
-            padx=10,
-            pady=3
-        ).pack(side=tk.LEFT, padx=2)
-        
-        tk.Label(
-            btn_row,
-            text="Warning",
-            font=("Segoe UI", 9),
-            bg=preview_colors.accent_yellow,
-            fg="#000000",
-            padx=10,
-            pady=3
-        ).pack(side=tk.LEFT, padx=2)
-        
-        tk.Label(
-            btn_row,
-            text="Danger",
-            font=("Segoe UI", 9),
-            bg=preview_colors.accent_red,
-            fg="#ffffff",
-            padx=10,
-            pady=3
-        ).pack(side=tk.LEFT, padx=2)
+        for label, color in [("Primary", preview_colors.accent),
+                            ("Success", preview_colors.accent_green),
+                            ("Warning", preview_colors.accent_yellow),
+                            ("Danger", preview_colors.accent_red)]:
+            fg = "#ffffff" if label != "Warning" else "#000000"
+            if self.use_ctk:
+                ctk.CTkLabel(
+                    btn_row, text=label, font=get_ctk_font(12),
+                    fg_color=color, text_color=fg,
+                    corner_radius=6, padx=14, pady=5
+                ).pack(side="left", padx=4)
+            else:
+                tk.Label(btn_row, text=label, font=("Segoe UI", 9),
+                        bg=color, fg=fg, padx=10, pady=3).pack(side="left", padx=2)
         
         # Sample input
-        sample_entry = tk.Entry(
-            inner,
-            font=("Segoe UI", 10),
-            bg=preview_colors.input_bg,
-            fg=preview_colors.fg,
-            insertbackground=preview_colors.fg,
-            relief=tk.FLAT,
-            highlightbackground=preview_colors.border,
-            highlightthickness=1
-        )
-        sample_entry.insert(0, "Sample input field")
-        sample_entry.pack(anchor=tk.W, pady=(10, 0), ipady=5)
+        if self.use_ctk:
+            sample_entry = ctk.CTkEntry(
+                inner, font=get_ctk_font(12), width=240, height=34,
+                fg_color=preview_colors.input_bg,
+                text_color=preview_colors.fg,
+                border_color=preview_colors.border
+            )
+            sample_entry.pack(anchor="w", pady=(12, 0))
+            sample_entry.insert(0, "Sample input field")
+        else:
+            sample_entry = tk.Entry(inner, font=("Segoe UI", 10),
+                                   bg=preview_colors.input_bg, fg=preview_colors.fg)
+            sample_entry.insert(0, "Sample input field")
+            sample_entry.pack(anchor="w", pady=(10, 0))
     
     # Helper methods for creating form fields
     
-    def _add_entry_field(self, parent, row: int, key: str, label: str,
-                        value: str, width: int = 25, validate: str = None,
-                        hint: str = None) -> int:
-        """Add an entry field to the form with optional hint."""
-        tk.Label(parent, text=label, font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+    def _add_section_header(self, parent, text: str, top_padding: int = 0):
+        """Add a section header."""
+        if self.use_ctk:
+            ctk.CTkLabel(
+                parent, text=text, font=get_ctk_font(15, "bold"),
+                text_color=self.colors.accent
+            ).pack(anchor="w", pady=(top_padding, 12))
+        else:
+            tk.Label(parent, text=text, font=("Segoe UI", 11, "bold"),
+                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(top_padding, 10))
+    
+    def _add_entry_field(self, parent, key: str, label: str, value: str,
+                        width: int = 240, hint: str = None):
+        """Add an entry field to the form."""
+        row = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         self.vars[key] = tk.StringVar(master=self.root, value=value)
-        entry = tk.Entry(
-            parent,
-            textvariable=self.vars[key],
-            font=("Segoe UI", 10),
-            bg=self.colors.input_bg,
-            fg=self.colors.fg,
-            insertbackground=self.colors.fg,
-            relief=tk.FLAT,
-            highlightbackground=self.colors.border,
-            highlightthickness=1,
-            width=width
-        )
-        entry.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0), ipady=4)
-        self.widgets[key] = entry
         
-        # Add hint if provided
-        if hint:
-            tk.Label(parent, text=hint, font=("Segoe UI", 9),
-                    bg=self.colors.bg, fg=self.colors.blockquote).grid(
-                    row=row, column=2, sticky=tk.W, padx=(15, 0))
-        
-        return row + 1
+        if self.use_ctk:
+            ctk.CTkLabel(row, text=label, font=get_ctk_font(13), width=180, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            entry = ctk.CTkEntry(
+                row, textvariable=self.vars[key],
+                font=get_ctk_font(13), width=width, height=34,
+                **get_ctk_entry_colors(self.colors)
+            )
+            entry.pack(side="left", padx=(12, 0))
+            self.widgets[key] = entry
+            
+            if hint:
+                ctk.CTkLabel(row, text=hint, font=get_ctk_font(11),
+                            **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
+        else:
+            tk.Label(row, text=label, font=("Segoe UI", 10), width=18, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            entry = tk.Entry(row, textvariable=self.vars[key],
+                            font=("Segoe UI", 10), width=width//8,
+                            bg=self.colors.input_bg, fg=self.colors.fg)
+            entry.pack(side="left", padx=(10, 0), ipady=4)
+            self.widgets[key] = entry
+            
+            if hint:
+                tk.Label(row, text=hint, font=("Segoe UI", 9),
+                        bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
     
-    def _add_toggle_field(self, parent, row: int, key: str, label: str,
-                         value: bool, hint: str = None) -> int:
-        """Add a toggle switch field to the form with optional hint."""
-        tk.Label(parent, text=label, font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+    def _add_toggle_field(self, parent, key: str, label: str, value: bool, hint: str = None):
+        """Add a toggle switch field to the form."""
+        row = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         self.vars[key] = tk.BooleanVar(master=self.root, value=value)
-        toggle = ToggleSwitch(parent, self.vars[key], self.colors)
-        toggle.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-        self.widgets[key] = toggle
         
-        # Add hint if provided
-        if hint:
-            tk.Label(parent, text=hint, font=("Segoe UI", 9),
-                    bg=self.colors.bg, fg=self.colors.blockquote).grid(
-                    row=row, column=2, sticky=tk.W, padx=(15, 0))
-        
-        return row + 1
+        if self.use_ctk:
+            self.widgets[key] = ctk.CTkSwitch(
+                row, text=label, variable=self.vars[key],
+                font=get_ctk_font(13), text_color=self.colors.fg,
+                fg_color=self.colors.surface2,
+                progress_color=self.colors.accent,
+                button_color="#ffffff",
+                button_hover_color="#f0f0f0"
+            )
+            self.widgets[key].pack(side="left")
+            
+            if hint:
+                ctk.CTkLabel(row, text=hint, font=get_ctk_font(11),
+                            **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
+        else:
+            tk.Label(row, text=label, font=("Segoe UI", 10),
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            toggle = ToggleSwitch(row, self.vars[key], self.colors)
+            toggle.pack(side="left", padx=(10, 0))
+            self.widgets[key] = toggle
+            
+            if hint:
+                tk.Label(row, text=hint, font=("Segoe UI", 9),
+                        bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
     
-    def _add_spinbox_field(self, parent, row: int, key: str, label: str,
-                          value: int, min_val: int, max_val: int,
-                          hint: str = None) -> int:
-        """Add a spinbox field to the form with optional hint."""
-        tk.Label(parent, text=label, font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
+    def _add_spinbox_field(self, parent, key: str, label: str, value: int,
+                          min_val: int, max_val: int, hint: str = None):
+        """Add a spinbox field to the form."""
+        row = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
         
         self.vars[key] = tk.IntVar(master=self.root, value=value)
-        spinbox = ttk.Spinbox(
-            parent,
-            textvariable=self.vars[key],
-            from_=min_val,
-            to=max_val,
-            width=10
-        )
-        spinbox.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-        self.widgets[key] = spinbox
         
-        # Add hint if provided
-        if hint:
-            tk.Label(parent, text=hint, font=("Segoe UI", 9),
-                    bg=self.colors.bg, fg=self.colors.blockquote).grid(
-                    row=row, column=2, sticky=tk.W, padx=(15, 0))
-        
-        return row + 1
+        if self.use_ctk:
+            ctk.CTkLabel(row, text=label, font=get_ctk_font(13), width=200, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            # CTk doesn't have spinbox, use entry
+            entry = ctk.CTkEntry(
+                row, textvariable=self.vars[key],
+                font=get_ctk_font(13), width=100, height=34,
+                **get_ctk_entry_colors(self.colors)
+            )
+            entry.pack(side="left", padx=(12, 0))
+            self.widgets[key] = entry
+            
+            if hint:
+                ctk.CTkLabel(row, text=hint, font=get_ctk_font(11),
+                            **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
+        else:
+            from tkinter import ttk
+            tk.Label(row, text=label, font=("Segoe UI", 10), width=22, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            spinbox = ttk.Spinbox(row, textvariable=self.vars[key],
+                                 from_=min_val, to=max_val, width=10)
+            spinbox.pack(side="left", padx=(10, 0))
+            self.widgets[key] = spinbox
+            
+            if hint:
+                tk.Label(row, text=hint, font=("Segoe UI", 9),
+                        bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
     
-    def _add_hotkey_field(self, parent, row: int, key: str, label: str,
-                         value: str, hint: str = None) -> int:
-        """Add a hotkey text entry field to the form with optional hint.
-        
-        Hotkeys are typed manually, e.g. 'ctrl+space', 'escape', 'alt+tab'.
-        """
-        tk.Label(parent, text=label, font=("Segoe UI", 10),
-                bg=self.colors.bg, fg=self.colors.fg).grid(
-                row=row, column=0, sticky=tk.W, pady=5)
-        
-        self.vars[key] = tk.StringVar(master=self.root, value=value)
-        entry = tk.Entry(
-            parent,
-            textvariable=self.vars[key],
-            font=("Segoe UI", 10),
-            bg=self.colors.input_bg,
-            fg=self.colors.fg,
-            insertbackground=self.colors.fg,
-            relief=tk.FLAT,
-            highlightbackground=self.colors.border,
-            highlightthickness=1,
-            width=20
-        )
-        entry.grid(row=row, column=1, sticky=tk.W, pady=5, padx=(10, 0), ipady=4)
-        self.widgets[key] = entry
-        
-        # Add hint if provided
-        if hint:
-            tk.Label(parent, text=hint, font=("Segoe UI", 9),
-                    bg=self.colors.bg, fg=self.colors.blockquote).grid(
-                    row=row, column=2, sticky=tk.W, padx=(15, 0))
-        
-        return row + 1
-    
-    def _create_button_bar(self):
+    def _create_button_bar(self, parent):
         """Create the bottom button bar."""
-        btn_frame = tk.Frame(self.root, bg=self.colors.bg)
-        btn_frame.grid(row=2, column=0, sticky=tk.EW, padx=20, pady=(10, 20))
+        btn_frame = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
+        btn_frame.pack(fill="x", pady=(10, 0))
         
-        tk.Button(
-            btn_frame,
-            text="💾 Save",
-            font=("Segoe UI", 11),
-            bg=self.colors.accent_green,
-            fg="#ffffff",
-            activebackground="#45a049",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            command=self._save
-        ).pack(side=tk.LEFT, padx=5)
-        
-        tk.Button(
-            btn_frame,
-            text="Cancel",
-            font=("Segoe UI", 11),
-            bg=self.colors.surface1,
-            fg=self.colors.fg,
-            activebackground=self.colors.surface2,
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            command=self._close
-        ).pack(side=tk.LEFT, padx=5)
-        
-        self.status_label = tk.Label(
-            btn_frame,
-            text="",
-            font=("Segoe UI", 10),
-            bg=self.colors.bg,
-            fg=self.colors.accent_green
-        )
-        self.status_label.pack(side=tk.LEFT, padx=20)
+        if self.use_ctk:
+            ctk.CTkButton(
+                btn_frame, text="💾 Save", font=get_ctk_font(14),
+                width=120, height=42, **get_ctk_button_colors(self.colors, "success"),
+                command=self._save
+            ).pack(side="left", padx=6)
+            
+            ctk.CTkButton(
+                btn_frame, text="Cancel", font=get_ctk_font(14),
+                width=110, height=42, **get_ctk_button_colors(self.colors, "secondary"),
+                command=self._close
+            ).pack(side="left", padx=6)
+            
+            self.status_label = ctk.CTkLabel(
+                btn_frame, text="", font=get_ctk_font(13),
+                text_color=self.colors.accent_green
+            )
+        else:
+            tk.Button(btn_frame, text="💾 Save", font=("Segoe UI", 11),
+                     bg=self.colors.accent_green, fg="#ffffff",
+                     command=self._save).pack(side="left", padx=5)
+            tk.Button(btn_frame, text="Cancel", font=("Segoe UI", 11),
+                     bg=self.colors.surface1, fg=self.colors.fg,
+                     command=self._close).pack(side="left", padx=5)
+            self.status_label = tk.Label(btn_frame, text="", font=("Segoe UI", 10),
+                                        bg=self.colors.bg, fg=self.colors.accent_green)
+        self.status_label.pack(side="left", padx=20)
     
     def _validate(self) -> tuple:
         """
@@ -1367,7 +1461,7 @@ class SettingsWindow:
         # Validate
         is_valid, error = self._validate()
         if not is_valid:
-            messagebox.showerror("Validation Error", error)
+            messagebox.showerror("Validation Error", error, parent=self.root)
             return
         
         # Collect values from widgets
@@ -1413,12 +1507,18 @@ class SettingsWindow:
             except (ImportError, AttributeError) as e:
                 print(f"[Settings] Note: Could not update in-memory config: {e}")
             
-            self.status_label.configure(text="✅ Settings saved!", fg=self.colors.accent_green)
+            if self.use_ctk:
+                self.status_label.configure(text="✅ Settings saved!", text_color=self.colors.accent_green)
+            else:
+                self.status_label.configure(text="✅ Settings saved!", fg=self.colors.accent_green)
             
             # Close after brief delay
-            self.root.after(1000, self._close)
+            self.root.after(1500, self._close)
         else:
-            self.status_label.configure(text="❌ Failed to save", fg=self.colors.accent_red)
+            if self.use_ctk:
+                self.status_label.configure(text="❌ Failed to save", text_color=self.colors.accent_red)
+            else:
+                self.status_label.configure(text="❌ Failed to save", fg=self.colors.accent_red)
     
     def _close(self):
         """Close the settings window."""
@@ -1438,25 +1538,14 @@ class AttachedSettingsWindow:
     Used for centralized GUI threading.
     """
     
-    def __init__(self, parent_root: tk.Tk):
+    def __init__(self, parent_root):
         self.parent_root = parent_root
-        self.window_id = get_next_window_id()
-        self.window_tag = f"attached_settings_{self.window_id}"
-        
-        self.colors = get_colors()
-        self._destroyed = False
-        
-        # Create a standalone window since Settings is complex
-        # and needs its own event handling
-        def run_settings():
-            settings = SettingsWindow()
-            settings.show()
-        
-        # Run in thread to not block coordinator
-        threading.Thread(target=run_settings, daemon=True).start()
+        # Run directly on GUI thread as a child window
+        settings = SettingsWindow(master=parent_root)
+        settings.show()
 
 
-def create_attached_settings_window(parent_root: tk.Tk):
+def create_attached_settings_window(parent_root):
     """Create a settings window (called on GUI thread)."""
     AttachedSettingsWindow(parent_root)
 
