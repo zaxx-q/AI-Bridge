@@ -13,8 +13,16 @@ Themes available:
 - onedark: Atom editor theme (Dark/Light)
 - minimal: Clean, minimal design (Dark/Light)
 - highcontrast: Maximum readability (Dark/Light)
+
+CustomTkinter Integration:
+- get_ctk_button_colors(): Get button styling kwargs
+- get_ctk_frame_colors(): Get frame styling kwargs
+- get_ctk_entry_colors(): Get entry styling kwargs
+- get_ctk_font(): Get appropriate CTkFont
+- sync_ctk_appearance(): Sync appearance mode with config
 """
 
+import sys
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
@@ -23,6 +31,14 @@ try:
     HAVE_DARKDETECT = True
 except ImportError:
     HAVE_DARKDETECT = False
+
+# Import CustomTkinter with fallback
+try:
+    import customtkinter as ctk
+    HAVE_CTK = True
+except ImportError:
+    HAVE_CTK = False
+    ctk = None
 
 
 @dataclass
@@ -716,6 +732,282 @@ def list_themes() -> list:
         List of theme name strings
     """
     return ThemeRegistry.list_themes()
+
+
+# =============================================================================
+# CustomTkinter Integration Functions
+# =============================================================================
+
+def get_ctk_font(size: int = 12, weight: str = "normal", family: str = None):
+    """
+    Get a CTkFont with appropriate defaults for the platform.
+    
+    Args:
+        size: Font size in points
+        weight: "normal" or "bold"
+        family: Font family (auto-detected if None)
+    
+    Returns:
+        CTkFont instance or tuple fallback if CTk not available
+    """
+    if family is None:
+        if sys.platform == "win32":
+            family = "Segoe UI"
+        elif sys.platform == "darwin":
+            family = "SF Pro Text"
+        else:
+            family = "DejaVu Sans"
+    
+    if HAVE_CTK:
+        return ctk.CTkFont(family=family, size=size, weight=weight)
+    else:
+        # Fallback for pure tk
+        return (family, size, weight)
+
+
+def get_ctk_button_colors(colors: ThemeColors, variant: str = "primary") -> dict:
+    """
+    Get CTkButton color kwargs based on theme and variant.
+    
+    Args:
+        colors: ThemeColors instance
+        variant: "primary", "secondary", "success", "danger", or "ghost"
+    
+    Returns:
+        Dict of CTkButton color kwargs
+    """
+    if variant == "primary":
+        return {
+            "fg_color": colors.accent,
+            "hover_color": colors.lavender,
+            "text_color": "#ffffff",
+            "border_width": 0,
+        }
+    elif variant == "success":
+        return {
+            "fg_color": colors.accent_green,
+            "hover_color": "#45a049",
+            "text_color": "#ffffff",
+            "border_width": 0,
+        }
+    elif variant == "danger":
+        return {
+            "fg_color": colors.accent_red,
+            "hover_color": "#c0392b",
+            "text_color": "#ffffff",
+            "border_width": 0,
+        }
+    elif variant == "ghost":
+        return {
+            "fg_color": "transparent",
+            "hover_color": colors.surface1,
+            "text_color": colors.fg,
+            "border_width": 0,
+        }
+    else:  # secondary
+        return {
+            "fg_color": colors.surface0,
+            "hover_color": colors.surface1,
+            "text_color": colors.fg,
+            "border_width": 0,
+        }
+
+
+def get_ctk_frame_colors(colors: ThemeColors, elevated: bool = False) -> dict:
+    """
+    Get CTkFrame color kwargs based on theme.
+    
+    Args:
+        colors: ThemeColors instance
+        elevated: If True, use slightly elevated surface color
+    
+    Returns:
+        Dict of CTkFrame color kwargs
+    """
+    return {
+        "fg_color": colors.surface0 if elevated else colors.bg,
+        "border_color": colors.border,
+    }
+
+
+def get_ctk_entry_colors(colors: ThemeColors) -> dict:
+    """
+    Get CTkEntry color kwargs based on theme.
+    
+    Note: For CTkTextbox, use get_ctk_textbox_colors() instead.
+    CTkTextbox does NOT support placeholder_text_color.
+    
+    Args:
+        colors: ThemeColors instance
+    
+    Returns:
+        Dict of CTkEntry color kwargs
+    """
+    return {
+        "fg_color": colors.input_bg,
+        "text_color": colors.fg,
+        "border_color": colors.border,
+        "placeholder_text_color": colors.overlay0,
+    }
+
+
+def get_ctk_textbox_colors(colors: ThemeColors) -> dict:
+    """
+    Get CTkTextbox color kwargs based on theme.
+    
+    Note: CTkTextbox does NOT support placeholder text.
+    Use CTkEntry for single-line input with placeholder.
+    
+    Args:
+        colors: ThemeColors instance
+    
+    Returns:
+        Dict of CTkTextbox color kwargs
+    """
+    return {
+        "fg_color": colors.input_bg,
+        "text_color": colors.fg,
+        "border_color": colors.border,
+    }
+
+
+def get_ctk_scrollbar_colors(colors: ThemeColors) -> dict:
+    """
+    Get CTkScrollbar color kwargs based on theme.
+    
+    Args:
+        colors: ThemeColors instance
+    
+    Returns:
+        Dict of CTkScrollbar color kwargs
+    """
+    return {
+        "fg_color": colors.surface0,
+        "button_color": colors.surface2,
+        "button_hover_color": colors.overlay0,
+    }
+
+
+def get_ctk_segmented_colors(colors: ThemeColors) -> dict:
+    """
+    Get CTkSegmentedButton color kwargs based on theme.
+    
+    Args:
+        colors: ThemeColors instance
+    
+    Returns:
+        Dict of CTkSegmentedButton color kwargs
+    """
+    return {
+        "fg_color": colors.surface0,
+        "selected_color": colors.accent,
+        "selected_hover_color": colors.lavender,
+        "unselected_color": colors.surface0,
+        "unselected_hover_color": colors.surface1,
+        "text_color": colors.fg,
+        "text_color_disabled": colors.overlay0,
+    }
+
+
+def get_ctk_combobox_colors(colors: ThemeColors) -> dict:
+    """
+    Get CTkComboBox color kwargs based on theme.
+    
+    Args:
+        colors: ThemeColors instance
+    
+    Returns:
+        Dict of CTkComboBox color kwargs
+    """
+    return {
+        "fg_color": colors.input_bg,
+        "text_color": colors.fg,
+        "border_color": colors.border,
+        "button_color": colors.surface2,
+        "button_hover_color": colors.overlay0,
+        "dropdown_fg_color": colors.surface0,
+        "dropdown_hover_color": colors.surface1,
+        "dropdown_text_color": colors.fg,
+    }
+
+
+def get_ctk_label_colors(colors: ThemeColors, muted: bool = False) -> dict:
+    """
+    Get CTkLabel color kwargs based on theme.
+    
+    Args:
+        colors: ThemeColors instance
+        muted: If True, use muted text color
+    
+    Returns:
+        Dict of CTkLabel color kwargs
+    """
+    return {
+        "text_color": colors.overlay0 if muted else colors.fg,
+    }
+
+
+def sync_ctk_appearance(config: Optional[Dict] = None):
+    """
+    Sync CustomTkinter appearance mode with config.
+    
+    Args:
+        config: Optional config dict. If None, reads from web_server.CONFIG
+    """
+    if not HAVE_CTK:
+        return
+    
+    if config is None:
+        try:
+            from .. import web_server
+            config = web_server.CONFIG
+        except (ImportError, AttributeError):
+            config = {}
+    
+    mode = config.get("ui_theme_mode", "auto")
+    
+    if mode == "auto":
+        ctk.set_appearance_mode("system")
+    elif mode == "light":
+        ctk.set_appearance_mode("light")
+    else:
+        ctk.set_appearance_mode("dark")
+
+
+def apply_hover_effect(widget, colors: ThemeColors,
+                       normal_color: str = None,
+                       hover_color: str = None):
+    """
+    Apply hover effect to a CTk widget.
+    
+    For widgets that don't have built-in hover (like CTkLabel used as button),
+    this adds Enter/Leave bindings to change colors.
+    
+    Args:
+        widget: CTk widget to apply hover to
+        colors: ThemeColors instance
+        normal_color: Color when not hovered (default: surface0)
+        hover_color: Color when hovered (default: surface1)
+    """
+    if normal_color is None:
+        normal_color = colors.surface0
+    if hover_color is None:
+        hover_color = colors.surface1
+    
+    def on_enter(e):
+        try:
+            widget.configure(fg_color=hover_color)
+        except:
+            pass
+    
+    def on_leave(e):
+        try:
+            widget.configure(fg_color=normal_color)
+        except:
+            pass
+    
+    widget.bind("<Enter>", on_enter, add="+")
+    widget.bind("<Leave>", on_leave, add="+")
 
 
 # =============================================================================

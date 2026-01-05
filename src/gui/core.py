@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """
-GUI core initialization and threading - Tkinter implementation
+GUI core initialization and threading - CustomTkinter implementation
 
-This module provides a centralized GUI coordinator that ensures all Tkinter
+This module provides a centralized GUI coordinator that ensures all GUI
 operations happen on a single dedicated GUI thread. This is necessary because
-Tkinter is not thread-safe and doesn't support multiple Tk() instances
-across different threads.
+Tkinter/CustomTkinter is not thread-safe and doesn't support multiple CTk()
+instances across different threads.
 
 Architecture:
-    - One dedicated GUI thread runs a single Tk() root with an event loop
+    - One dedicated GUI thread runs a single CTk() root with an event loop
     - All window creation requests go through a queue
-    - The GUI thread processes the queue and creates windows as Toplevel
+    - The GUI thread processes the queue and creates windows as CTkToplevel
     - Background threads can safely request window creation without conflicts
+    
+CustomTkinter Migration Notes:
+    - CTk() replaces tk.Tk() for modern appearance
+    - CTkToplevel replaces tk.Toplevel
+    - Appearance mode synced with theme config
+    - Uses existing ThemeColors for widget styling
 """
 
 import queue
@@ -20,7 +26,15 @@ import time
 import tkinter as tk
 from typing import Optional, Callable, Any
 
-# Tkinter is always available in standard Python
+# Import CustomTkinter with fallback
+try:
+    import customtkinter as ctk
+    HAVE_CTK = True
+except ImportError:
+    HAVE_CTK = False
+    ctk = None
+
+# GUI is available if either tk or ctk works
 HAVE_GUI = True
 
 # Track open windows for status
@@ -96,7 +110,13 @@ class GUICoordinator:
         """Start the dedicated GUI thread"""
         def run_gui():
             try:
-                self._root = tk.Tk()
+                # Initialize CustomTkinter appearance mode from config
+                if HAVE_CTK:
+                    self._sync_appearance_mode()
+                    self._root = ctk.CTk()
+                else:
+                    self._root = tk.Tk()
+                
                 self._root.withdraw()  # Hidden root window
                 self._running = True
                 self._started.set()
@@ -122,6 +142,25 @@ class GUICoordinator:
         
         self._gui_thread = threading.Thread(target=run_gui, daemon=True, name="GUI-Thread")
         self._gui_thread.start()
+    
+    def _sync_appearance_mode(self):
+        """Sync CustomTkinter appearance mode with config."""
+        if not HAVE_CTK:
+            return
+        
+        try:
+            from .. import web_server
+            mode = web_server.CONFIG.get("ui_theme_mode", "auto")
+            
+            if mode == "auto":
+                ctk.set_appearance_mode("system")
+            elif mode == "light":
+                ctk.set_appearance_mode("light")
+            else:
+                ctk.set_appearance_mode("dark")
+        except (ImportError, AttributeError):
+            # Fallback to system if config not available
+            ctk.set_appearance_mode("system")
     
     def _process_queue(self):
         """Process pending window creation requests"""
@@ -297,9 +336,14 @@ class GUICoordinator:
             'type': 'prompt_editor'
         })
     
-    def get_root(self) -> Optional[tk.Tk]:
-        """Get the root Tk instance (only safe to use from GUI thread!)"""
+    def get_root(self):
+        """Get the root CTk/Tk instance (only safe to use from GUI thread!)"""
         return self._root
+    
+    def refresh_appearance_mode(self):
+        """Refresh appearance mode (call when theme changes)"""
+        if HAVE_CTK:
+            self._sync_appearance_mode()
     
     def is_running(self) -> bool:
         """Check if GUI thread is running"""

@@ -1,16 +1,32 @@
 #!/usr/bin/env python3
 """
-GUI utility functions for clipboard and markdown rendering - Tkinter implementation
+GUI utility functions for clipboard and markdown rendering
+
+Uses tk.Text for markdown rendering (tag support not available in CTkTextbox).
+This is the hybrid approach: CTk for windows/widgets, tk.Text for rich text display.
 """
 
 import re
 import sys
 import tkinter as tk
 from tkinter import font as tkfont
-from typing import Optional, Dict
+from typing import Optional, Dict, Union
+
+# Import CustomTkinter with fallback
+try:
+    import customtkinter as ctk
+    HAVE_CTK = True
+except ImportError:
+    HAVE_CTK = False
+    ctk = None
 
 # Import theme system
-from .themes import ThemeRegistry, get_color_scheme as _get_color_scheme, is_dark_mode as _is_dark_mode
+from .themes import (
+    ThemeRegistry, ThemeColors,
+    get_color_scheme as _get_color_scheme,
+    is_dark_mode as _is_dark_mode,
+    get_ctk_font
+)
 
 
 def is_dark_mode() -> bool:
@@ -36,10 +52,15 @@ def get_color_scheme() -> Dict[str, str]:
     return _get_color_scheme()
 
 
-def copy_to_clipboard(text: str, root: Optional[tk.Tk] = None) -> bool:
-    """Cross-platform clipboard copy"""
+def copy_to_clipboard(text: str, root = None) -> bool:
+    """
+    Cross-platform clipboard copy.
+    
+    Works with both tk.Tk and ctk.CTk root windows.
+    """
     try:
         if root:
+            # Both tk.Tk and ctk.CTk have clipboard methods
             root.clipboard_clear()
             root.clipboard_append(text)
             root.update()  # Required for clipboard to persist
@@ -68,13 +89,44 @@ def copy_to_clipboard(text: str, root: Optional[tk.Tk] = None) -> bool:
         return False
 
 
-def setup_text_tags(text_widget: tk.Text, colors: Dict[str, str]):
-    """Configure text tags for markdown styling"""
+def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeColors]):
+    """
+    Configure text tags for markdown styling.
     
-    # Get available fonts
+    Uses tk.Text tags which provide rich text formatting.
+    This is why we keep tk.Text for chat display instead of CTkTextbox.
+    
+    Args:
+        text_widget: A tk.Text widget (not CTkTextbox)
+        colors: Color scheme dict or ThemeColors dataclass
+    """
+    # Convert ThemeColors to dict if needed
+    if hasattr(colors, '__dataclass_fields__'):
+        color_dict = {
+            "header1": colors.accent,
+            "header2": colors.accent,
+            "header3": colors.accent,
+            "fg": colors.fg,
+            "code_bg": colors.surface0,
+            "accent": colors.accent,
+            "bullet": colors.accent,
+            "blockquote": colors.blockquote,
+            "user_accent": colors.user_accent,
+            "assistant_accent": colors.assistant_accent,
+            "border": colors.border,
+            "accent_yellow": colors.accent_yellow,
+        }
+        colors = color_dict
+    
+    # Get available fonts with Segoe UI Emoji fallback for Windows
     try:
-        mono_font = "Consolas" if sys.platform == 'win32' else "DejaVu Sans Mono"
-        base_font = "Segoe UI" if sys.platform == 'win32' else "DejaVu Sans"
+        if sys.platform == 'win32':
+            mono_font = "Consolas"
+            base_font = "Segoe UI"
+            # Note: For emoji support, the font rendering will automatically fall back
+        else:
+            mono_font = "DejaVu Sans Mono"
+            base_font = "DejaVu Sans"
     except:
         mono_font = "TkFixedFont"
         base_font = "TkDefaultFont"
@@ -378,3 +430,55 @@ def render_plain_text(text: str, text_widget: tk.Text, wrap: bool = True):
     plain = strip_markdown(text)
     text_widget.configure(wrap=tk.WORD if wrap else tk.NONE)
     text_widget.insert(tk.END, plain)
+
+
+def get_tk_text_for_ctk_frame(parent_frame, colors: Union[Dict[str, str], ThemeColors], **kwargs) -> tk.Text:
+    """
+    Create a tk.Text widget properly styled to look good inside a CTkFrame.
+    
+    This helper creates a tk.Text with theme-appropriate colors and styling
+    that visually integrates with CustomTkinter frames.
+    
+    Args:
+        parent_frame: A CTkFrame or tk.Frame to place the text widget in
+        colors: Color scheme dict or ThemeColors dataclass
+        **kwargs: Additional arguments passed to tk.Text
+        
+    Returns:
+        Configured tk.Text widget
+    """
+    # Get color values
+    if hasattr(colors, '__dataclass_fields__'):
+        bg = colors.text_bg
+        fg = colors.fg
+        insert_bg = colors.fg
+        select_bg = colors.accent
+    else:
+        bg = colors.get("text_bg", "#1e1e2e")
+        fg = colors.get("fg", "#cdd6f4")
+        insert_bg = fg
+        select_bg = colors.get("accent", "#89b4fa")
+    
+    # Default font
+    if sys.platform == 'win32':
+        font = ("Segoe UI", 11)
+    else:
+        font = ("DejaVu Sans", 11)
+    
+    # Merge with provided kwargs
+    text_kwargs = {
+        "wrap": tk.WORD,
+        "font": font,
+        "bg": bg,
+        "fg": fg,
+        "insertbackground": insert_bg,
+        "selectbackground": select_bg,
+        "relief": tk.FLAT,
+        "highlightthickness": 0,
+        "borderwidth": 0,
+        "padx": 12,
+        "pady": 12,
+    }
+    text_kwargs.update(kwargs)
+    
+    return tk.Text(parent_frame, **text_kwargs)
