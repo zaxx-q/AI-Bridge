@@ -373,7 +373,7 @@ class ModifierBar:
                 self.frame,
                 fg_color=self.colors.mantle,
                 corner_radius=8,
-                height=44,
+                height=52,
                 border_color=self.colors.surface2,
                 border_width=1
             )
@@ -385,10 +385,27 @@ class ModifierBar:
                 self.container,
                 fg_color="transparent",
                 orientation="horizontal",
-                height=40
+                height=48
             )
             self.scroll_frame.pack(fill="both", expand=True, padx=4)
             
+            # Bind events to various elements to catch all hover zones
+            # Bind to container (bg)
+            self.container.bind("<MouseWheel>", self._on_mousewheel_ctk)
+            self.container.bind("<Button-4>", self._on_mousewheel_ctk)
+            self.container.bind("<Button-5>", self._on_mousewheel_ctk)
+            
+            # Bind to scroll frame widget itself
+            self.scroll_frame.bind("<MouseWheel>", self._on_mousewheel_ctk)
+            self.scroll_frame.bind("<Button-4>", self._on_mousewheel_ctk)
+            self.scroll_frame.bind("<Button-5>", self._on_mousewheel_ctk)
+            
+            # Bind events to the scroll frame's internal canvas
+            if hasattr(self.scroll_frame, "_parent_canvas"):
+                self.scroll_frame._parent_canvas.bind("<MouseWheel>", self._on_mousewheel_ctk, add="+")
+                self.scroll_frame._parent_canvas.bind("<Button-4>", self._on_mousewheel_ctk, add="+")
+                self.scroll_frame._parent_canvas.bind("<Button-5>", self._on_mousewheel_ctk, add="+")
+
             # Create modifier buttons
             for mod in self.modifiers:
                 self._create_modifier_button_ctk(mod)
@@ -425,6 +442,24 @@ class ModifierBar:
             self.canvas.bind('<Configure>', self._on_canvas_configure)
             self.canvas.bind('<MouseWheel>', self._on_mousewheel)
     
+    def _on_mousewheel_ctk(self, event):
+        """Handle mouse wheel for horizontal scrolling in CTk."""
+        if not hasattr(self.scroll_frame, "_parent_canvas"):
+            return
+            
+        if event.num == 4: # Linux scroll up/left
+            delta = -1
+        elif event.num == 5: # Linux scroll down/right
+            delta = 1
+        else: # Windows/Mac
+            # Depending on platform, delta might be 120 (windows) or smaller (mac)
+            # Normalizing to direction roughly
+            delta = -1 if event.delta > 0 else 1
+            
+        # Increase scroll speed by using a multiplier (e.g. 50 units)
+        self.scroll_frame._parent_canvas.xview_scroll(delta * 50, "units")
+        return "break"
+
     def _create_modifier_button_ctk(self, mod: Dict):
         """Create a CTk modifier button."""
         key = mod.get("key", "")
@@ -445,6 +480,12 @@ class ModifierBar:
             command=lambda k=key: self._toggle_modifier(k)
         )
         btn.pack(side="left", padx=3, pady=2)
+        
+        # Bind scrolling to button
+        btn.bind("<MouseWheel>", self._on_mousewheel_ctk)
+        btn.bind("<Button-4>", self._on_mousewheel_ctk)
+        btn.bind("<Button-5>", self._on_mousewheel_ctk)
+        
         self.buttons[key] = btn
         
         if tooltip_text:
@@ -591,8 +632,8 @@ class GroupedButtonList:
                 self.left_arrow = ctk.CTkButton(
                     self.content_frame,
                     text="◀",
-                    width=30,
-                    height=60,
+                    width=15,
+                    height=40,
                     corner_radius=6,
                     fg_color="transparent",
                     hover_color=self.colors.surface1,
@@ -608,8 +649,8 @@ class GroupedButtonList:
                 self.right_arrow = ctk.CTkButton(
                     self.content_frame,
                     text="▶",
-                    width=30,
-                    height=60,
+                    width=15,
+                    height=40,
                     corner_radius=6,
                     fg_color="transparent",
                     hover_color=self.colors.surface1,
@@ -834,15 +875,15 @@ class CarouselButtonList:
                 self.left_arrow = ctk.CTkButton(
                     self.content_frame,
                     text="◀",
-                    width=30,
-                    height=60,
+                    width=15,
+                    height=40,
                     corner_radius=6,
                     fg_color="transparent",
                     hover_color=self.colors.surface1,
                     text_color=self.colors.overlay0,
                     command=self._prev_page
                 )
-                self.left_arrow.pack(side="left", fill="y", padx=(0, 4))
+                self.left_arrow.pack(side="left", fill="y", padx=(0, 2))  # Reduced padding
             
             self.buttons_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
             self.buttons_frame.pack(side="left", fill="both", expand=True)
@@ -851,15 +892,15 @@ class CarouselButtonList:
                 self.right_arrow = ctk.CTkButton(
                     self.content_frame,
                     text="▶",
-                    width=30,
-                    height=60,
+                    width=15,
+                    height=40,
                     corner_radius=6,
                     fg_color="transparent",
                     hover_color=self.colors.surface1,
                     text_color=self.colors.overlay0,
                     command=self._next_page
                 )
-                self.right_arrow.pack(side="right", fill="y", padx=(4, 0))
+                self.right_arrow.pack(side="right", fill="y", padx=(2, 0))  # Reduced padding
             
             # Dots
             if self.total_pages > 1:
@@ -1750,13 +1791,20 @@ class AttachedPromptPopup:
                 text_color=self.colors.text,
                 placeholder_text_color=self.colors.overlay0
             )
-            self.edit_input.pack(side="left", fill="x", expand=True, padx=(10, 0))
-            self.edit_input.bind('<Return>', lambda e: self._on_custom_submit())
-            
-            edit_btn = ctk.CTkButton(
+            # Create a fixed-size container for the button to prevent scaling issues
+            edit_btn_container = ctk.CTkFrame(
                 edit_frame,
-                text="✏️",
-                width=44,
+                width=40,
+                height=40,
+                fg_color="transparent"
+            )
+            edit_btn_container.pack(side="right")
+            edit_btn_container.pack_propagate(False)
+
+            edit_btn = ctk.CTkButton(
+                edit_btn_container,
+                text="    ✏️",
+                width=40,
                 height=40,
                 corner_radius=8,
                 fg_color=self.colors.blue,
@@ -1765,7 +1813,21 @@ class AttachedPromptPopup:
                 font=get_ctk_font(size=14),
                 command=self._on_custom_submit
             )
-            edit_btn.pack(side="right")
+            edit_btn.pack(fill="both", expand=True)
+            
+            self.edit_input = ctk.CTkEntry(
+                edit_frame,
+                placeholder_text=self.PLACEHOLDER_EDIT,
+                font=get_ctk_font(size=12),
+                height=40,
+                corner_radius=0,
+                fg_color="transparent",
+                border_width=0,
+                text_color=self.colors.text,
+                placeholder_text_color=self.colors.overlay0
+            )
+            self.edit_input.pack(side="left", fill="x", expand=True, padx=(10, 0))
+            self.edit_input.bind('<Return>', lambda e: self._on_custom_submit())
             Tooltip(edit_btn, "Edit text with custom instructions")
             
             # Ask input
@@ -1789,13 +1851,20 @@ class AttachedPromptPopup:
                 text_color=self.colors.text,
                 placeholder_text_color=self.colors.overlay0
             )
-            self.ask_input.pack(side="left", fill="x", expand=True, padx=(10, 0))
-            self.ask_input.bind('<Return>', lambda e: self._on_ask_submit())
-            
-            ask_btn = ctk.CTkButton(
+            # Create a fixed-size container for the button to prevent scaling issues
+            ask_btn_container = ctk.CTkFrame(
                 ask_frame,
+                width=40,
+                height=40,
+                fg_color="transparent"
+            )
+            ask_btn_container.pack(side="right")
+            ask_btn_container.pack_propagate(False)
+
+            ask_btn = ctk.CTkButton(
+                ask_btn_container,
                 text="❓",
-                width=44,
+                width=40,
                 height=40,
                 corner_radius=8,
                 fg_color=self.colors.green,
@@ -1804,7 +1873,21 @@ class AttachedPromptPopup:
                 font=get_ctk_font(size=14),
                 command=self._on_ask_submit
             )
-            ask_btn.pack(side="right")
+            ask_btn.pack(fill="both", expand=True)
+
+            self.ask_input = ctk.CTkEntry(
+                ask_frame,
+                placeholder_text=self.PLACEHOLDER_ASK,
+                font=get_ctk_font(size=12),
+                height=40,
+                corner_radius=0,
+                fg_color="transparent",
+                border_width=0,
+                text_color=self.colors.text,
+                placeholder_text_color=self.colors.overlay0
+            )
+            self.ask_input.pack(side="left", fill="x", expand=True, padx=(10, 0))
+            self.ask_input.bind('<Return>', lambda e: self._on_ask_submit())
             Tooltip(ask_btn, "Ask a question about the text")
             
             # Action buttons
