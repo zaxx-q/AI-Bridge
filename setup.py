@@ -15,6 +15,7 @@ import sys
 import os
 import shutil
 from pathlib import Path
+import customtkinter
 from cx_Freeze import setup, Executable
 from cx_Freeze.command.build_exe import build_exe
 
@@ -98,6 +99,7 @@ build_exe_options = {
     "include_files": [
         ("icon.ico", "icon.ico"),
         ("text_edit_tool_options.json", "text_edit_tool_options.json"),
+        (os.path.dirname(customtkinter.__file__), "lib/customtkinter"),
         # Note: config.ini is generated on first run if not exists
     ],
     
@@ -106,7 +108,7 @@ build_exe_options = {
     
     # Include all source files in a zip (cleaner output)
     "zip_include_packages": ["*"],
-    "zip_exclude_packages": [],
+    "zip_exclude_packages": ["customtkinter"],
 }
 
 # ─── Executable Configuration ─────────────────────────────────────────────────
