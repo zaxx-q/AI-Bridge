@@ -89,12 +89,12 @@ def set_window_icon(window, delay_ms: int = 100):
 class SessionListItem(tk.Frame):
     """
     A single session row in the session browser list.
-    Uses lightweight tk widgets for fast creation (instead of heavy CTk widgets).
+    Uses lightweight tk widgets with grid layout for proper alignment (fixing font width issues).
     """
     
     def __init__(self, parent, session_data: Dict, colors: ThemeColors,
                  on_click, on_double_click, **kwargs):
-        # Remove CTk-specific kwargs
+        # Remove CTk-specific kwargs if present
         kwargs.pop('fg_color', None)
         kwargs.pop('corner_radius', None)
         
@@ -109,46 +109,69 @@ class SessionListItem(tk.Frame):
         self.on_click_callback = on_click
         self.on_double_click_callback = on_double_click
         self.selected = False
-        self.bg_color = colors.surface0
         
-        # Prevent height shrinking
+        # Use grid layout for column alignment (pixel-perfect)
+        # MUST match SessionListHeader grid config
+        self.grid_columnconfigure(0, minsize=60)   # ID
+        self.grid_columnconfigure(1, weight=1)     # Title
+        self.grid_columnconfigure(2, minsize=100)  # Endpoint
+        self.grid_columnconfigure(3, minsize=70)   # Msgs
+        self.grid_columnconfigure(4, minsize=140)  # Updated
+        
         self.pack_propagate(False)
+        self.grid_propagate(False)
         
-        # Build row text as a single formatted string for speed
+        # Data preparation
         sid = str(session_data.get('id', ''))
-        title = session_data.get('title', '')[:35]
-        if len(session_data.get('title', '')) > 35:
-            title += '...'
+        title = session_data.get('title', '') or 'Untitled'
+        # Truncate very long titles for display
+        if len(title) > 60:
+            title = title[:60] + '...'
+            
         endpoint = session_data.get('endpoint', '')
         msgs = str(session_data.get('messages', 0))
         updated = session_data.get('updated', '')
         if updated:
             updated = updated[:16].replace('T', ' ')
         
-        # Single row label with formatted columns (much faster than 5 separate labels)
-        # Use fixed-width formatting for column alignment
-        row_text = f"{sid:<5}  {title:<38}  {endpoint:<8}  {msgs:^5}  {updated}"
+        font = ("Segoe UI", 10)
+        self.cells = []
         
-        self.row_label = tk.Label(
-            self,
-            text=row_text,
-            font=("Segoe UI", 10),
-            bg=colors.surface0,
-            fg=colors.fg,
-            anchor="w",
-            padx=10,
-            pady=8,
-            cursor="hand2"
-        )
-        self.row_label.pack(fill="both", expand=True)
-        
-        # Bind events to both frame and label
-        for widget in [self, self.row_label]:
-            widget.bind("<Button-1>", lambda e: self._on_click())
-            widget.bind("<Double-1>", lambda e: self._on_double_click())
-            widget.bind("<Enter>", lambda e: self._on_hover(True))
-            widget.bind("<Leave>", lambda e: self._on_hover(False))
-    
+        # Helper to create cells
+        def create_cell(text, col, anchor="w", sticky="w"):
+            lbl = tk.Label(
+                self,
+                text=text,
+                font=font,
+                bg=colors.surface0,
+                fg=colors.fg,
+                anchor=anchor,
+                padx=5,
+                pady=8,
+                cursor="hand2"
+            )
+            lbl.grid(row=0, column=col, sticky=sticky, padx=(10 if col==0 else 0, 0))
+            self.cells.append(lbl)
+            
+            # Event binding
+            lbl.bind("<Button-1>", lambda e: self._on_click())
+            lbl.bind("<Double-1>", lambda e: self._on_double_click())
+            lbl.bind("<Enter>", lambda e: self._on_hover(True))
+            lbl.bind("<Leave>", lambda e: self._on_hover(False))
+
+        # Create columns
+        create_cell(sid, 0, "w", "ew")
+        create_cell(title, 1, "w", "ew")
+        create_cell(endpoint, 2, "w", "ew")
+        create_cell(msgs, 3, "center", "ew")
+        create_cell(updated, 4, "w", "ew")
+
+        # Bind events to the frame itself too
+        self.bind("<Button-1>", lambda e: self._on_click())
+        self.bind("<Double-1>", lambda e: self._on_double_click())
+        self.bind("<Enter>", lambda e: self._on_hover(True))
+        self.bind("<Leave>", lambda e: self._on_hover(False))
+
     def _on_click(self):
         """Handle single click."""
         if self.on_click_callback:
@@ -166,7 +189,8 @@ class SessionListItem(tk.Frame):
         
         color = self.colors.surface1 if entering else self.colors.surface0
         self.configure(bg=color)
-        self.row_label.configure(bg=color)
+        for cell in self.cells:
+            cell.configure(bg=color)
     
     def set_selected(self, selected: bool):
         """Set selection state."""
@@ -180,13 +204,14 @@ class SessionListItem(tk.Frame):
             fg = self.colors.fg
         
         self.configure(bg=bg)
-        self.row_label.configure(bg=bg, fg=fg)
+        for cell in self.cells:
+            cell.configure(bg=bg, fg=fg)
 
 
 class SessionListHeader(tk.Frame):
     """
     Column headers for session list with click-to-sort functionality.
-    Uses lightweight tk widgets for fast creation.
+    Uses grid layout with fixed columns for alignment.
     """
     
     def __init__(self, parent, colors: ThemeColors, on_sort, current_sort, descending, **kwargs):
@@ -205,71 +230,72 @@ class SessionListHeader(tk.Frame):
         self.current_sort = current_sort
         self.descending = descending
         
+        # Grid config (Must match SessionListItem)
+        self.grid_columnconfigure(0, minsize=60)   # ID
+        self.grid_columnconfigure(1, weight=1)     # Title
+        self.grid_columnconfigure(2, minsize=100)  # Endpoint
+        self.grid_columnconfigure(3, minsize=70)   # Msgs
+        self.grid_columnconfigure(4, minsize=140)  # Updated
+        
         self.pack_propagate(False)
+        self.grid_propagate(False)
         
-        # Build header text matching the row format
-        sort_indicator_map = {
-            "ID": " ▼" if current_sort == "ID" and descending else " ▲" if current_sort == "ID" else "",
-            "Title": " ▼" if current_sort == "Title" and descending else " ▲" if current_sort == "Title" else "",
-            "Endpoint": " ▼" if current_sort == "Endpoint" and descending else " ▲" if current_sort == "Endpoint" else "",
-            "Msgs": " ▼" if current_sort == "Messages" and descending else " ▲" if current_sort == "Messages" else "",
-            "Updated": " ▼" if current_sort == "Updated" and descending else " ▲" if current_sort == "Updated" else "",
-        }
+        self.cells = {}
+        self._create_headers()
         
-        header_text = f"{'ID' + sort_indicator_map['ID']:<7}  {'Title' + sort_indicator_map['Title']:<40}  {'Endpoint' + sort_indicator_map['Endpoint']:<10}  {'Msgs' + sort_indicator_map['Msgs']:^7}  {'Updated' + sort_indicator_map['Updated']}"
+    def _create_headers(self):
+        font = ("Segoe UI", 10, "bold")
         
-        self.header_label = tk.Label(
-            self,
-            text=header_text,
-            font=("Segoe UI", 10, "bold"),
-            bg=colors.surface1,
-            fg=colors.fg,
-            anchor="w",
-            padx=10,
-            pady=6,
-            cursor="hand2"
-        )
-        self.header_label.pack(fill="both", expand=True)
+        def create_header(text, col, sort_key, anchor="w", sticky="w"):
+            # Determine indicator
+            indicator = ""
+            actual_sort_key = "Messages" if sort_key == "Msgs" else sort_key
+            
+            if self.current_sort == actual_sort_key:
+                indicator = " ▼" if self.descending else " ▲"
+            
+            lbl = tk.Label(
+                self,
+                text=text + indicator,
+                font=font,
+                bg=self.colors.surface1,
+                fg=self.colors.fg,
+                anchor=anchor,
+                padx=5,
+                pady=6,
+                cursor="hand2"
+            )
+            lbl.grid(row=0, column=col, sticky=sticky, padx=(10 if col==0 else 0, 0))
+            
+            lbl.bind("<Button-1>", lambda e: self.on_sort(actual_sort_key) if self.on_sort else None)
+            self.cells[actual_sort_key] = lbl
         
-        # Store label refs for click detection
-        self.labels = {"ID": None, "Title": None, "Endpoint": None, "Msgs": None, "Updated": None}
-        
-        # Bind click to detect which column was clicked based on x position
-        self.header_label.bind("<Button-1>", self._on_header_click)
-    
-    def _on_header_click(self, event):
-        """Handle header click for sorting based on x position."""
-        x = event.x
-        # Approximate column boundaries based on formatting
-        if x < 60:
-            sort_key = "ID"
-        elif x < 320:
-            sort_key = "Title"
-        elif x < 420:
-            sort_key = "Endpoint"
-        elif x < 500:
-            sort_key = "Messages"
-        else:
-            sort_key = "Updated"
-        
-        if self.on_sort:
-            self.on_sort(sort_key)
-    
+        create_header("ID", 0, "ID", "w", "ew")
+        create_header("Title", 1, "Title", "w", "ew")
+        create_header("Endpoint", 2, "Endpoint", "w", "ew")
+        create_header("Msgs", 3, "Msgs", "center", "ew")
+        create_header("Updated", 4, "Updated", "w", "ew")
+
     def update_sort_indicators(self, current_sort: str, descending: bool):
         """Update sort indicators on headers."""
         self.current_sort = current_sort
         self.descending = descending
         
-        sort_indicator_map = {
-            "ID": " ▼" if current_sort == "ID" and descending else " ▲" if current_sort == "ID" else "",
-            "Title": " ▼" if current_sort == "Title" and descending else " ▲" if current_sort == "Title" else "",
-            "Endpoint": " ▼" if current_sort == "Endpoint" and descending else " ▲" if current_sort == "Endpoint" else "",
-            "Msgs": " ▼" if current_sort == "Messages" and descending else " ▲" if current_sort == "Messages" else "",
-            "Updated": " ▼" if current_sort == "Updated" and descending else " ▲" if current_sort == "Updated" else "",
+        display_map = {
+            "ID": "ID",
+            "Title": "Title",
+            "Endpoint": "Endpoint",
+            "Messages": "Msgs",
+            "Updated": "Updated"
         }
         
-        header_text = f"{'ID' + sort_indicator_map['ID']:<7}  {'Title' + sort_indicator_map['Title']:<40}  {'Endpoint' + sort_indicator_map['Endpoint']:<10}  {'Msgs' + sort_indicator_map['Msgs']:^7}  {'Updated' + sort_indicator_map['Updated']}"
-        self.header_label.configure(text=header_text)
+        for key, lbl in self.cells.items():
+            base_text = display_map.get(key, key)
+            if key == current_sort:
+                indicator = " ▼" if descending else " ▲"
+            else:
+                indicator = ""
+            lbl.configure(text=base_text + indicator)
 
 
 # =============================================================================
