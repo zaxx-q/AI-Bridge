@@ -68,17 +68,19 @@ class ScrollableButtonList(ctk.CTkScrollableFrame if _CTK_AVAILABLE else tk.Fram
         color_kwargs = get_ctk_button_colors(self.colors, variant)
         
         if _CTK_AVAILABLE:
-            btn = ctk.CTkButton(
-                self,
-                text=display_text,
-                image=img,
-                compound="left" if img else None,
-                anchor="w",
-                font=get_ctk_font(14, weight=font_weight),
-                height=38,  # Enlarged as requested
-                command=lambda id=item_id: self.select(id),
+            btn_kwargs = {
+                "text": display_text,
+                "anchor": "w",
+                "font": get_ctk_font(14, weight=font_weight),
+                "height": 38,
+                "command": lambda id=item_id: self.select(id),
                 **color_kwargs
-            )
+            }
+            if img:
+                btn_kwargs["image"] = img
+                btn_kwargs["compound"] = "left"
+                
+            btn = ctk.CTkButton(self, **btn_kwargs)
             btn.grid(row=len(self.items)-1, column=0, sticky="ew", padx=2, pady=2)
             self.buttons[item_id] = btn
         else:
@@ -267,7 +269,8 @@ def create_section_header(parent, text: str, colors: ThemeColors, emoji: str = N
 
 def create_emoji_button(parent, text: str, icon: str, colors: ThemeColors,
                         variant: str = "primary", width: int = 140,
-                        height: int = 38, command: Callable = None, **kwargs):
+                        height: int = 38, command: Callable = None,
+                        font_size: int = 13, **kwargs):
     """
     Create a styled button with optional emoji icon.
     Handles rendering emoji as image (CTk) or text fallback.
@@ -283,18 +286,21 @@ def create_emoji_button(parent, text: str, icon: str, colors: ThemeColors,
         if not img and icon:
             display_text = f"{icon} {text}" if text else icon
             
-        return ctk.CTkButton(
-            parent,
-            text=display_text,
-            image=img,
-            compound="left" if img else None,
-            font=get_ctk_font(13),
-            width=width,
-            height=height,
-            command=command,
+        button_kwargs = {
+            "text": display_text,
+            "font": get_ctk_font(font_size),
+            "width": width,
+            "height": height,
+            "command": command,
             **get_ctk_button_colors(colors, variant),
             **kwargs
-        )
+        }
+        
+        if img:
+            button_kwargs["image"] = img
+            button_kwargs["compound"] = "left"
+            
+        return ctk.CTkButton(parent, **button_kwargs)
     else:
         # Fallback for standard tk
         full_text = f"{icon} {text}" if (icon and text) else (text or icon)
