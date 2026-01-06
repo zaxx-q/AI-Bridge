@@ -307,6 +307,30 @@ The `ThemeColors` dataclass provides standardized color names with legacy proper
 | `code_bg` | `mantle` | Code block background |
 | `blockquote` | `subtext0` | Muted text |
 
+## Emoji Support (Twemoji)
+
+AI Bridge implements color emoji support for Windows using the Twemoji asset set. This is necessary because Windows Tkinter typically only renders monochrome outlines for emojis in Text widgets.
+
+### EmojiRenderer (`src/gui/emoji_renderer.py`)
+
+The `EmojiRenderer` class manages the loading, caching, and rendering of emoji images:
+
+- **Asset Loading**: PNG images are loaded from `assets/emojis.zip` (Twemoji 72x72 set).
+- **Caching**: Images are cached in memory as both `ImageTk.PhotoImage` (for tk.Text) and `CTkImage` (for CTk widgets).
+- **Detection**: Uses the `emoji` library (if available) with a robust regex fallback to find emojis in text.
+- **Normalization**: Handles Variation Selector 16 (FE0F), flag sequences (regional indicators), and ZWJ (Zero Width Joiner) sequences.
+
+### Rendering Modes
+
+1.  **Markdown Rendering (`src/gui/utils.py`)**:
+    *   During markdown parsing, text segments are processed by `insert_with_emojis(text_widget, text, tags)`.
+    *   It uses `text_widget.image_create()` to embed the PNG images directly into the flow of the rich text.
+
+2.  **Widget Content (`src/gui/custom_widgets.py`)**:
+    *   `prepare_emoji_content(text, size)` extracts leading emojis from button or label text.
+    *   It returns the text (without emoji) and a `CTkImage` to be used with the `compound="left"` property.
+    *   This is used by `create_emoji_button`, `create_section_header`, and `upgrade_tabview_with_icons`.
+
 ## Settings Infrastructure
 
 ### SettingsWindow

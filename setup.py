@@ -71,6 +71,7 @@ build_exe_options = {
         "darkdetect",
         "tkinter",
         "customtkinter",
+        "emoji",
         "PIL",
         "json",
         "threading",
@@ -136,7 +137,7 @@ executables = [
 
 setup(
     name="AI Bridge",
-    version="2.2.0",
+    version="2.2.13",
     description="Multi-modal AI Assistant Server with TextEditTool and Color Emoji Support",
     author="AI Bridge",
     options={"build_exe": build_exe_options},

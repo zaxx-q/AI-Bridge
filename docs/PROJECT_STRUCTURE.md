@@ -13,7 +13,6 @@ AI-Bridge/
 ├── icon.ico                    # System tray icon
 ├── LICENSE
 ├── README.md
-├── AGENTS.md                   # AI agent guidance
 │
 ├── docs/                       # Documentation
 │   ├── PROJECT_STRUCTURE.md    # This file
@@ -35,6 +34,8 @@ AI-Bridge/
     ├── gui/                    # GUI Package (CustomTkinter)
     │   ├── __init__.py
     │   ├── core.py             # GUICoordinator singleton for thread-safe GUI
+    │   ├── custom_widgets.py   # Reusable UI components (ScrollableButtonList)
+    │   ├── emoji_renderer.py   # Twemoji-based color emoji support for Windows
     │   ├── hotkey.py           # Global hotkey listener (pynput)
     │   ├── options.py          # Default options and settings constants
     │   ├── popups.py           # Modern themed popups with scrollable ModifierBar
@@ -72,6 +73,8 @@ AI-Bridge/
 | Module | Purpose |
 |--------|---------|
 | `core.py` | GUICoordinator singleton managing all CustomTkinter windows |
+| `emoji_renderer.py` | EmojiRenderer for Windows color emoji support (Twemoji) |
+| `custom_widgets.py` | Custom scrollable lists and emoji-aware buttons/headers |
 | `text_edit_tool.py` | Global hotkey TextEditTool application |
 | `windows.py` | Chat window and session browser implementations |
 | `popups.py` | Themed popup dialogs with dual inputs (Edit/Ask) and scrollable ModifierBar |
