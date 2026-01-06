@@ -19,6 +19,7 @@ import sys
 import time
 import shutil
 import threading
+import queue
 import base64
 import tkinter as tk
 from tkinter import messagebox, filedialog
@@ -354,6 +355,136 @@ def ask_themed_string(parent, title: str, prompt: str, colors: ThemeColors) -> O
 
 
 # =============================================================================
+# Test Result Dialog (Streaming)
+# =============================================================================
+
+class TestResultDialog(ctk.CTkToplevel if _CTK_AVAILABLE else tk.Toplevel):
+    """
+    Streaming test result dialog.
+    Supports real-time updates for text and thinking content.
+    """
+    
+    def __init__(self, parent, colors):
+        super().__init__(parent)
+        self.colors = colors
+        self.use_ctk = _can_use_ctk()
+        self.queue = queue.Queue()
+        
+        self.title("API Test Result")
+        self.geometry("700x500")
+        self.transient(parent)
+        
+        if self.use_ctk:
+            self.configure(fg_color=colors.bg)
+        else:
+            self.configure(bg=colors.bg)
+            
+        # Main content area
+        self.main_frame = ctk.CTkFrame(self, fg_color="transparent") if self.use_ctk else tk.Frame(self, bg=colors.bg)
+        self.main_frame.pack(fill="both", expand=True, padx=15, pady=15)
+        
+        # Output text area
+        if self.use_ctk:
+            self.output_box = ctk.CTkTextbox(
+                self.main_frame, font=get_ctk_font(12),
+                **get_ctk_textbox_colors(colors)
+            )
+        else:
+            self.output_box = tk.Text(
+                self.main_frame, font=("Consolas", 10),
+                bg=colors.surface0, fg=colors.fg, wrap="word"
+            )
+        self.output_box.pack(fill="both", expand=True, pady=(0, 10))
+        
+        # Tags for styling (Tk only, CTk doesn't support tags in same way yet)
+        if not self.use_ctk:
+            self.output_box.tag_config("thinking", foreground=colors.blockquote, font=("Consolas", 9, "italic"))
+            self.output_box.tag_config("error", foreground=colors.accent_red)
+        
+        # Close button
+        if self.use_ctk:
+            ctk.CTkButton(
+                self.main_frame, text="Close", font=get_ctk_font(11),
+                width=100, **get_ctk_button_colors(colors, "primary"),
+                command=self.destroy
+            ).pack()
+        else:
+            tk.Button(
+                self.main_frame, text="Close", font=("Segoe UI", 10),
+                bg=colors.accent, fg="#ffffff",
+                command=self.destroy
+            ).pack()
+            
+        # State
+        self.thinking_started = False
+        
+        # Start message
+        self._safe_insert("Waiting for response...\n\n")
+        
+        # Start queue polling
+        self._check_queue()
+        
+    def _check_queue(self):
+        """Poll the queue for updates."""
+        try:
+            while True:
+                task = self.queue.get_nowait()
+                try:
+                    task()
+                except Exception as e:
+                    print(f"Error in queue task: {e}")
+        except queue.Empty:
+            pass
+        
+        try:
+            if self.winfo_exists():
+                self.after(50, self._check_queue)
+        except Exception:
+            pass
+            
+    def append_text(self, text):
+        """Append normal response text."""
+        # If we were thinking, close the block now that we have text
+        if self.thinking_started:
+            self.end_thinking()
+            
+        self._safe_insert(text)
+        
+    def append_thinking(self, text):
+        """Append thinking/reasoning text."""
+        if not self.thinking_started:
+            self._safe_insert("\n========== THINKING ==========\n", "thinking")
+            self.thinking_started = True
+            
+        self._safe_insert(text, "thinking")
+        
+    def end_thinking(self):
+        """Mark end of thinking."""
+        if self.thinking_started:
+             self._safe_insert("\n========== THINKING END ==========\n\n", "thinking")
+             self.thinking_started = False
+        
+    def append_error(self, text):
+        """Append error message."""
+        self._safe_insert(f"\n[Error] {text}\n", "error")
+        
+    def _safe_insert(self, text, tag=None):
+        """Thread-safe text insertion via queue."""
+        def _update():
+            try:
+                if self.use_ctk:
+                    self.output_box.insert("end", text)
+                    self.output_box.see("end")
+                else:
+                    self.output_box.insert("end", text, tag)
+                    self.output_box.see("end")
+            except Exception:
+                pass
+        
+        self.queue.put(_update)
+
+
+# =============================================================================
 # Prompt Editor Window (CTk version)
 # =============================================================================
 
@@ -380,6 +511,9 @@ class PromptEditorWindow:
         self.playground_image_mime: Optional[str] = None
         self.playground_image_name: Optional[str] = None
         
+        # Queue for thread-safe updates
+        self.queue = queue.Queue()
+
         # Widget references
         self.action_listbox = None
         self.editor_widgets: Dict[str, Any] = {}
@@ -453,6 +587,9 @@ class PromptEditorWindow:
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self.root.bind('<Escape>', lambda e: self._close())
         
+        # Start queue polling
+        self._check_queue_editor()
+
         # Focus
         self.root.lift()
         self.root.focus_force()
@@ -461,6 +598,24 @@ class PromptEditorWindow:
         if not self.master:
             self._run_event_loop()
     
+    def _check_queue_editor(self):
+        """Poll the queue for editor updates."""
+        try:
+            while True:
+                task = self.queue.get_nowait()
+                try:
+                    task()
+                except Exception as e:
+                    print(f"Error in editor queue task: {e}")
+        except queue.Empty:
+            pass
+        
+        try:
+            if self.root and self.root.winfo_exists():
+                self.root.after(50, self._check_queue_editor)
+        except Exception:
+            pass
+
     def _run_event_loop(self):
         """Run event loop without blocking other Tk instances."""
         try:
@@ -1526,7 +1681,7 @@ class PromptEditorWindow:
                          **get_ctk_button_colors(self.colors, "secondary"),
                          command=lambda: self._copy_preview("system")).pack(side="right")
             self.playground_system_preview = ctk.CTkTextbox(
-                right_panel, height=180, font=get_ctk_font(12),
+                right_panel, font=get_ctk_font(12),
                 state="disabled", **get_ctk_textbox_colors(self.colors)
             )
         else:
@@ -1535,10 +1690,10 @@ class PromptEditorWindow:
             tk.Button(sys_header, text="📋 Copy", font=("Segoe UI", 8),
                      command=lambda: self._copy_preview("system")).pack(side="right")
             self.playground_system_preview = tk.Text(
-                right_panel, height=8, font=("Consolas", 10),
+                right_panel, font=("Consolas", 10),
                 bg=self.colors.surface0, fg=self.colors.fg, wrap="word", state="disabled"
             )
-        self.playground_system_preview.pack(fill="x", pady=(0, 10))
+        self.playground_system_preview.pack(fill="both", expand=True, pady=(0, 10))
         
         # User message preview
         user_header = ctk.CTkFrame(right_panel, fg_color="transparent") if self.use_ctk else tk.Frame(right_panel, bg=self.colors.bg)
@@ -1652,7 +1807,10 @@ class PromptEditorWindow:
             pass
     
     def _update_playground_preview(self, event=None):
-        """Update the live preview based on current action configuration."""
+        """
+        Update the live preview based on current action configuration.
+        Matches logic in text_edit_tool.py _process_option.
+        """
         if self.playground_mode_var.get() == "endpoint":
             return
         
@@ -1663,54 +1821,85 @@ class PromptEditorWindow:
         action_data = self.options_data.get(action_name, {})
         settings = self.options_data.get("_settings", {})
         
-        # Build system prompt parts
+        # --- 1. System Prompt Construction ---
+        # Logic: Starts with action's system prompt, then appends modifier injections.
+        # Global chat instructions are NOT used for option requests within text_edit_tool.
+        
         system_parts = []
-        prompt_type = action_data.get("prompt_type", "edit")
-        show_chat = action_data.get("show_chat_window_instead_of_replace", False)
         
-        if show_chat:
-            global_instr = settings.get("chat_window_system_instruction", "")
+        # Get base system prompt from action
+        # Note: We check current editor content if it's the current action, else from data
+        if self.current_action == action_name:
+             # Use live editor value
+            if self.use_ctk:
+                sys_prompt = self.editor_widgets["system_prompt"].get("0.0", "end").strip()
+            else:
+                sys_prompt = self.editor_widgets["system_prompt"].get("1.0", "end").strip()
         else:
-            global_instr = settings.get("chat_system_instruction", "")
-        if global_instr:
-            system_parts.append(global_instr)
-        
-        sys_prompt = action_data.get("system_prompt", action_data.get("instruction", ""))
+            sys_prompt = action_data.get("system_prompt", action_data.get("instruction", ""))
+            
         if sys_prompt:
             system_parts.append(sys_prompt)
         
-        # Add modifier injections
+        # Add modifier injections (always appended)
+        modifier_injections = []
         for key, var in self.playground_modifier_vars.items():
             if var.get():
                 for mod in settings.get("modifiers", []):
                     if mod.get("key") == key:
                         injection = mod.get("injection", "")
                         if injection:
-                            system_parts.append(injection)
+                            modifier_injections.append(injection)
+        
+        if modifier_injections:
+            system_parts.append("\n".join(modifier_injections))
         
         full_system = "\n\n".join(system_parts)
         
-        # Build user message
+        # --- 2. User Message Construction ---
+        # Logic: Task + Output Rules + Delimiter + Text + Close Delimiter
+        
         user_parts = []
+        
+        # Get task
+        # Check Custom/Ask vs Standard
+        custom_input = self.playground_custom_var.get()
+        task = ""
+        
+        if action_name == "_Custom" and custom_input:
+            template = settings.get("custom_task_template", "Apply the following change to the text: {custom_input}")
+            task = template.format(custom_input=custom_input)
+        elif action_name == "_Ask" and custom_input:
+            template = settings.get("ask_task_template", "Answer the following question about the text: {custom_input}")
+            task = template.format(custom_input=custom_input)
+        else:
+            if self.current_action == action_name:
+                task = self.editor_widgets["task_var"].get()
+            else:
+                task = action_data.get("task", action_data.get("prefix", ""))
+                
+            # Handle {input} placeholder for other actions if they use it
+            if "{input}" in task and custom_input:
+                task = task.replace("{input}", custom_input)
+        
+        if task:
+            user_parts.append(task)
+            
+        # Add output rules based on type
+        if self.current_action == action_name:
+             prompt_type = self.editor_widgets["prompt_type_var"].get()
+        else:
+             prompt_type = action_data.get("prompt_type", "edit")
+             
         if prompt_type == "general":
             output_rules = settings.get("base_output_rules_general", "")
         else:
             output_rules = settings.get("base_output_rules", "")
+            
         if output_rules:
             user_parts.append(output_rules)
-        
-        task = action_data.get("task", action_data.get("prefix", ""))
-        custom_input = self.playground_custom_var.get()
-        
-        if task:
-            if "{input}" in task and custom_input:
-                task = task.replace("{input}", custom_input)
-            elif action_name in ("_Custom", "_Ask") and custom_input:
-                task = custom_input
-            user_parts.append(f"Task: {task}")
-        elif action_name in ("_Custom", "_Ask") and custom_input:
-            user_parts.append(f"Task: {custom_input}")
-        
+            
+        # Add text with delimiters
         text_delimiter = settings.get("text_delimiter", "\n\n<text_to_process>\n")
         text_delimiter_close = settings.get("text_delimiter_close", "\n</text_to_process>")
         
@@ -1729,6 +1918,13 @@ class PromptEditorWindow:
         # Update metadata
         total_chars = len(full_system) + len(user_message)
         token_estimate = total_chars // 4
+        
+        # Determine show_chat status
+        if self.current_action == action_name:
+             show_chat = self.editor_widgets["show_chat_var"].get()
+        else:
+             show_chat = action_data.get("show_chat_window_instead_of_replace", False)
+
         response_mode = "Chat Window" if show_chat else "Replace"
         
         if self.use_ctk:
@@ -1914,7 +2110,10 @@ class PromptEditorWindow:
     # --- API Testing ---
     
     def _test_playground_with_api(self):
-        """Send the current prompt to the API for testing."""
+        """Send the current prompt to the API for testing (Streaming)."""
+        # Ensure preview is up to date with any edits
+        self._update_playground_preview()
+        
         if self.use_ctk:
             status_img = None
             if HAVE_EMOJI:
@@ -1927,30 +2126,25 @@ class PromptEditorWindow:
         
         try:
             if self.playground_mode_var.get() == "endpoint":
-                result, error = self._test_endpoint_prompt()
+                params = self._prepare_endpoint_request()
             else:
-                result, error = self._test_action_prompt()
-            self._show_test_result(result, error)
+                params = self._prepare_action_request()
+            
+            if params.get("error"):
+                raise ValueError(params["error"])
+                
+            self._run_streaming_test(params)
+            
         except Exception as e:
             if self.use_ctk:
                 self.playground_test_status.configure(text=f"❌ Error: {e}", text_color=self.colors.accent_red)
             else:
                 self.playground_test_status.configure(text=f"❌ Error: {e}", fg=self.colors.accent_red)
     
-    def _test_endpoint_prompt(self):
-        """Test an endpoint prompt with image support."""
+    def _prepare_endpoint_request(self) -> Dict:
+        """Prepare params for endpoint request."""
         if not self.playground_image_base64:
-            return None, "No image selected. Endpoints require an image for testing."
-        
-        from ..api_client import call_api_with_retry
-        from ..config import load_config
-        
-        config, ai_params_loaded, endpoints, loaded_keys = load_config()
-        
-        from ..key_manager import KeyManager
-        key_managers = {}
-        for provider in ["custom", "openrouter", "google"]:
-            key_managers[provider] = KeyManager(loaded_keys.get(provider, []), provider)
+            return {"error": "No image selected. Endpoints require an image for testing."}
         
         if self.use_ctk:
             prompt = self.playground_user_preview.get("0.0", "end").strip()
@@ -1966,25 +2160,10 @@ class PromptEditorWindow:
             ]
         }]
         
-        ai_params = {k: v for k, v in ai_params_loaded.items() if v is not None}
-        provider = self.playground_provider_var.get()
-        model = self.playground_model_var.get()
-        ai_params["max_tokens"] = 1024
-        
-        return call_api_with_retry(provider, messages, model, config, ai_params, key_managers)
+        return self._get_request_config(messages)
     
-    def _test_action_prompt(self):
-        """Test an action prompt with the API."""
-        from ..api_client import call_api_with_retry
-        from ..config import load_config
-        
-        config, ai_params_loaded, endpoints, loaded_keys = load_config()
-        
-        from ..key_manager import KeyManager
-        key_managers = {}
-        for provider in ["custom", "openrouter", "google"]:
-            key_managers[provider] = KeyManager(loaded_keys.get(provider, []), provider)
-        
+    def _prepare_action_request(self) -> Dict:
+        """Prepare params for action request."""
         if self.use_ctk:
             system_prompt = self.playground_system_preview.get("0.0", "end").strip()
             user_message = self.playground_user_preview.get("0.0", "end").strip()
@@ -1997,65 +2176,106 @@ class PromptEditorWindow:
             {"role": "user", "content": user_message}
         ]
         
+        return self._get_request_config(messages)
+        
+    def _get_request_config(self, messages) -> Dict:
+        """Helper to get common request config."""
+        from ..config import load_config
+        from ..key_manager import KeyManager
+        
+        config, ai_params_loaded, endpoints, loaded_keys = load_config()
+        
+        key_managers = {}
+        for provider in ["custom", "openrouter", "google"]:
+            key_managers[provider] = KeyManager(loaded_keys.get(provider, []), provider)
+            
         ai_params = {k: v for k, v in ai_params_loaded.items() if v is not None}
         provider = self.playground_provider_var.get()
         model = self.playground_model_var.get()
         
-        return call_api_with_retry(provider, messages, model, config, ai_params, key_managers)
+        # Ensure max_tokens is set for image endpoints
+        if self.playground_mode_var.get() == "endpoint":
+             ai_params["max_tokens"] = 1024
+             
+        return {
+            "messages": messages,
+            "provider": provider,
+            "model": model,
+            "config": config,
+            "ai_params": ai_params,
+            "key_managers": key_managers
+        }
     
-    def _show_test_result(self, result: Optional[str], error: Optional[str]):
-        """Show API test result in a popup."""
+    def _run_streaming_test(self, params):
+        """Run the streaming test in a background thread."""
+        dialog = TestResultDialog(self.root, self.colors)
+        
+        # Define thread target
+        def _target():
+            try:
+                from ..api_client import call_api_stream_unified
+                
+                # Check for thinking support in config to show proper UI
+                thinking_enabled = params["config"].get("thinking_enabled", False)
+                if thinking_enabled:
+                    # Provide visual cue that thinking might happen
+                    pass
+                
+                def stream_callback(type_, content):
+                    if type_ == "text":
+                        dialog.append_text(content)
+                    elif type_ == "thinking":
+                        dialog.append_thinking(content)
+                    elif type_ == "error":
+                        dialog.append_error(content)
+                    # We can ignore usage/tool_calls for the basic preview
+                
+                # Execute unified streaming call
+                text, reasoning, usage, error = call_api_stream_unified(
+                    provider_type=params["provider"],
+                    messages=params["messages"],
+                    model=params["model"],
+                    config=params["config"],
+                    ai_params=params["ai_params"],
+                    key_managers=params["key_managers"],
+                    callback=stream_callback,
+                    thinking_enabled=thinking_enabled,
+                    thinking_output=params["config"].get("thinking_output", "reasoning_content")
+                )
+                
+                if error:
+                    dialog.append_error(error)
+                
+                # Mark done
+                if dialog.thinking_started:
+                    dialog.end_thinking()
+                    
+                # Update main window status
+                self.queue.put(self._update_status_success)
+                
+            except Exception as e:
+                dialog.append_error(str(e))
+                self.queue.put(lambda: self._update_status_error(str(e)))
+        
+        # Start thread
+        threading.Thread(target=_target, daemon=True).start()
+        
+    def _update_status_success(self):
+        """Update test button status to success."""
         renderer = get_emoji_renderer() if HAVE_EMOJI else None
-        
-        if error:
-            if self.use_ctk:
-                err_img = renderer.get_ctk_image("❌", size=16) if renderer else None
-                self.playground_test_status.configure(text=f" {error[:40]}...", image=err_img, compound="left", text_color=self.colors.accent_red)
-            else:
-                self.playground_test_status.configure(text=f"❌ {error[:40]}...", fg=self.colors.accent_red)
-            messagebox.showerror("API Test Error", error, parent=self.root)
+        if self.use_ctk:
+            ok_img = renderer.get_ctk_image("✅", size=16) if renderer else None
+            self.playground_test_status.configure(text=" Success!", image=ok_img, compound="left", text_color=self.colors.accent_green)
         else:
-            if self.use_ctk:
-                ok_img = renderer.get_ctk_image("✅", size=16) if renderer else None
-                self.playground_test_status.configure(text=" Success!", image=ok_img, compound="left", text_color=self.colors.accent_green)
-            else:
-                self.playground_test_status.configure(text="✅ Success!", fg=self.colors.accent_green)
-            
-            # Show result in a simple dialog
-            result_window = ctk.CTkToplevel(self.root) if self.use_ctk else tk.Toplevel(self.root)
-            result_window.title("API Test Result")
-            result_window.geometry("600x400")
-            result_window.transient(self.root)
-            
-            if self.use_ctk:
-                result_window.configure(fg_color=self.colors.bg)
-                up_img = renderer.get_ctk_image("📤", size=20) if renderer else None
-                ctk.CTkLabel(result_window, text=" API Response:", image=up_img, compound="left",
-                            font=get_ctk_font(12, "bold"), text_color=self.colors.accent).pack(anchor="w", padx=15, pady=(15, 10))
-                result_text = ctk.CTkTextbox(result_window, font=get_ctk_font(10),
-                                            **get_ctk_textbox_colors(self.colors))
-                result_text.pack(fill="both", expand=True, padx=15, pady=(0, 10))
-                result_text.insert("0.0", result or "(empty response)")
-                result_text.configure(state="disabled")
-                
-                ctk.CTkButton(result_window, text="Close", font=get_ctk_font(11),
-                             width=100, **get_ctk_button_colors(self.colors, "primary"),
-                             command=result_window.destroy).pack(pady=(0, 15))
-            else:
-                result_window.configure(bg=self.colors.bg)
-                tk.Label(result_window, text="📤 API Response:", font=("Segoe UI", 11, "bold"),
-                        bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", padx=15, pady=(15, 10))
-                result_text = tk.Text(result_window, font=("Consolas", 10),
-                                     bg=self.colors.surface0, fg=self.colors.fg, wrap="word")
-                result_text.pack(fill="both", expand=True, padx=15, pady=(0, 10))
-                result_text.insert("1.0", result or "(empty response)")
-                result_text.configure(state="disabled")
-                
-                tk.Button(result_window, text="Close", font=("Segoe UI", 10),
-                         bg=self.colors.accent, fg="#ffffff",
-                         command=result_window.destroy).pack(pady=(0, 15))
-        
+            self.playground_test_status.configure(text="✅ Success!", fg=self.colors.accent_green)
         self.root.after(3000, lambda: self._clear_test_status())
+        
+    def _update_status_error(self, error):
+        """Update test button status to error."""
+        if self.use_ctk:
+             self.playground_test_status.configure(text=f"❌ Error: {error[:30]}...", text_color=self.colors.accent_red)
+        else:
+             self.playground_test_status.configure(text=f"❌ Error: {error[:30]}...", fg=self.colors.accent_red)
     
     def _clear_test_status(self):
         """Clear the test status label."""
