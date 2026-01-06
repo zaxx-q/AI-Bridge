@@ -1359,15 +1359,15 @@ class PromptEditorWindow:
             )
         self.image_container_frame.pack(fill="x", pady=(0, 10))
         
+        self.playground_camera_icon = None
         if self.use_ctk:
-            cam_img = None
             if HAVE_EMOJI:
                 renderer = get_emoji_renderer()
-                cam_img = renderer.get_ctk_image("📷", size=24)
+                self.playground_camera_icon = renderer.get_ctk_image("📷", size=48)
 
             self.image_drop_zone = ctk.CTkLabel(
                 self.image_container_frame, text=" No image selected",
-                image=cam_img, compound="top",
+                image=self.playground_camera_icon, compound="top",
                 font=get_ctk_font(13), text_color=self.colors.blockquote
             )
         else:
@@ -1381,20 +1381,9 @@ class PromptEditorWindow:
         btn_row = ctk.CTkFrame(self.endpoint_config_frame, fg_color="transparent") if self.use_ctk else tk.Frame(self.endpoint_config_frame, bg=self.colors.bg)
         btn_row.pack(fill="x", pady=(0, 10))
         
-        if self.use_ctk:
-            ctk.CTkButton(btn_row, text="📁 Select", font=get_ctk_font(13), width=100, height=34,
-                         **get_ctk_button_colors(self.colors, "secondary"),
-                         command=self._select_playground_image).pack(side="left", padx=4)
-            ctk.CTkButton(btn_row, text="📋 Paste", font=get_ctk_font(13), width=100, height=34,
-                         **get_ctk_button_colors(self.colors, "secondary"),
-                         command=self._paste_playground_image).pack(side="left", padx=4)
-            ctk.CTkButton(btn_row, text="🗑️ Clear", font=get_ctk_font(13), width=100, height=34,
-                         **get_ctk_button_colors(self.colors, "danger"),
-                         command=self._clear_playground_image).pack(side="left", padx=4)
-        else:
-            tk.Button(btn_row, text="📁 Select", font=("Segoe UI", 9), command=self._select_playground_image).pack(side="left", padx=2)
-            tk.Button(btn_row, text="📋 Paste", font=("Segoe UI", 9), command=self._paste_playground_image).pack(side="left", padx=2)
-            tk.Button(btn_row, text="🗑️ Clear", font=("Segoe UI", 9), command=self._clear_playground_image).pack(side="left", padx=2)
+        create_emoji_button(btn_row, "Select", "📁", self.colors, "secondary", 100, 34, self._select_playground_image).pack(side="left", padx=4)
+        create_emoji_button(btn_row, "Paste", "📋", self.colors, "secondary", 100, 34, self._paste_playground_image).pack(side="left", padx=4)
+        create_emoji_button(btn_row, "Clear", "🗑️", self.colors, "danger", 100, 34, self._clear_playground_image).pack(side="left", padx=4)
         
         # Sample text container (for hiding/showing)
         self.sample_text_container = ctk.CTkFrame(scroll_left, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_left, bg=self.colors.bg)
@@ -1914,7 +1903,8 @@ class PromptEditorWindow:
         self.playground_image_mime = None
         self.playground_image_name = None
         if self.use_ctk:
-            self.image_drop_zone.configure(image=None, text="📷 No image selected")
+            # Restore camera icon
+            self.image_drop_zone.configure(image=self.playground_camera_icon, text=" No image selected")
         else:
             self.image_drop_zone.configure(image='', text="📷 No image selected")
             if hasattr(self.image_drop_zone, 'image'):
