@@ -1,5 +1,6 @@
 requests
 flask
+emoji>=2.8.0
 
 # TextEditTool dependencies
 pynput

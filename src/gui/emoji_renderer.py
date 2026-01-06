@@ -22,6 +22,11 @@ import re
 import sys
 import zipfile
 import io
+try:
+    import emoji
+    HAVE_EMOJI_LIB = True
+except ImportError:
+    HAVE_EMOJI_LIB = False
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List, Any
 import tkinter as tk
@@ -79,7 +84,7 @@ def get_assets_path() -> Tuple[Path, bool]:
     return Path("assets/emojis.zip"), True
 
 
-# Regex patterns for emoji detection
+# Regex patterns for fallback emoji detection (if emoji lib not available)
 # This covers most common emoji ranges including:
 # - Basic emoticons (U+1F600-U+1F64F)
 # - Misc symbols (U+2600-U+26FF)
@@ -88,10 +93,7 @@ def get_assets_path() -> Tuple[Path, bool]:
 # - Supplemental symbols (U+1F900-U+1F9FF)
 # - Regional indicators for flags (U+1F1E0-U+1F1FF)
 # - Various other emoji blocks
-
-# Pattern to match emoji characters and sequences
-# This is a simplified pattern that catches most emojis
-EMOJI_PATTERN = re.compile(
+FALLBACK_EMOJI_PATTERN = re.compile(
     r'[\U0001F600-\U0001F64F]'  # Emoticons
     r'|[\U0001F300-\U0001F5FF]'  # Misc Symbols and Pictographs
     r'|[\U0001F680-\U0001F6FF]'  # Transport and Map
@@ -119,12 +121,9 @@ EMOJI_PATTERN = re.compile(
     r'|[\U00002B55]'              # Circle
 )
 
-# Pattern for flag emoji sequences (regional indicator pairs)
-FLAG_PATTERN = re.compile(r'[\U0001F1E6-\U0001F1FF]{2}')
+# Pattern for flag emoji sequences (regional indicator pairs) - Fallback
+FALLBACK_FLAG_PATTERN = re.compile(r'[\U0001F1E6-\U0001F1FF]{2}')
 
-# Pattern for ZWJ sequences (emoji joined with zero-width joiner)
-# These are complex emojis like family emojis, professions with skin tones, etc.
-ZWJ = '\u200d'
 VARIATION_SELECTOR = '\ufe0f'
 
 
@@ -181,7 +180,7 @@ class EmojiRenderer:
         if not HAVE_PIL:
             print("[Warning] PIL not available - emoji rendering disabled")
     
-    def get_codepoint_filename(self, char_or_seq: str) -> str:
+    def get_codepoint_filename(self, char_or_seq: str, strip_vs16: bool = True) -> str:
         """
         Convert an emoji character or sequence to its Twemoji filename.
         
@@ -191,19 +190,17 @@ class EmojiRenderer:
         
         Args:
             char_or_seq: The emoji character(s)
+            strip_vs16: Whether to strip Variation Selector 16 (0xFE0F)
             
         Returns:
             The filename without extension (e.g., "1f600")
         """
-        # Remove variation selectors for lookup
-        clean = char_or_seq.replace(VARIATION_SELECTOR, '')
-        
         # Convert each codepoint to hex and join with hyphens
         codepoints = []
-        for char in clean:
+        for char in char_or_seq:
             cp = ord(char)
-            # Skip if it's a combining character we don't want
-            if cp == 0xfe0f:  # Variation selector
+            # Skip variation selector if requested
+            if strip_vs16 and cp == 0xfe0f:
                 continue
             codepoints.append(f"{cp:x}")
         
@@ -222,43 +219,62 @@ class EmojiRenderer:
         if not HAVE_PIL:
             return None
         
-        filename = self.get_codepoint_filename(emoji)
+        # Try both with and without VS16
+        # Some twemoji files include fe0f (e.g. 1f3f3-fe0f-200d-1f308.png)
+        # Others don't (e.g. 1f600.png)
+        # We try strict first (keeping the sequence as provided or with fe0f), then loose
         
-        # Check if we already know this file is missing
-        if filename in self._missing_cache:
+        filenames_to_try = []
+        
+        # 1. Exact match (preserve fe0f if present)
+        filenames_to_try.append(self.get_codepoint_filename(emoji, strip_vs16=False))
+        
+        # 2. Stripped match (remove fe0f)
+        filenames_to_try.append(self.get_codepoint_filename(emoji, strip_vs16=True))
+        
+        # Avoid duplicates
+        filenames_to_try = list(dict.fromkeys(filenames_to_try))
+        
+        # Check if we already know ALL variants are missing
+        if all(f in self._missing_cache for f in filenames_to_try):
             return None
         
         # Try to load the image
-        # Try finding image in ZIP or directory
-        try:
-            name_variants = [f"{filename}.png", f"{filename.lower()}.png"]
-            
-            if self.is_zip and self.zip_file:
-                # Look in ZIP
-                found_name = None
-                for name in name_variants:
-                    if name in self.zip_file.namelist():
-                        found_name = name
-                        break
+        for filename in filenames_to_try:
+            if filename in self._missing_cache:
+                continue
                 
-                if found_name:
-                    with self.zip_file.open(found_name) as f:
-                        # Must read into memory because Image.open is lazy
-                        # and the zip file handle will close when we exit the block
-                        img_data = f.read()
-                        return Image.open(io.BytesIO(img_data))
+            try:
+                name_variants = [f"{filename}.png", f"{filename.lower()}.png"]
+                
+                if self.is_zip and self.zip_file:
+                    # Look in ZIP
+                    found_name = None
+                    for name in name_variants:
+                        if name in self.zip_file.namelist():
+                            found_name = name
+                            break
+                    
+                    if found_name:
+                        with self.zip_file.open(found_name) as f:
+                            # Must read into memory because Image.open is lazy
+                            # and the zip file handle will close when we exit the block
+                            img_data = f.read()
+                            return Image.open(io.BytesIO(img_data))
+                
+                elif not self.is_zip and self.assets_path.exists():
+                    # Look in directory
+                    for name in name_variants:
+                        image_path = self.assets_path / name
+                        if image_path.exists():
+                            return Image.open(image_path)
             
-            elif not self.is_zip and self.assets_path.exists():
-                # Look in directory
-                for name in name_variants:
-                    image_path = self.assets_path / name
-                    if image_path.exists():
-                        return Image.open(image_path)
-        
-        except Exception:
-            pass
+            except Exception:
+                pass
             
-        self._missing_cache.add(filename)
+            # If we got here, this filename failed
+            self._missing_cache.add(filename)
+            
         return None
     
     def get_emoji_image(self, emoji: str, size: Optional[int] = None) -> Optional[ImageTk.PhotoImage]:
@@ -276,6 +292,11 @@ class EmojiRenderer:
             return None
         
         size = size or self.size
+        # Special handling for simple keycaps 1..9 which might come as single digits
+        # but files are named 31-20e3.png
+        # This normalization is usually handled by get_codepoint_filename but
+        # keycaps often have the invisible 20E3
+        
         filename = self.get_codepoint_filename(emoji)
         cache_key = (filename, size)
         
@@ -370,20 +391,37 @@ class EmojiRenderer:
         if not text:
             return None, text
         
+        if HAVE_EMOJI_LIB:
+            # Use emoji library to find first token
+            try:
+                # analyze() returns a generator of Token objects in order
+                # We just check the first token
+                first_token = next(emoji.analyze(text, join_emoji=True), None)
+                if first_token and first_token.chars:
+                    # Check if the token is at the start of the string
+                    if text.startswith(first_token.chars):
+                        emoji_char = first_token.chars
+                        remaining = text[len(emoji_char):].lstrip()
+                        return emoji_char, remaining
+            except Exception:
+                pass
+        
+        # Fallback to simple regex checks if library unavailable or failed
+        
         # Check for flag emoji first (two regional indicators)
         if len(text) >= 2:
-            match = FLAG_PATTERN.match(text)
+            match = FALLBACK_FLAG_PATTERN.match(text)
             if match:
-                emoji = match.group()
-                remaining = text[len(emoji):].lstrip()
-                return emoji, remaining
+                emoji_char = match.group()
+                remaining = text[len(emoji_char):].lstrip()
+                return emoji_char, remaining
         
         # Check single emoji at start
-        match = EMOJI_PATTERN.match(text)
+        match = FALLBACK_EMOJI_PATTERN.match(text)
         if match:
-            emoji = match.group()
-            remaining = text[len(emoji):].lstrip()
-            return emoji, remaining
+            emoji_char = match.group()
+            remaining = text[len(emoji_char):].lstrip()
+            return emoji_char, remaining
         
         return None, text
     
@@ -414,11 +452,11 @@ class EmojiRenderer:
         size = size or self.CTK_DEFAULT_SIZE
         
         # Extract leading emoji
-        emoji, remaining_text = self.extract_leading_emoji(text)
+        emoji_char, remaining_text = self.extract_leading_emoji(text)
         
-        if emoji:
+        if emoji_char:
             # Try to get CTkImage for the emoji
-            ctk_img = self.get_ctk_image(emoji, size)
+            ctk_img = self.get_ctk_image(emoji_char, size)
             
             if ctk_img:
                 return {
@@ -446,12 +484,27 @@ class EmojiRenderer:
         """
         results = []
         
+        if HAVE_EMOJI_LIB:
+            try:
+                # Use emoji.emoji_list which gives positions directly
+                # It handles ZWJ groups, flags, modifiers correctly
+                for match in emoji.emoji_list(text):
+                    start = match['match_start']
+                    end = match['match_end']
+                    char = match['emoji']
+                    results.append((start, end, char))
+                return results
+            except Exception:
+                pass
+        
+        # Fallback to simple regex if library unavailable
+        
         # First, find flag sequences (two regional indicators)
-        for match in FLAG_PATTERN.finditer(text):
+        for match in FALLBACK_FLAG_PATTERN.finditer(text):
             results.append((match.start(), match.end(), match.group()))
         
         # Then find individual emojis
-        for match in EMOJI_PATTERN.finditer(text):
+        for match in FALLBACK_EMOJI_PATTERN.finditer(text):
             start, end = match.start(), match.end()
             
             # Skip if this position is already covered by a flag
@@ -504,20 +557,20 @@ class EmojiRenderer:
         pos = tk.END if at_end else tk.INSERT
         last_end = 0
         
-        for start, end, emoji in emojis:
+        for start, end, emoji_char in emojis:
             # Insert text before this emoji
             if start > last_end:
                 text_widget.insert(pos, text[last_end:start], tags)
             
             # Try to get emoji image
-            img = self.get_emoji_image(emoji)
+            img = self.get_emoji_image(emoji_char)
             
             if img:
                 # Insert the image
                 text_widget.image_create(pos, image=img)
             else:
                 # Fallback: insert the emoji character as text
-                text_widget.insert(pos, emoji, tags)
+                text_widget.insert(pos, emoji_char, tags)
             
             last_end = end
         
@@ -537,14 +590,14 @@ class EmojiRenderer:
             "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂",
             "🙂", "🙃", "😉", "😊", "😇", "🥰", "😍", "🤩",
             "😘", "😗", "☺", "😚", "😙", "🥲", "😋", "😛",
-            "✅", "❌", "⚠️", "❓", "❗", "💡", "🔥", "⭐",
+            "✅", "❌", "⚠️", "❓", "❗", "💡", "🔥", "🔥", "⭐",
             "📋", "📂", "📡", "🤖", "🌊", "💭", "🔑", "🚀",
             "🖥️", "⚙️", "✏️", "🔲", "📟", "🔄", "🗑️", "💬",
             "👍", "👎", "👏", "🙌", "🤝", "🙏", "✍️", "💪",
         ]
         
-        for emoji in common_emojis:
-            self.get_emoji_image(emoji)
+        for emoji_char in common_emojis:
+            self.get_emoji_image(emoji_char)
 
 
 # Global renderer instance
@@ -576,19 +629,19 @@ def insert_with_emojis(
     renderer.insert_text_with_emojis(text_widget, text, tags)
 
 
-def get_ctk_emoji_image(emoji: str, size: int = 18) -> Optional[Any]:
+def get_ctk_emoji_image(emoji_char: str, size: int = 18) -> Optional[Any]:
     """
     Convenience function to get a CTkImage for an emoji.
     
     Args:
-        emoji: Single emoji character (e.g., "📋")
+        emoji_char: Single emoji character (e.g., "📋")
         size: Size in pixels (default: 18)
         
     Returns:
         CTkImage if available, None otherwise
     """
     renderer = get_emoji_renderer()
-    return renderer.get_ctk_image(emoji, size)
+    return renderer.get_ctk_image(emoji_char, size)
 
 
 def prepare_emoji_content(text: str, size: int = 18) -> Dict[str, Any]:
