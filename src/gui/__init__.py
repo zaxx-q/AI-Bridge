@@ -29,6 +29,23 @@ from .popups import (
     TypingIndicator
 )
 
+# Emoji rendering support (Windows color emoji fix)
+try:
+    from .emoji_renderer import (
+        EmojiRenderer, get_emoji_renderer, insert_with_emojis,
+        get_ctk_emoji_image, prepare_emoji_content,
+        HAVE_PIL, HAVE_CTK as HAVE_CTK_EMOJI
+    )
+    HAVE_EMOJI_RENDERER = HAVE_PIL
+except ImportError:
+    HAVE_EMOJI_RENDERER = False
+    EmojiRenderer = None
+    get_emoji_renderer = None
+    insert_with_emojis = None
+    get_ctk_emoji_image = None
+    prepare_emoji_content = None
+    HAVE_CTK_EMOJI = False
+
 __all__ = [
     # Core exports
     'TextEditToolApp',
@@ -59,6 +76,14 @@ __all__ = [
     'render_markdown',
     'setup_text_tags',
     'get_tk_text_for_ctk_frame',
+    
+    # Emoji rendering
+    'EmojiRenderer',
+    'get_emoji_renderer',
+    'insert_with_emojis',
+    'get_ctk_emoji_image',
+    'prepare_emoji_content',
+    'HAVE_EMOJI_RENDERER',
     
     # Popups
     'create_typing_indicator',

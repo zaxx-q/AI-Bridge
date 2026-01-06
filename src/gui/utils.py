@@ -4,13 +4,18 @@ GUI utility functions for clipboard and markdown rendering
 
 Uses tk.Text for markdown rendering (tag support not available in CTkTextbox).
 This is the hybrid approach: CTk for windows/widgets, tk.Text for rich text display.
+
+Emoji Support:
+    On Windows, Tkinter doesn't natively render color emojis. This module
+    integrates with emoji_renderer.py to replace emoji characters with
+    inline PNG images from the Twemoji asset set.
 """
 
 import re
 import sys
 import tkinter as tk
 from tkinter import font as tkfont
-from typing import Optional, Dict, Union
+from typing import Optional, Dict, Union, Tuple
 
 # Import CustomTkinter with fallback
 try:
@@ -27,6 +32,14 @@ from .themes import (
     is_dark_mode as _is_dark_mode,
     get_ctk_font
 )
+
+# Import emoji renderer
+try:
+    from .emoji_renderer import get_emoji_renderer, EmojiRenderer, HAVE_PIL
+    HAVE_EMOJI_RENDERER = HAVE_PIL
+except ImportError:
+    HAVE_EMOJI_RENDERER = False
+    get_emoji_renderer = None
 
 
 def is_dark_mode() -> bool:
@@ -236,8 +249,9 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
         spacing1=2, spacing3=0)
 
 
-def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str], 
-                   wrap: bool = True, as_role: Optional[str] = None):
+def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
+                   wrap: bool = True, as_role: Optional[str] = None,
+                   enable_emojis: bool = True):
     """
     Render markdown text to a Tkinter Text widget with formatting.
     
@@ -247,6 +261,7 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
         colors: Color scheme dictionary
         wrap: Whether to enable word wrapping
         as_role: Optional role ('user' or 'assistant') for message styling
+        enable_emojis: Whether to render emojis as images (Windows only)
     """
     # Setup tags if not already done
     setup_text_tags(text_widget, colors)
@@ -275,6 +290,7 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
                 if code_block_lines:
                     code_text = '\n'.join(code_block_lines)
                     tags = ("codeblock",) if not role_tag else ("codeblock", role_tag)
+                    # Don't render emojis in code blocks
                     text_widget.insert(tk.END, code_text + '\n', tags)
                 code_block_lines = []
                 in_code_block = False
@@ -309,14 +325,14 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
                 content = stripped[level+1:]
                 tag = f"h{min(level, 4)}"
                 tags = (tag,) if not role_tag else (tag, role_tag)
-                text_widget.insert(tk.END, content, tags)
+                _insert_with_emojis(text_widget, content, tags, enable_emojis)
                 continue
         
         # Blockquote
         if stripped.startswith('>'):
             content = stripped[1:].strip()
             tags = ("blockquote",) if not role_tag else ("blockquote", role_tag)
-            text_widget.insert(tk.END, "│ " + content, tags)
+            _insert_with_emojis(text_widget, "│ " + content, tags, enable_emojis)
             continue
         
         # Bullet points
@@ -326,7 +342,7 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
             tags = ("bullet_marker",) if not role_tag else ("bullet_marker", role_tag)
             text_widget.insert(tk.END, "  • ", tags)
             # Insert content with inline formatting
-            _render_inline(content, text_widget, colors, role_tag)
+            _render_inline(content, text_widget, colors, role_tag, enable_emojis)
             continue
         
         # Numbered list
@@ -335,7 +351,7 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
             num, content = match.groups()
             tags = ("numbered",) if not role_tag else ("numbered", role_tag)
             text_widget.insert(tk.END, f"  {num}. ", tags)
-            _render_inline(content, text_widget, colors, role_tag)
+            _render_inline(content, text_widget, colors, role_tag, enable_emojis)
             continue
         
         # Horizontal rule
@@ -345,18 +361,57 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
             continue
         
         # Regular paragraph with inline formatting
-        _render_inline(line, text_widget, colors, role_tag)
+        _render_inline(line, text_widget, colors, role_tag, enable_emojis)
     
     # Flush any remaining code block
     if in_code_block and code_block_lines:
         code_text = '\n'.join(code_block_lines)
         tags = ("codeblock",) if not role_tag else ("codeblock", role_tag)
+        # Don't render emojis in code blocks
         text_widget.insert(tk.END, code_text + '\n', tags)
 
 
-def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str], 
-                   role_tag: Optional[str] = None):
-    """Render inline markdown formatting (bold, italic, code)"""
+def _insert_with_emojis(
+    text_widget: tk.Text,
+    text: str,
+    tags: Optional[Tuple[str, ...]] = None,
+    enable_emojis: bool = True
+):
+    """
+    Insert text into a Text widget, optionally rendering emojis as images.
+    
+    On Windows, this replaces emoji characters with inline PNG images
+    for proper color emoji display. On other platforms or if the emoji
+    renderer is not available, falls back to plain text insertion.
+    
+    Args:
+        text_widget: The tk.Text widget
+        text: Text to insert
+        tags: Tags to apply to the text
+        enable_emojis: Whether to render emojis as images (default True)
+    """
+    # Only use emoji rendering on Windows and if available
+    use_emoji_renderer = (
+        enable_emojis and
+        HAVE_EMOJI_RENDERER and
+        sys.platform == 'win32' and
+        get_emoji_renderer is not None
+    )
+    
+    if use_emoji_renderer:
+        try:
+            renderer = get_emoji_renderer()
+            renderer.insert_text_with_emojis(text_widget, text, tags)
+        except Exception:
+            # Fallback on any error
+            text_widget.insert(tk.END, text, tags)
+    else:
+        text_widget.insert(tk.END, text, tags)
+
+
+def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
+                   role_tag: Optional[str] = None, enable_emojis: bool = True):
+    """Render inline markdown formatting (bold, italic, code) with emoji support."""
     
     # Pattern for inline elements
     # Order matters: check bold+italic first, then bold, then italic, then code
@@ -382,7 +437,7 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
         if match.start() > pos:
             plain_text = text[pos:match.start()]
             tags = ("normal",) if not role_tag else ("normal", role_tag)
-            text_widget.insert(tk.END, plain_text, tags)
+            _insert_with_emojis(text_widget, plain_text, tags, enable_emojis)
         
         matched_text = match.group(0)
         content = None
@@ -413,7 +468,7 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
         
         if content:
             tags = (tag,) if not role_tag else (tag, role_tag)
-            text_widget.insert(tk.END, content, tags)
+            _insert_with_emojis(text_widget, content, tags, enable_emojis)
         
         pos = match.end()
     
@@ -421,7 +476,7 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
     if pos < len(text):
         remaining = text[pos:]
         tags = ("normal",) if not role_tag else ("normal", role_tag)
-        text_widget.insert(tk.END, remaining, tags)
+        _insert_with_emojis(text_widget, remaining, tags, enable_emojis)
 
 
 def render_plain_text(text: str, text_widget: tk.Text, wrap: bool = True):

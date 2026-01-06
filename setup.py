@@ -100,6 +100,8 @@ build_exe_options = {
         ("icon.ico", "icon.ico"),
         ("text_edit_tool_options.json", "text_edit_tool_options.json"),
         (os.path.dirname(customtkinter.__file__), "lib/customtkinter"),
+        # Emoji assets for color emoji support in GUI
+        ("assets/emojis.zip", "assets/emojis.zip"),
         # Note: config.ini is generated on first run if not exists
     ],
     
@@ -134,8 +136,8 @@ executables = [
 
 setup(
     name="AI Bridge",
-    version="2.1.8",
-    description="Multi-modal AI Assistant Server with TextEditTool",
+    version="2.2.0",
+    description="Multi-modal AI Assistant Server with TextEditTool and Color Emoji Support",
     author="AI Bridge",
     options={"build_exe": build_exe_options},
     executables=executables,

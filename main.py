@@ -7,14 +7,18 @@ Usage:
     python main.py              # Start with tray (console hidden)
     python main.py --no-tray    # Start in terminal mode (no tray)
     python main.py --show-console   # Start with tray + console visible
+    python main.py --no-wt      # Skip Windows Terminal auto-detection
 """
 
 import sys
+import os
 import socket
 import logging
 import threading
 import signal
 import argparse
+import shutil
+import subprocess
 from pathlib import Path
 
 # Rich console for beautiful output
@@ -235,6 +239,7 @@ Examples:
   python main.py                  Start with tray (console hidden by default)
   python main.py --no-tray        Start in terminal mode (no tray icon)
   python main.py --show-console   Start with tray and console visible
+  python main.py --no-wt          Skip Windows Terminal auto-detection
         """
     )
     parser.add_argument(
@@ -247,7 +252,71 @@ Examples:
         action='store_true',
         help='Start with console visible (when using tray mode)'
     )
+    parser.add_argument(
+        '--no-wt',
+        action='store_true',
+        help='Skip Windows Terminal auto-detection (stay in current console)'
+    )
     return parser.parse_args()
+
+
+def ensure_windows_terminal() -> bool:
+    """
+    Check if running in legacy Windows Console and relaunch in Windows Terminal if available.
+    
+    Windows Terminal provides full color emoji support, while the legacy conhost.exe
+    only renders emojis as monochrome outlines.
+    
+    Returns:
+        True if we should exit (because we relaunched in Windows Terminal)
+        False to continue in current terminal
+    """
+    # Only applies to Windows
+    if sys.platform != 'win32':
+        return False
+    
+    # Check if already running in Windows Terminal (WT_SESSION env var is set)
+    if os.environ.get("WT_SESSION"):
+        return False
+    
+    # Check if Windows Terminal is installed
+    wt_path = shutil.which("wt.exe")
+    if not wt_path:
+        return False
+    
+    # Prevent infinite relaunch loops
+    if os.environ.get("AI_BRIDGE_WT_LAUNCHED"):
+        return False
+    
+    print("🔄 Relaunching in Windows Terminal for full emoji support...")
+    
+    # Build the command to relaunch
+    script_path = os.path.abspath(sys.argv[0])
+    args = sys.argv[1:]
+    
+    # Set environment variable to prevent loops
+    env = os.environ.copy()
+    env["AI_BRIDGE_WT_LAUNCHED"] = "1"
+    
+    try:
+        # Use Windows Terminal to open a new tab with the current script
+        # -w 0: target the first window (or create new if none)
+        # -d: set working directory
+        cmd = [wt_path, "-w", "0", "-d", os.getcwd()]
+        
+        if script_path.endswith('.py'):
+            cmd.extend([sys.executable, script_path] + args)
+        else:
+            # Frozen executable
+            cmd.extend([script_path] + args)
+        
+        subprocess.Popen(cmd, env=env, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        return True
+        
+    except Exception as e:
+        print(f"⚠️  Failed to relaunch in Windows Terminal: {e}")
+        print("   Continuing in legacy console...")
+        return False
 
 
 def check_port_available(host: str, port: int) -> bool:
@@ -281,6 +350,10 @@ def main():
     """Main entry point"""
     # Parse command line arguments
     args = parse_args()
+    
+    # Try to relaunch in Windows Terminal for emoji support (unless --no-wt)
+    if not args.no_wt and ensure_windows_terminal():
+        sys.exit(0)  # Exit this instance, new one launched in WT
     
     # Suppress Flask/werkzeug logging (only show errors)
     logging.getLogger('werkzeug').setLevel(logging.ERROR)

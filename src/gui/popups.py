@@ -52,6 +52,14 @@ from .themes import (
     CatppuccinMocha, CatppuccinLatte
 )
 
+# Import emoji renderer for CTkImage support (Windows color emoji fix)
+try:
+    from .emoji_renderer import get_emoji_renderer, HAVE_PIL
+    HAVE_EMOJI = HAVE_PIL and HAVE_CTK
+except ImportError:
+    HAVE_EMOJI = False
+    get_emoji_renderer = None
+
 
 def get_colors() -> ThemeColors:
     """
@@ -467,18 +475,34 @@ class ModifierBar:
         label = mod.get("label", key)
         tooltip_text = mod.get("tooltip", "")
         
-        btn = ctk.CTkButton(
-            self.scroll_frame,
-            text=f"{icon} {label}" if icon else label,
-            font=get_ctk_font(size=10),
-            width=80,
-            height=32,
-            corner_radius=6,
-            fg_color=self.colors.surface0,
-            hover_color=self.colors.surface1,
-            text_color=self.colors.text,
-            command=lambda k=key: self._toggle_modifier(k)
-        )
+        # Try to use emoji image if available
+        emoji_img = None
+        btn_text = label
+        if icon and HAVE_EMOJI:
+            renderer = get_emoji_renderer()
+            emoji_img = renderer.get_ctk_image(icon, size=16)
+            if not emoji_img:
+                btn_text = f"{icon} {label}"  # Fallback to text
+        elif icon:
+            btn_text = f"{icon} {label}"
+        
+        # Build button kwargs - only include image/compound if we have an image
+        btn_kwargs = {
+            "text": btn_text,
+            "font": get_ctk_font(size=10),
+            "width": 80,
+            "height": 32,
+            "corner_radius": 6,
+            "fg_color": self.colors.surface0,
+            "hover_color": self.colors.surface1,
+            "text_color": self.colors.text,
+            "command": lambda k=key: self._toggle_modifier(k)
+        }
+        if emoji_img:
+            btn_kwargs["image"] = emoji_img
+            btn_kwargs["compound"] = "left"
+        
+        btn = ctk.CTkButton(self.scroll_frame, **btn_kwargs)
         btn.pack(side="left", padx=3, pady=2)
         
         # Bind scrolling to button
@@ -736,19 +760,34 @@ class GroupedButtonList:
                 icon = item[2] if len(item) > 2 else ""
                 tooltip_text = item[3] if len(item) > 3 else None
                 
-                btn_text = f"{icon}  {display_text}" if icon else display_text
-                btn = ctk.CTkButton(
-                    self.buttons_container,
-                    text=btn_text,
-                    font=get_ctk_font(size=11),
-                    height=38,
-                    corner_radius=6,
-                    anchor="w",
-                    fg_color=self.colors.surface0,
-                    hover_color=self.colors.surface1,
-                    text_color=self.colors.text,
-                    command=lambda k=key: self.on_click(k)
-                )
+                # Try to use emoji image if available
+                emoji_img = None
+                btn_text = display_text
+                if icon and HAVE_EMOJI:
+                    renderer = get_emoji_renderer()
+                    emoji_img = renderer.get_ctk_image(icon, size=18)
+                    if not emoji_img:
+                        btn_text = f"{icon}  {display_text}"  # Fallback to text
+                elif icon:
+                    btn_text = f"{icon}  {display_text}"
+                
+                # Build button kwargs - only include image/compound if we have an image
+                btn_kwargs = {
+                    "text": btn_text,
+                    "font": get_ctk_font(size=11),
+                    "height": 38,
+                    "corner_radius": 6,
+                    "anchor": "w",
+                    "fg_color": self.colors.surface0,
+                    "hover_color": self.colors.surface1,
+                    "text_color": self.colors.text,
+                    "command": lambda k=key: self.on_click(k)
+                }
+                if emoji_img:
+                    btn_kwargs["image"] = emoji_img
+                    btn_kwargs["compound"] = "left"
+                
+                btn = ctk.CTkButton(self.buttons_container, **btn_kwargs)
                 btn.pack(fill="x", pady=1)
                 
                 if tooltip_text:
@@ -976,19 +1015,34 @@ class CarouselButtonList:
             tooltip_text = item[3] if len(item) > 3 else None
             
             if HAVE_CTK:
-                btn_text = f"{icon}  {display_text}" if icon else display_text
-                btn = ctk.CTkButton(
-                    self.buttons_frame,
-                    text=btn_text,
-                    font=get_ctk_font(size=11),
-                    height=38,
-                    corner_radius=6,
-                    anchor="w",
-                    fg_color=self.colors.surface0,
-                    hover_color=self.colors.surface1,
-                    text_color=self.colors.text,
-                    command=lambda k=key: self.on_click(k)
-                )
+                # Try to use emoji image if available
+                emoji_img = None
+                btn_text = display_text
+                if icon and HAVE_EMOJI:
+                    renderer = get_emoji_renderer()
+                    emoji_img = renderer.get_ctk_image(icon, size=18)
+                    if not emoji_img:
+                        btn_text = f"{icon}  {display_text}"  # Fallback to text
+                elif icon:
+                    btn_text = f"{icon}  {display_text}"
+                
+                # Build button kwargs - only include image/compound if we have an image
+                btn_kwargs = {
+                    "text": btn_text,
+                    "font": get_ctk_font(size=11),
+                    "height": 38,
+                    "corner_radius": 6,
+                    "anchor": "w",
+                    "fg_color": self.colors.surface0,
+                    "hover_color": self.colors.surface1,
+                    "text_color": self.colors.text,
+                    "command": lambda k=key: self.on_click(k)
+                }
+                if emoji_img:
+                    btn_kwargs["image"] = emoji_img
+                    btn_kwargs["compound"] = "left"
+                
+                btn = ctk.CTkButton(self.buttons_frame, **btn_kwargs)
                 btn.pack(fill="x", pady=1)
                 
                 if tooltip_text:
@@ -1801,18 +1855,31 @@ class AttachedPromptPopup:
             edit_btn_container.pack(side="right")
             edit_btn_container.pack_propagate(False)
 
-            edit_btn = ctk.CTkButton(
-                edit_btn_container,
-                text="    ✏️",
-                width=40,
-                height=40,
-                corner_radius=8,
-                fg_color=self.colors.blue,
-                hover_color=self.colors.lavender,
-                text_color="#ffffff",
-                font=get_ctk_font(size=14),
-                command=self._on_custom_submit
-            )
+            # Try to use emoji image for edit button
+            edit_emoji_img = None
+            edit_btn_text = "✏️"
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                edit_emoji_img = renderer.get_ctk_image("✏️", size=18)
+                if edit_emoji_img:
+                    edit_btn_text = ""  # Use image only
+            
+            # Build edit button kwargs - only include image if we have one
+            edit_btn_kwargs = {
+                "text": edit_btn_text,
+                "width": 40,
+                "height": 40,
+                "corner_radius": 8,
+                "fg_color": self.colors.blue,
+                "hover_color": self.colors.lavender,
+                "text_color": "#ffffff",
+                "font": get_ctk_font(size=14),
+                "command": self._on_custom_submit
+            }
+            if edit_emoji_img:
+                edit_btn_kwargs["image"] = edit_emoji_img
+            
+            edit_btn = ctk.CTkButton(edit_btn_container, **edit_btn_kwargs)
             edit_btn.pack(fill="both", expand=True)
             
             self.edit_input = ctk.CTkEntry(
@@ -1861,18 +1928,31 @@ class AttachedPromptPopup:
             ask_btn_container.pack(side="right")
             ask_btn_container.pack_propagate(False)
 
-            ask_btn = ctk.CTkButton(
-                ask_btn_container,
-                text="❓",
-                width=40,
-                height=40,
-                corner_radius=8,
-                fg_color=self.colors.green,
-                hover_color=self.colors.peach,
-                text_color="#ffffff",
-                font=get_ctk_font(size=14),
-                command=self._on_ask_submit
-            )
+            # Try to use emoji image for ask button
+            ask_emoji_img = None
+            ask_btn_text = "❓"
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                ask_emoji_img = renderer.get_ctk_image("❓", size=18)
+                if ask_emoji_img:
+                    ask_btn_text = ""  # Use image only
+            
+            # Build ask button kwargs - only include image if we have one
+            ask_btn_kwargs = {
+                "text": ask_btn_text,
+                "width": 40,
+                "height": 40,
+                "corner_radius": 8,
+                "fg_color": self.colors.green,
+                "hover_color": self.colors.peach,
+                "text_color": "#ffffff",
+                "font": get_ctk_font(size=14),
+                "command": self._on_ask_submit
+            }
+            if ask_emoji_img:
+                ask_btn_kwargs["image"] = ask_emoji_img
+            
+            ask_btn = ctk.CTkButton(ask_btn_container, **ask_btn_kwargs)
             ask_btn.pack(fill="both", expand=True)
 
             self.ask_input = ctk.CTkEntry(
@@ -2172,12 +2252,26 @@ class TypingIndicator:
             content_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
             content_frame.pack(padx=10, pady=8)
             
-            typing_label = ctk.CTkLabel(
-                content_frame,
-                text="✍️ Typing...",
-                font=get_ctk_font(size=11, weight="bold"),
-                text_color=self.colors.text
-            )
+            # Try to use emoji image for typing indicator
+            typing_emoji_img = None
+            typing_text = "✍️ Typing..."
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                typing_emoji_img = renderer.get_ctk_image("✍️", size=16)
+                if typing_emoji_img:
+                    typing_text = "Typing..."  # Remove emoji from text
+            
+            # Build typing label kwargs - only include image/compound if we have an image
+            typing_label_kwargs = {
+                "text": typing_text,
+                "font": get_ctk_font(size=11, weight="bold"),
+                "text_color": self.colors.text
+            }
+            if typing_emoji_img:
+                typing_label_kwargs["image"] = typing_emoji_img
+                typing_label_kwargs["compound"] = "left"
+            
+            typing_label = ctk.CTkLabel(content_frame, **typing_label_kwargs)
             typing_label.pack(side="left")
             
             hotkey_display = self.abort_hotkey.title() if self.abort_hotkey else "Escape"
