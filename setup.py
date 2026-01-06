@@ -111,7 +111,7 @@ build_exe_options = {
     
     # Include all source files in a zip (cleaner output)
     "zip_include_packages": ["*"],
-    "zip_exclude_packages": ["customtkinter"],
+    "zip_exclude_packages": ["customtkinter", "emoji"],
 }
 
 # ─── Executable Configuration ─────────────────────────────────────────────────
@@ -137,7 +137,7 @@ executables = [
 
 setup(
     name="AI Bridge",
-    version="2.2.14",
+    version="2.2.16",
     description="Multi-modal AI Assistant Server with TextEditTool and Color Emoji Support",
     author="AI Bridge",
     options={"build_exe": build_exe_options},

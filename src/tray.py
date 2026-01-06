@@ -141,9 +141,15 @@ class TrayApp:
         
         # Find icon path
         if icon_path is None:
-            # Look for icon.ico in the project root
-            project_root = Path(__file__).parent.parent
-            icon_path = project_root / "icon.ico"
+            # Look for icon.ico
+            if getattr(sys, 'frozen', False):
+                # Frozen: uses sys.executable parent
+                icon_path = Path(sys.executable).parent / "icon.ico"
+            else:
+                # Dev: uses project root
+                project_root = Path(__file__).parent.parent
+                icon_path = project_root / "icon.ico"
+            
             if not icon_path.exists():
                 # Fallback: try current directory
                 icon_path = Path("icon.ico")
@@ -275,7 +281,11 @@ class TrayApp:
     
     def _on_edit_config(self, systray):
         """Open config.ini in default editor"""
-        config_path = Path(__file__).parent.parent / "config.ini"
+        if getattr(sys, 'frozen', False):
+            config_path = Path(sys.executable).parent / "config.ini"
+        else:
+            config_path = Path(__file__).parent.parent / "config.ini"
+            
         if config_path.exists():
             self._open_file(config_path)
         else:
@@ -283,7 +293,11 @@ class TrayApp:
     
     def _on_edit_options(self, systray):
         """Open text_edit_tool_options.json in default editor"""
-        options_path = Path(__file__).parent.parent / "text_edit_tool_options.json"
+        if getattr(sys, 'frozen', False):
+            options_path = Path(sys.executable).parent / "text_edit_tool_options.json"
+        else:
+            options_path = Path(__file__).parent.parent / "text_edit_tool_options.json"
+            
         if options_path.exists():
             self._open_file(options_path)
         else:
@@ -335,24 +349,52 @@ class TrayApp:
         # Enable dark mode for menus if applicable
         self._enable_dark_mode()
         
-        # Define menu options
-        # Format: (text, icon, callback)
-        menu_options = (
-            ("💻 Toggle Console", None, self._on_toggle_console),
-            ("🔍 Session Browser", None, self._on_session_browser),
-            ("⚙️ Settings", None, self._on_settings),
-            ("✏️ Prompt Editor", None, self._on_prompt_editor),
-            ("📝 Edit config.ini (file)", None, self._on_edit_config),
-            ("📄 Edit prompts.json (file)", None, self._on_edit_options),
-            ("🔄 Restart", None, self._on_restart),
-        )
+        # Define menu options with dynamic emoji icon support
+        raw_options = [
+            ("💻 Toggle Console", self._on_toggle_console),
+            ("🔍 Session Browser", self._on_session_browser),
+            ("⚙️ Settings", self._on_settings),
+            ("✏️ Prompt Editor", self._on_prompt_editor),
+            ("📝 Edit config.ini (file)", self._on_edit_config),
+            ("📄 Edit prompts.json (file)", self._on_edit_options),
+            ("🔄 Restart", self._on_restart),
+        ]
+        
+        menu_options = []
+        
+        try:
+            # Try to use emoji renderer to generate icons
+            from .gui.emoji_renderer import get_emoji_renderer
+            renderer = get_emoji_renderer()
+            
+            for text, callback in raw_options:
+                # Extract emoji
+                emoji_char, clean_text = renderer.extract_leading_emoji(text)
+                icon_path = None
+                
+                if emoji_char:
+                    # Generate temporary .ico file
+                    icon_path = renderer.get_emoji_icon_path(emoji_char)
+                
+                if icon_path:
+                    # Use clean text and custom icon
+                    menu_options.append((clean_text, icon_path, callback))
+                else:
+                    menu_options.append((text, None, callback))
+                    
+        except Exception as e:
+            print(f"[Warning] Failed to generate tray icons: {e}")
+            for text, callback in raw_options:
+                menu_options.append((text, None, callback))
         
         # Create the system tray icon
         try:
+            # Standard initialization: Let library handle the Quit button
+            # We removed "Quit" from raw_options to ensure only one button appears
             self.systray = SysTrayIcon(
                 self.icon_path,
                 "AI Bridge",
-                menu_options,
+                tuple(menu_options),
                 on_quit=self._on_exit,
                 default_menu_index=0  # "Show Console" is default action on double-click
             )
@@ -424,7 +466,6 @@ def run_with_tray(main_func, icon_path=None, hide_console=True):
         icon_path: Path to icon.ico
         hide_console: Whether to hide console on start
     """
-    import threading
     
     # Create tray app
     tray = TrayApp(icon_path=icon_path)

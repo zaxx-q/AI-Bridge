@@ -55,7 +55,14 @@ except ImportError:
 
 def get_icon_path():
     """Get the path to the application icon."""
-    # Try multiple locations for the icon
+    # Handle frozen state (executable)
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+        icon_path = os.path.join(base_dir, "icon.ico")
+        if os.path.exists(icon_path):
+            return icon_path
+            
+    # Development mode
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     icon_path = os.path.join(base_dir, "icon.ico")
     if os.path.exists(icon_path):

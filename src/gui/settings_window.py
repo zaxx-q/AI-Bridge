@@ -446,7 +446,11 @@ class SettingsWindow:
         self.root.minsize(1000, 700)
         
         # Set icon - use repeated after() calls to override CTk's default icon
-        self._icon_path = Path(__file__).parent.parent.parent / "icon.ico"
+        if getattr(sys, 'frozen', False):
+            self._icon_path = Path(sys.executable).parent / "icon.ico"
+        else:
+            self._icon_path = Path(__file__).parent.parent.parent / "icon.ico"
+            
         def _set_icon():
             try:
                 if self._icon_path.exists() and self.root and not self._destroyed:
@@ -476,9 +480,28 @@ class SettingsWindow:
         # Select initial tab if specified
         if initial_tab and self.use_ctk:
             try:
+                # Try exact match first
                 self.tabview.set(initial_tab)
-            except Exception:
-                pass
+            except ValueError:
+                # Try to find a matching tab (ignoring emoji prefix)
+                # Tab names are like "🔑 API Keys"
+                found = False
+                # List of known tabs with emojis
+                known_tabs = ["⚙️ General", "🌐 Provider", "⚡ Streaming",
+                             "✏️ TextEditTool", "🔑 API Keys", "🔗 Endpoints", "🎨 Theme"]
+                
+                for tab_name in known_tabs:
+                    # Check for suffix match or containment
+                    if initial_tab in tab_name:
+                        try:
+                            self.tabview.set(tab_name)
+                            found = True
+                            break
+                        except ValueError:
+                            pass
+                
+                if not found:
+                    print(f"[Settings] Could not find initial tab '{initial_tab}'")
         
         # Button bar
         self._create_button_bar(main_container)

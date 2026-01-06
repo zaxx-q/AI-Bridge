@@ -22,6 +22,9 @@ import re
 import sys
 import zipfile
 import io
+import tempfile
+import atexit
+import shutil
 try:
     import emoji
     HAVE_EMOJI_LIB = True
@@ -171,15 +174,108 @@ class EmojiRenderer:
         self._cache: Dict[Tuple[str, int], ImageTk.PhotoImage] = {}
         
         # Cache for CTkImage (CTkButton/CTkLabel widgets)
-        self._ctk_cache: Dict[Tuple[str, int], Any] = {}
+        # We DO NOT cache CTkImage objects because they are bound to the Tk instance
+        # they were created in. If multiple threads/windows create their own roots,
+        # sharing CTkImage objects causes "pyimage doesn't exist" errors.
+        # We only cache the underlying PIL images.
         
         # Track missing files to avoid repeated lookups
         self._missing_cache: set = set()
+        
+        # Temp dir for generated icons
+        self._temp_icon_dir: Optional[str] = None
         
         # Check if PIL is available
         if not HAVE_PIL:
             print("[Warning] PIL not available - emoji rendering disabled")
     
+    def _get_temp_icon_dir(self) -> str:
+        """Get or create the temporary directory for icon files."""
+        if self._temp_icon_dir is None:
+            self._temp_icon_dir = tempfile.mkdtemp(prefix="ai_bridge_icons_")
+            
+            # Register cleanup on exit
+            def cleanup():
+                if self._temp_icon_dir and os.path.exists(self._temp_icon_dir):
+                    try:
+                        shutil.rmtree(self._temp_icon_dir)
+                    except Exception:
+                        pass
+            
+            atexit.register(cleanup)
+            
+        return self._temp_icon_dir
+
+    def get_emoji_icon_path(self, emoji_char: str, size: int = 16) -> Optional[str]:
+        """
+        Get path to a temporary .ico file for the emoji.
+        Generates it if it doesn't exist.
+        
+        Args:
+            emoji_char: The emoji character(s)
+            size: Base size in pixels to include (default: 16)
+            
+        Returns:
+            Path to .ico file if successful, None otherwise
+        """
+        if not HAVE_PIL:
+            return None
+            
+        try:
+            filename = self.get_codepoint_filename(emoji_char)
+            temp_dir = self._get_temp_icon_dir()
+            # Use fixed name to include multiple sizes
+            icon_path = os.path.join(temp_dir, f"{filename}_multi.ico")
+            
+            if os.path.exists(icon_path):
+                return icon_path
+                
+            # Load and generate
+            pil_img = self._load_pil_image(emoji_char)
+            if pil_img:
+                # Resize to standard menu icon size (16x16)
+                # Using a single size is safer for basic GDI menus to avoid scaling issues
+                img = pil_img.resize((16, 16), Image.Resampling.LANCZOS)
+                
+                # Convert to RGBA
+                rgba = img.convert("RGBA")
+                datas = rgba.getdata()
+                
+                # FLATTEN TRANSPARENCY
+                # To completely solve the "white background" on GDI menus,
+                # we composite the icon against a common menu background color.
+                # This is a robust fallback for when true ICO transparency fails.
+                
+                # Determine background color based on system theme
+                bg_color = (240, 240, 240, 255) # Standard Windows Light Menu Gray
+                try:
+                    # We can't import is_dark_mode directly at module level due to circular imports sometimes,
+                    # but try/except block handles it.
+                    from .themes import is_dark_mode
+                    if is_dark_mode():
+                        bg_color = (32, 32, 32, 255) # Approx Windows Dark Menu (0x202020)
+                except ImportError:
+                    pass
+                except Exception:
+                    pass
+                
+                # Create solid background
+                bg = Image.new('RGBA', (16, 16), bg_color)
+                
+                # Center the emoji (which might have been resized)
+                # Alpha composite
+                combined = Image.alpha_composite(bg, rgba)
+                
+                # Save as ICO (keeping it RGBA is fine, but now alpha is all 255 everywhere)
+                # This guarantees no "white border" because the background is now gray/dark gray
+                combined.save(icon_path, format="ICO", sizes=[(16, 16)])
+                return icon_path
+                
+        except Exception as e:
+            print(f"[Error] Failed to generate emoji icon: {e}")
+            
+        return None
+
     def get_codepoint_filename(self, char_or_seq: str, strip_vs16: bool = True) -> str:
         """
         Convert an emoji character or sequence to its Twemoji filename.
@@ -326,11 +422,10 @@ class EmojiRenderer:
     
     def get_ctk_image(self, emoji: str, size: Optional[int] = None) -> Optional[Any]:
         """
-        Load and cache an emoji as CTkImage (for CTkButton/CTkLabel widgets).
+        Load an emoji as CTkImage (for CTkButton/CTkLabel widgets).
         
-        CTkImage provides:
-        - Automatic DPI scaling (crisp on 4K monitors)
-        - Theme-aware rendering
+        Note: We do NOT cache CTkImage objects here because they are thread/root sensitive.
+        We only cache the underlying PIL images.
         
         Args:
             emoji: The emoji character(s)
@@ -343,31 +438,20 @@ class EmojiRenderer:
             return None
         
         size = size or self.CTK_DEFAULT_SIZE
-        filename = self.get_codepoint_filename(emoji)
-        cache_key = (f"ctk_{filename}", size)
         
-        # Check cache
-        if cache_key in self._ctk_cache:
-            return self._ctk_cache[cache_key]
-        
-        # Load PIL image
+        # Load PIL image (this IS cached internally)
         pil_image = self._load_pil_image(emoji)
         if pil_image is None:
             return None
         
         try:
-            # CTkImage handles resizing internally
-            # Use same image for both light and dark modes (emojis don't change)
-            ctk_img = CTkImage(
+            # Create fresh CTkImage every time to ensure it binds to the current Tk root
+            # This prevents "pyimage doesn't exist" errors in multi-threaded/multi-window apps
+            return CTkImage(
                 light_image=pil_image,
                 dark_image=pil_image,
                 size=(size, size)
             )
-            
-            # Cache it
-            self._ctk_cache[cache_key] = ctk_img
-            
-            return ctk_img
             
         except Exception:
             return None
@@ -581,7 +665,6 @@ class EmojiRenderer:
     def clear_cache(self):
         """Clear all image caches."""
         self._cache.clear()
-        self._ctk_cache.clear()
         self._missing_cache.clear()
     
     def preload_common_emojis(self):

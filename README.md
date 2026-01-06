@@ -262,7 +262,10 @@ Available themes: `catppuccin`, `dracula`, `nord`, `gruvbox`, `onedark`, `minima
 AIBridge.exe                    # Normal start (tray mode, console hidden)
 AIBridge.exe --no-tray          # No tray icon, console stays visible
 AIBridge.exe --show-console     # Tray mode but keep console visible
+AIBridge.exe --no-wt            # Skip Windows Terminal detection
 ```
+
+> 💡 **Console View**: For the best console experience (including full color emoji support), it is highly recommended to use [Windows Terminal](https://apps.microsoft.com/store/detail/windows-terminal/9N0DX20HK701). AI Bridge will attempt to automatically relaunch in Windows Terminal if detected.
 
 ## 📖 Documentation
 
@@ -282,6 +285,7 @@ AIBridge.exe --show-console     # Tray mode but keep console visible
 ## 📝 Requirements
 
 - **Windows 10/11** (uses Windows-specific APIs for tray and console)
+- **Windows Terminal** (Highly recommended for better console view and colors)
 - **Python 3.14+** (if running from source)
 - API keys for at least one provider (Google Gemini recommended)
 

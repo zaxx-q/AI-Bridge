@@ -552,7 +552,13 @@ class PromptEditorWindow:
         self.root.minsize(1000, 650)
         
         # Set icon - use repeated after() calls to override CTk's default icon
-        self._icon_path = Path(__file__).parent.parent.parent / "icon.ico"
+        if getattr(sys, 'frozen', False):
+            # Frozen mode
+            self._icon_path = Path(sys.executable).parent / "icon.ico"
+        else:
+            # Dev mode
+            self._icon_path = Path(__file__).parent.parent.parent / "icon.ico"
+
         def _set_icon():
             try:
                 if self._icon_path.exists() and self.root and not self._destroyed:
