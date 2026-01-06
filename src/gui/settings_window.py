@@ -49,6 +49,7 @@ from .themes import (
     get_ctk_font
 )
 from .core import get_next_window_id, register_window, unregister_window
+from .custom_widgets import ScrollableButtonList, upgrade_tabview_with_icons, create_section_header, create_emoji_button
 
 # Import emoji renderer for CTkImage support (Windows color emoji fix)
 try:
@@ -575,6 +576,9 @@ class SettingsWindow:
             self.tabview.add("🔗 Endpoints")
             self.tabview.add("🎨 Theme")
             
+            # Upgrade tabs with images and larger font
+            upgrade_tabview_with_icons(self.tabview)
+            
             self._create_general_tab(self.tabview.tab("⚙️ General"))
             self._create_provider_tab(self.tabview.tab("🌐 Provider"))
             self._create_streaming_tab(self.tabview.tab("⚡ Streaming"))
@@ -613,7 +617,7 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Server settings section
-        self._add_section_header(scroll_frame, "🖥️ Server Settings")
+        create_section_header(scroll_frame, "🖥️ Server Settings", self.colors)
         
         # Host
         self._add_entry_field(scroll_frame, "host", "Host:",
@@ -626,7 +630,7 @@ class SettingsWindow:
                              hint="⚠️ Restart required. Port for Flask server (1-65535)")
         
         # Behavior section
-        self._add_section_header(scroll_frame, "🧠 Behavior", top_padding=20)
+        create_section_header(scroll_frame, "🧠 Behavior", self.colors, top_padding=20)
         
         # Show AI response in chat window
         self._add_toggle_field(scroll_frame, "show_ai_response_in_chat_window",
@@ -635,7 +639,7 @@ class SettingsWindow:
                               hint="For endpoint requests. Actions/modifiers override this.")
         
         # Limits section
-        self._add_section_header(scroll_frame, "🚦 Limits", top_padding=20)
+        create_section_header(scroll_frame, "🚦 Limits", self.colors, top_padding=20)
         
         # Max sessions
         self._add_spinbox_field(scroll_frame, "max_sessions", "Max sessions:",
@@ -666,7 +670,7 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Default provider
-        self._add_section_header(scroll_frame, "🥇 Default Provider")
+        create_section_header(scroll_frame, "🥇 Default Provider", self.colors)
         
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
         row.pack(fill="x", pady=8)
@@ -695,7 +699,7 @@ class SettingsWindow:
         self.widgets["default_provider"].pack(side="left", padx=(10, 0))
         
         # Custom provider settings
-        self._add_section_header(scroll_frame, "🛠️ Custom Provider", top_padding=20)
+        create_section_header(scroll_frame, "🛠️ Custom Provider", self.colors, top_padding=20)
         
         self._add_entry_field(scroll_frame, "custom_url", "URL:",
                              self.config_data.config.get("custom_url", "") or "",
@@ -706,14 +710,14 @@ class SettingsWindow:
                              width=300)
         
         # OpenRouter settings
-        self._add_section_header(scroll_frame, "🚀 OpenRouter", top_padding=20)
+        create_section_header(scroll_frame, "🚀 OpenRouter", self.colors, top_padding=20)
         
         self._add_entry_field(scroll_frame, "openrouter_model", "Model:",
                              self.config_data.config.get("openrouter_model", ""),
                              width=300)
         
         # Google settings
-        self._add_section_header(scroll_frame, "💎 Google Gemini", top_padding=20)
+        create_section_header(scroll_frame, "💎 Google Gemini", self.colors, top_padding=20)
         
         self._add_entry_field(scroll_frame, "google_model", "Model:",
                              self.config_data.config.get("google_model", ""),
@@ -728,14 +732,14 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Streaming section
-        self._add_section_header(scroll_frame, "🌊 Streaming")
+        create_section_header(scroll_frame, "🌊 Streaming", self.colors)
         
         self._add_toggle_field(scroll_frame, "streaming_enabled",
                               "Enable streaming responses",
                               self.config_data.config.get("streaming_enabled", True))
         
         # Thinking section
-        self._add_section_header(scroll_frame, "💭 Thinking / Reasoning", top_padding=20)
+        create_section_header(scroll_frame, "💭 Thinking / Reasoning", self.colors, top_padding=20)
         
         self._add_toggle_field(scroll_frame, "thinking_enabled",
                               "Enable thinking mode",
@@ -769,7 +773,7 @@ class SettingsWindow:
         self.widgets["thinking_output"].pack(side="left", padx=(10, 0))
         
         # Thinking config section
-        self._add_section_header(scroll_frame, "Thinking Configuration", top_padding=20)
+        create_section_header(scroll_frame, "Thinking Configuration", self.colors, top_padding=20)
         
         # Reasoning effort (OpenAI)
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
@@ -839,7 +843,7 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Enable/Disable section
-        self._add_section_header(scroll_frame, "✏️ TextEditTool")
+        create_section_header(scroll_frame, "✏️ TextEditTool", self.colors)
         
         self._add_toggle_field(scroll_frame, "text_edit_tool_enabled",
                               "Enable TextEditTool",
@@ -847,7 +851,7 @@ class SettingsWindow:
                               hint="⚠️ Restart required")
         
         # Hotkeys section
-        self._add_section_header(scroll_frame, "⌨️ Hotkeys", top_padding=20)
+        create_section_header(scroll_frame, "⌨️ Hotkeys", self.colors, top_padding=20)
         
         self._add_entry_field(scroll_frame, "text_edit_tool_hotkey", "Activation hotkey:",
                              self.config_data.config.get("text_edit_tool_hotkey", "ctrl+space"),
@@ -858,7 +862,7 @@ class SettingsWindow:
                              width=200, hint="⚠️ Restart required")
         
         # Typing settings section
-        self._add_section_header(scroll_frame, "🖱️ Typing Settings", top_padding=20)
+        create_section_header(scroll_frame, "🖱️ Typing Settings", self.colors, top_padding=20)
         
         self._add_spinbox_field(scroll_frame, "streaming_typing_delay", "Typing delay (ms):",
                                self.config_data.config.get("streaming_typing_delay", 5),
@@ -916,31 +920,26 @@ class SettingsWindow:
             tk.Label(container, text=f"Manage {provider} API keys (keys are masked for security)",
                     font=("Segoe UI", 9), bg=self.colors.bg, fg=self.colors.blockquote).pack(anchor="w", pady=(0, 10))
         
-        # Key list
-        list_frame = ctk.CTkFrame(container, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(container, bg=self.colors.input_bg)
-        list_frame.pack(fill="both", expand=True)
+        # Key list - Replace tk.Listbox with ScrollableButtonList
+        if self.use_ctk:
+            listbox = ScrollableButtonList(
+                container, self.colors, command=None,
+                corner_radius=8, fg_color=self.colors.input_bg
+            )
+        else:
+            listbox = ScrollableButtonList(container, self.colors, command=None, bg=self.colors.input_bg)
+        listbox.pack(fill="both", expand=True)
         
-        listbox = tk.Listbox(
-            list_frame,
-            font=("Consolas", 12),
-            bg=self.colors.input_bg,
-            fg=self.colors.fg,
-            selectbackground=self.colors.accent,
-            selectforeground="#ffffff",
-            relief="flat",
-            highlightthickness=0,
-            borderwidth=0,
-            height=12
-        )
-        listbox.pack(fill="both", expand=True, padx=4, pady=4)
-        
-        # Populate with masked keys
-        for key in self.config_data.keys.get(provider, []):
-            masked = self._mask_key(key)
-            listbox.insert("end", masked)
+        def refresh_keys_list():
+            listbox.clear()
+            for i, key in enumerate(self.widgets[f"keys_{provider}_data"]):
+                masked = self._mask_key(key)
+                listbox.add_item(str(i), masked, "🔑")
+
+        self.widgets[f"keys_{provider}_data"] = list(self.config_data.keys.get(provider, []))
+        refresh_keys_list()
         
         self.widgets[f"keys_{provider}_listbox"] = listbox
-        self.widgets[f"keys_{provider}_data"] = list(self.config_data.keys.get(provider, []))
         
         # Button frame
         btn_frame = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
@@ -982,7 +981,7 @@ class SettingsWindow:
             key = entry_var.get().strip()
             if key and key != "Paste new API key here...":
                 self.widgets[f"keys_{provider}_data"].append(key)
-                listbox.insert("end", self._mask_key(key))
+                refresh_keys_list()
                 entry_var.set("")
                 if self.use_ctk:
                     key_entry.configure(placeholder_text="Paste new API key here...")
@@ -991,32 +990,20 @@ class SettingsWindow:
                     key_entry.configure(fg=self.colors.blockquote)
         
         def remove_key():
-            selection = listbox.curselection()
-            if selection:
-                idx = selection[0]
-                listbox.delete(idx)
+            selected_id = listbox.get_selected()
+            if selected_id:
+                idx = int(selected_id)
                 del self.widgets[f"keys_{provider}_data"][idx]
+                refresh_keys_list()
         
-        if self.use_ctk:
-            ctk.CTkButton(
-                btn_frame, text="Add", font=get_ctk_font(13),
-                width=80, height=36, **get_ctk_button_colors(self.colors, "success"),
-                command=add_key
-            ).pack(side="left", padx=4)
-            
-            ctk.CTkButton(
-                btn_frame, text="Remove", font=get_ctk_font(13),
-                width=90, height=36, **get_ctk_button_colors(self.colors, "danger"),
-                command=remove_key
-            ).pack(side="left", padx=4)
-        else:
-            tk.Button(btn_frame, text="Add", font=("Segoe UI", 10),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=add_key).pack(side="left", padx=2)
-            tk.Button(btn_frame, text="Remove", font=("Segoe UI", 10),
-                     bg=self.colors.accent_red, fg="#ffffff",
-                     command=remove_key).pack(side="left", padx=2)
+        create_emoji_button(btn_frame, "Add", "", self.colors, "success", 80, 36, add_key).pack(side="left", padx=4)
+        create_emoji_button(btn_frame, "Remove", "", self.colors, "danger", 90, 36, remove_key).pack(side="left", padx=4)
     
+    def _upgrade_tabs(self, tabview):
+        """Invoke internals to add images to tabs and increase font size."""
+        # DEPRECATED: Use custom_widgets.upgrade_tabview_with_icons
+        pass
+
     def _mask_key(self, key: str) -> str:
         """Mask an API key for display."""
         if len(key) <= 8:
@@ -1033,34 +1020,21 @@ class SettingsWindow:
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
+        create_section_header(left_panel, "🔗 Endpoints", self.colors)
+        
+        # Endpoints List - Replace tk.Listbox with ScrollableButtonList
         if self.use_ctk:
-            ctk.CTkLabel(left_panel, text="Endpoints", font=get_ctk_font(14, "bold"),
-                        text_color=self.colors.accent).pack(anchor="w", pady=(0, 12))
+            self.endpoint_listbox = ScrollableButtonList(
+                left_panel, self.colors, command=self._on_endpoint_select,
+                corner_radius=8, fg_color=self.colors.input_bg
+            )
         else:
-            tk.Label(left_panel, text="Endpoints", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
-        
-        list_frame = ctk.CTkFrame(left_panel, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(left_panel, bg=self.colors.input_bg)
-        list_frame.pack(fill="both", expand=True)
-        
-        self.endpoint_listbox = tk.Listbox(
-            list_frame,
-            font=("Segoe UI", 12),
-            bg=self.colors.input_bg,
-            fg=self.colors.fg,
-            selectbackground=self.colors.accent,
-            selectforeground="#ffffff",
-            relief="flat",
-            highlightthickness=0,
-            borderwidth=0
-        )
-        self.endpoint_listbox.pack(fill="both", expand=True, padx=4, pady=4)
+            self.endpoint_listbox = ScrollableButtonList(left_panel, self.colors, command=self._on_endpoint_select, bg=self.colors.input_bg)
+        self.endpoint_listbox.pack(fill="both", expand=True)
         
         # Populate endpoints
         for name in sorted(self.config_data.endpoints.keys()):
-            self.endpoint_listbox.insert("end", name)
-        
-        self.endpoint_listbox.bind('<<ListboxSelect>>', self._on_endpoint_select)
+            self.endpoint_listbox.add_item(name, name, "🔗")
         
         # Right: prompt editor
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
@@ -1105,11 +1079,9 @@ class SettingsWindow:
                                            bg=self.colors.bg, fg=self.colors.accent_green)
         self.endpoint_status.pack(side="left", padx=15)
     
-    def _on_endpoint_select(self, event):
+    def _on_endpoint_select(self, name):
         """Handle endpoint selection."""
-        selection = self.endpoint_listbox.curselection()
-        if selection:
-            name = self.endpoint_listbox.get(selection[0])
+        if name:
             prompt = self.config_data.endpoints.get(name, "")
             if self.use_ctk:
                 self.endpoint_text.delete("0.0", "end")
@@ -1120,9 +1092,8 @@ class SettingsWindow:
     
     def _save_endpoint(self):
         """Save the currently edited endpoint."""
-        selection = self.endpoint_listbox.curselection()
-        if selection:
-            name = self.endpoint_listbox.get(selection[0])
+        name = self.endpoint_listbox.get_selected()
+        if name:
             if self.use_ctk:
                 prompt = self.endpoint_text.get("0.0", "end").strip()
             else:
@@ -1142,7 +1113,7 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Theme selection
-        self._add_section_header(scroll_frame, "UI Theme")
+        create_section_header(scroll_frame, "UI Theme", self.colors)
         
         # Theme dropdown
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
@@ -1199,7 +1170,7 @@ class SettingsWindow:
         self.widgets["ui_theme_mode"].pack(side="left", padx=(10, 0))
         
         # Preview section
-        self._add_section_header(scroll_frame, "Preview", top_padding=20)
+        create_section_header(scroll_frame, "Preview", self.colors, top_padding=20)
         
         # Preview frame
         if self.use_ctk:
@@ -1314,40 +1285,6 @@ class SettingsWindow:
     
     # Helper methods for creating form fields
     
-    def _add_section_header(self, parent, text: str, top_padding: int = 0):
-        """Add a section header with emoji support."""
-        if self.use_ctk:
-            # Check for emoji at start (simple heuristic: space separator)
-            emoji_char = None
-            label_text = text
-            
-            if " " in text:
-                potential_emoji, rest = text.split(" ", 1)
-                # Check if first part contains non-ascii characters
-                if any(ord(c) > 127 for c in potential_emoji):
-                    emoji_char = potential_emoji
-                    label_text = rest
-            
-            kwargs = {
-                "text": text,
-                "font": get_ctk_font(15, "bold"),
-                "text_color": self.colors.accent
-            }
-            
-            if emoji_char and HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                # Use slightly larger size for headers
-                img = renderer.get_ctk_image(emoji_char, size=22)
-                if img:
-                    kwargs["image"] = img
-                    kwargs["compound"] = "left"
-                    kwargs["text"] = " " + label_text
-            
-            ctk.CTkLabel(parent, **kwargs).pack(anchor="w", pady=(top_padding, 12))
-        else:
-            tk.Label(parent, text=text, font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(top_padding, 10))
-    
     def _add_entry_field(self, parent, key: str, label: str, value: str,
                         width: int = 240, hint: str = None):
         """Add an entry field to the form."""
@@ -1456,54 +1393,20 @@ class SettingsWindow:
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
         btn_frame.pack(fill="x", pady=(10, 0))
         
+        create_emoji_button(
+            btn_frame, "Save", "💾", self.colors, "success", 120, 42, self._save
+        ).pack(side="left", padx=6)
+        
+        create_emoji_button(
+            btn_frame, "Cancel", "✖️", self.colors, "secondary", 110, 42, self._close
+        ).pack(side="left", padx=6)
+        
         if self.use_ctk:
-            # Save button with emoji
-            save_emoji = None
-            save_text = "💾 Save"
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                save_emoji = renderer.get_ctk_image("💾", size=20)
-                if save_emoji:
-                    save_text = "Save"
-            
-            ctk.CTkButton(
-                btn_frame,
-                text=save_text,
-                image=save_emoji,
-                compound="left" if save_emoji else None,
-                font=get_ctk_font(14),
-                width=120, height=42, **get_ctk_button_colors(self.colors, "success"),
-                command=self._save
-            ).pack(side="left", padx=6)
-            
-            # Cancel button with emoji (added ✖️)
-            cancel_emoji = None
-            cancel_text = "Cancel"
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                cancel_emoji = renderer.get_ctk_image("✖️", size=20)
-            
-            ctk.CTkButton(
-                btn_frame,
-                text=cancel_text,
-                image=cancel_emoji,
-                compound="left" if cancel_emoji else None,
-                font=get_ctk_font(14),
-                width=110, height=42, **get_ctk_button_colors(self.colors, "secondary"),
-                command=self._close
-            ).pack(side="left", padx=6)
-            
-            self.status_label = ctk.CTkLabel(
+             self.status_label = ctk.CTkLabel(
                 btn_frame, text="", font=get_ctk_font(13),
                 text_color=self.colors.accent_green
             )
         else:
-            tk.Button(btn_frame, text="💾 Save", font=("Segoe UI", 11),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=self._save).pack(side="left", padx=5)
-            tk.Button(btn_frame, text="Cancel", font=("Segoe UI", 11),
-                     bg=self.colors.surface1, fg=self.colors.fg,
-                     command=self._close).pack(side="left", padx=5)
             self.status_label = tk.Label(btn_frame, text="", font=("Segoe UI", 10),
                                         bg=self.colors.bg, fg=self.colors.accent_green)
         self.status_label.pack(side="left", padx=20)

@@ -57,6 +57,7 @@ from .themes import (
     get_ctk_font
 )
 from .core import get_next_window_id, register_window, unregister_window
+from .custom_widgets import ScrollableButtonList, upgrade_tabview_with_icons, create_section_header, create_emoji_button
 
 # Import emoji renderer for CTkImage support (Windows color emoji fix)
 try:
@@ -159,9 +160,18 @@ class EmojiPicker(ctk.CTkToplevel if _CTK_AVAILABLE else tk.Toplevel):
             row = i // cols
             col = i % cols
             if self.use_ctk:
+                img = None
+                btn_text = emoji
+                if HAVE_EMOJI:
+                    renderer = get_emoji_renderer()
+                    img = renderer.get_ctk_image(emoji, size=24)
+                    if img:
+                        btn_text = ""
+
                 btn = ctk.CTkButton(
                     emoji_frame,
-                    text=emoji,
+                    text=btn_text,
+                    image=img,
                     font=get_ctk_font(18),
                     width=40,
                     height=36,
@@ -529,6 +539,9 @@ class PromptEditorWindow:
             self.tabview.add("📁 Groups")
             self.tabview.add("🧪 Playground")
             
+            # Upgrade tabs with images and larger font
+            upgrade_tabview_with_icons(self.tabview)
+            
             self._create_actions_tab(self.tabview.tab("⚡ Actions"))
             self._create_settings_tab(self.tabview.tab("⚙️ Settings"))
             self._create_modifiers_tab(self.tabview.tab("🎛️ Modifiers"))
@@ -560,27 +573,22 @@ class PromptEditorWindow:
             self._create_groups_tab(groups_frame)
             self._create_playground_tab(playground_frame)
     
-    def _create_header(self, parent, text, emoji=None):
-        """Helper to create a header label with optional emoji image."""
-        if self.use_ctk:
-            kwargs = {
-                "text": text,
-                "font": get_ctk_font(14, "bold"),
-                "text_color": self.colors.accent
-            }
-            if emoji and HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                img = renderer.get_ctk_image(emoji, size=20)
-                if img:
-                    kwargs["image"] = img
-                    kwargs["compound"] = "left"
-                    kwargs["text"] = " " + text
+    def _refresh_action_list(self):
+        """Refresh the action scrollable list."""
+        if not self.action_listbox:
+            return
             
-            ctk.CTkLabel(parent, **kwargs).pack(anchor="w", pady=(0, 12))
-        else:
-            full_text = f"{emoji} {text}" if emoji else text
-            tk.Label(parent, text=full_text, font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        selected = self.action_listbox.get_selected()
+        self.action_listbox.clear()
+        
+        for name in sorted(self.options_data.keys()):
+            if name == "_settings":
+                continue
+            icon = self.options_data[name].get("icon", "")
+            self.action_listbox.add_item(name, name, icon)
+            
+        if selected:
+            self.action_listbox.select(selected)
 
     def _create_actions_tab(self, frame):
         """Create the Actions editing tab."""
@@ -593,77 +601,38 @@ class PromptEditorWindow:
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
-        self._create_header(left_panel, "Actions", "⚡")
+        create_section_header(left_panel, "Actions", self.colors, "⚡")
         
-        # Listbox (using tk.Listbox wrapped in frame for scrolling)
-        list_container = ctk.CTkFrame(left_panel, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(left_panel, bg=self.colors.input_bg)
-        list_container.pack(fill="both", expand=True)
-        
-        self.action_listbox = tk.Listbox(
-            list_container,
-            font=("Segoe UI", 12),
-            bg=self.colors.input_bg,
-            fg=self.colors.fg,
-            selectbackground=self.colors.accent,
-            selectforeground="#ffffff",
-            relief="flat",
-            highlightthickness=0,
-            borderwidth=0
-        )
-        self.action_listbox.pack(fill="both", expand=True, padx=4, pady=4)
+        # List container - using ScrollableButtonList
+        if self.use_ctk:
+            self.action_listbox = ScrollableButtonList(
+                left_panel, self.colors, command=self._on_action_select,
+                corner_radius=8, fg_color=self.colors.input_bg
+            )
+        else:
+            self.action_listbox = ScrollableButtonList(
+                left_panel, self.colors, command=self._on_action_select,
+                bg=self.colors.input_bg
+            )
+        self.action_listbox.pack(fill="both", expand=True)
         
         # Populate action list
-        for name in sorted(self.options_data.keys()):
-            if name == "_settings":
-                continue
-            icon = self.options_data[name].get("icon", "")
-            self.action_listbox.insert("end", f"{icon} {name}")
-        
-        self.action_listbox.bind('<<ListboxSelect>>', self._on_action_select)
+        self._refresh_action_list()
         
         # Action buttons
         btn_frame = ctk.CTkFrame(left_panel, fg_color="transparent") if self.use_ctk else tk.Frame(left_panel, bg=self.colors.bg)
         btn_frame.pack(fill="x", pady=(12, 0))
         
-        if self.use_ctk:
-            # Helper for buttons with emoji
-            def create_btn_with_emoji(emoji, text, color_variant, width, cmd):
-                btn_text = f"{emoji} {text}" if text else emoji
-                img = None
-                if HAVE_EMOJI:
-                    renderer = get_emoji_renderer()
-                    img = renderer.get_ctk_image(emoji, size=16)
-                    if img:
-                        btn_text = text if text else ""
-                
-                return ctk.CTkButton(
-                    btn_frame, text=btn_text, image=img,
-                    compound="left" if img else None,
-                    font=get_ctk_font(13),
-                    width=width, height=34, corner_radius=6,
-                    **get_ctk_button_colors(self.colors, color_variant),
-                    command=cmd
-                )
-
-            create_btn_with_emoji("➕", "Add", "success", 80, self._add_action).pack(side="left", padx=3)
-            create_btn_with_emoji("📋", "", "secondary", 40, self._duplicate_action).pack(side="left", padx=3)
-            create_btn_with_emoji("🗑️", "", "danger", 40, self._delete_action).pack(side="left", padx=3)
-        else:
-            tk.Button(btn_frame, text="➕ Add", font=("Segoe UI", 9),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=self._add_action).pack(side="left", padx=2)
-            tk.Button(btn_frame, text="📋", font=("Segoe UI", 9),
-                     bg=self.colors.surface1, fg=self.colors.fg,
-                     command=self._duplicate_action).pack(side="left", padx=2)
-            tk.Button(btn_frame, text="🗑️", font=("Segoe UI", 9),
-                     bg=self.colors.accent_red, fg="#ffffff",
-                     command=self._delete_action).pack(side="left", padx=2)
+        # Buttons using shared helper
+        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 80, 34, self._add_action).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "", "📋", self.colors, "secondary", 40, 34, self._duplicate_action).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "", "🗑️", self.colors, "danger", 40, 34, self._delete_action).pack(side="left", padx=3)
         
         # Right panel: action editor
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
         right_panel.pack(side="left", fill="both", expand=True)
         
-        self._create_header(right_panel, "Edit Action", "✏️")
+        create_section_header(right_panel, "Edit Action", self.colors, "✏️")
         
         # Editor form in scrollable frame
         if self.use_ctk:
@@ -816,31 +785,16 @@ class PromptEditorWindow:
         btn_frame = ctk.CTkFrame(editor_scroll, fg_color="transparent") if self.use_ctk else tk.Frame(editor_scroll, bg=self.colors.bg)
         btn_frame.pack(fill="x", pady=(18, 0))
         
-        if self.use_ctk:
-            save_text = "💾 Save Action"
-            save_img = None
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                save_img = renderer.get_ctk_image("💾", size=20)
-                if save_img:
-                    save_text = "Save Action"
+        create_emoji_button(
+            btn_frame, "Save Action", "💾", self.colors, "success", 150, 40, self._save_current_action
+        ).pack(side="left")
 
-            ctk.CTkButton(
-                btn_frame, text=save_text, image=save_img,
-                compound="left" if save_img else None,
-                font=get_ctk_font(14),
-                width=150, height=40, **get_ctk_button_colors(self.colors, "success"),
-                command=self._save_current_action
-            ).pack(side="left")
-            
+        if self.use_ctk:
             self.editor_widgets["save_status"] = ctk.CTkLabel(
                 btn_frame, text="", font=get_ctk_font(12),
                 text_color=self.colors.accent_green
             )
         else:
-            tk.Button(btn_frame, text="💾 Save Action", font=("Segoe UI", 10),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=self._save_current_action).pack(side="left")
             self.editor_widgets["save_status"] = tk.Label(
                 btn_frame, text="", font=("Segoe UI", 9),
                 bg=self.colors.bg, fg=self.colors.accent_green
@@ -859,7 +813,7 @@ class PromptEditorWindow:
         self.settings_widgets = {}
         
         # Section: Global Settings
-        self._create_header(scroll_frame, "Global Settings", "🌍")
+        create_section_header(scroll_frame, "Global Settings", self.colors, "🌍")
         
         # Text fields from settings
         text_fields = [
@@ -912,7 +866,7 @@ class PromptEditorWindow:
         if self.use_ctk:
             # Add extra padding for second section
             ctk.CTkFrame(scroll_frame, fg_color="transparent", height=15).pack()
-        self._create_header(scroll_frame, "Popup Settings", "🪟")
+        create_section_header(scroll_frame, "Popup Settings", self.colors, "🪟")
         
         # Items per page
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
@@ -975,66 +929,44 @@ class PromptEditorWindow:
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
-        self._create_header(left_panel, "Modifiers", "🎛️")
+        create_section_header(left_panel, "Modifiers", self.colors, "🎛️")
         
-        list_container = ctk.CTkFrame(left_panel, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(left_panel, bg=self.colors.input_bg)
-        list_container.pack(fill="both", expand=True)
-        
-        self.modifier_listbox = tk.Listbox(
-            list_container, font=("Segoe UI", 12),
-            bg=self.colors.input_bg, fg=self.colors.fg,
-            selectbackground=self.colors.accent, selectforeground="#ffffff",
-            relief="flat", highlightthickness=0, borderwidth=0
-        )
-        self.modifier_listbox.pack(fill="both", expand=True, padx=4, pady=4)
+        # Modifier List - using ScrollableButtonList
+        if self.use_ctk:
+            self.modifier_listbox = ScrollableButtonList(
+                left_panel, self.colors, command=self._on_modifier_select,
+                corner_radius=8, fg_color=self.colors.input_bg
+            )
+        else:
+            self.modifier_listbox = ScrollableButtonList(
+                left_panel, self.colors, command=self._on_modifier_select,
+                bg=self.colors.input_bg
+            )
+        self.modifier_listbox.pack(fill="both", expand=True)
         
         # Populate modifiers
         settings = self.options_data.get("_settings", {})
         modifiers = settings.get("modifiers", [])
-        for mod in modifiers:
-            self.modifier_listbox.insert("end", f"{mod.get('icon', '')} {mod.get('label', mod.get('key', ''))}")
-        
-        self.modifier_listbox.bind('<<ListboxSelect>>', self._on_modifier_select)
+        for i, mod in enumerate(modifiers):
+            icon = mod.get('icon', '')
+            label = mod.get('label', mod.get('key', ''))
+            # Use index as ID since key might change or be duplicate (though shouldn't)
+            # Actually better to use key for lookup, but index for update?
+            # Existing code used listbox index. Let's use index as ID string "0", "1"...
+            self.modifier_listbox.add_item(str(i), label, icon)
         
         # Buttons
         btn_frame = ctk.CTkFrame(left_panel, fg_color="transparent") if self.use_ctk else tk.Frame(left_panel, bg=self.colors.bg)
         btn_frame.pack(fill="x", pady=(12, 0))
         
-        if self.use_ctk:
-            # Helper for buttons with emoji
-            def create_mod_btn_with_emoji(emoji, text, color_variant, width, cmd):
-                btn_text = f"{emoji} {text}" if text else emoji
-                img = None
-                if HAVE_EMOJI:
-                    renderer = get_emoji_renderer()
-                    img = renderer.get_ctk_image(emoji, size=16)
-                    if img:
-                        btn_text = text if text else ""
-                
-                return ctk.CTkButton(
-                    btn_frame, text=btn_text, image=img,
-                    compound="left" if img else None,
-                    font=get_ctk_font(13),
-                    width=width, height=34, corner_radius=6,
-                    **get_ctk_button_colors(self.colors, color_variant),
-                    command=cmd
-                )
-
-            create_mod_btn_with_emoji("➕", "Add", "success", 80, self._add_modifier).pack(side="left", padx=3)
-            create_mod_btn_with_emoji("🗑️", "", "danger", 40, self._delete_modifier).pack(side="left", padx=3)
-        else:
-            tk.Button(btn_frame, text="➕ Add", font=("Segoe UI", 9),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=self._add_modifier).pack(side="left", padx=2)
-            tk.Button(btn_frame, text="🗑️", font=("Segoe UI", 9),
-                     bg=self.colors.accent_red, fg="#ffffff",
-                     command=self._delete_modifier).pack(side="left", padx=2)
+        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 80, 34, self._add_modifier).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "", "🗑️", self.colors, "danger", 40, 34, self._delete_modifier).pack(side="left", padx=3)
         
         # Right panel: modifier editor
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
         right_panel.pack(side="left", fill="both", expand=True)
         
-        self._create_header(right_panel, "Edit Modifier", "✏️")
+        create_section_header(right_panel, "Edit Modifier", self.colors, "✏️")
         
         self.modifier_widgets = {}
         
@@ -1100,24 +1032,9 @@ class PromptEditorWindow:
                           selectcolor=self.colors.input_bg).pack(anchor="w")
         
         # Save button
-        if self.use_ctk:
-            save_text = "💾 Save Modifier"
-            save_img = None
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                save_img = renderer.get_ctk_image("💾", size=20)
-                if save_img:
-                    save_text = "Save Modifier"
-
-            ctk.CTkButton(right_panel, text=save_text, image=save_img,
-                         compound="left" if save_img else None,
-                         font=get_ctk_font(14),
-                         width=160, height=40, **get_ctk_button_colors(self.colors, "success"),
-                         command=self._save_current_modifier).pack(anchor="w", pady=(18, 0))
-        else:
-            tk.Button(right_panel, text="💾 Save Modifier", font=("Segoe UI", 10),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=self._save_current_modifier).pack(anchor="w", pady=(15, 0))
+        create_emoji_button(
+            right_panel, "Save Modifier", "💾", self.colors, "success", 160, 40, self._save_current_modifier
+        ).pack(anchor="w", pady=(18, 0))
     
     def _create_groups_tab(self, frame):
         """Create the Groups editing tab."""
@@ -1129,65 +1046,41 @@ class PromptEditorWindow:
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
-        self._create_header(left_panel, "Groups", "📁")
+        create_section_header(left_panel, "Groups", self.colors, "📁")
         
-        list_container = ctk.CTkFrame(left_panel, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(left_panel, bg=self.colors.input_bg)
-        list_container.pack(fill="both", expand=True)
-        
-        self.group_listbox = tk.Listbox(
-            list_container, font=("Segoe UI", 12),
-            bg=self.colors.input_bg, fg=self.colors.fg,
-            selectbackground=self.colors.accent, selectforeground="#ffffff",
-            relief="flat", highlightthickness=0, borderwidth=0
-        )
-        self.group_listbox.pack(fill="both", expand=True, padx=4, pady=4)
+        # Group List - using ScrollableButtonList
+        if self.use_ctk:
+            self.group_listbox = ScrollableButtonList(
+                left_panel, self.colors, command=self._on_group_select,
+                corner_radius=8, fg_color=self.colors.input_bg
+            )
+        else:
+            self.group_listbox = ScrollableButtonList(
+                left_panel, self.colors, command=self._on_group_select,
+                bg=self.colors.input_bg
+            )
+        self.group_listbox.pack(fill="both", expand=True)
         
         # Populate groups
         settings = self.options_data.get("_settings", {})
         groups = settings.get("popup_groups", [])
-        for grp in groups:
-            self.group_listbox.insert("end", grp.get("name", "Unnamed"))
-        
-        self.group_listbox.bind('<<ListboxSelect>>', self._on_group_select)
+        for i, grp in enumerate(groups):
+            name = grp.get("name", "Unnamed")
+            # Use index as ID for mapping back
+            self.group_listbox.add_item(str(i), name, None)
         
         # Buttons
         btn_frame = ctk.CTkFrame(left_panel, fg_color="transparent") if self.use_ctk else tk.Frame(left_panel, bg=self.colors.bg)
         btn_frame.pack(fill="x", pady=(12, 0))
         
-        if self.use_ctk:
-            def create_grp_btn_with_emoji(emoji, text, color_variant, width, cmd):
-                btn_text = f"{emoji} {text}" if text else emoji
-                img = None
-                if HAVE_EMOJI:
-                    renderer = get_emoji_renderer()
-                    img = renderer.get_ctk_image(emoji, size=16)
-                    if img:
-                        btn_text = text if text else ""
-                
-                return ctk.CTkButton(
-                    btn_frame, text=btn_text, image=img,
-                    compound="left" if img else None,
-                    font=get_ctk_font(13),
-                    width=width, height=34, corner_radius=6,
-                    **get_ctk_button_colors(self.colors, color_variant),
-                    command=cmd
-                )
-
-            create_grp_btn_with_emoji("➕", "Add", "success", 80, self._add_group).pack(side="left", padx=3)
-            create_grp_btn_with_emoji("🗑️", "", "danger", 40, self._delete_group).pack(side="left", padx=3)
-        else:
-            tk.Button(btn_frame, text="➕ Add", font=("Segoe UI", 9),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=self._add_group).pack(side="left", padx=2)
-            tk.Button(btn_frame, text="🗑️", font=("Segoe UI", 9),
-                     bg=self.colors.accent_red, fg="#ffffff",
-                     command=self._delete_group).pack(side="left", padx=2)
+        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 80, 34, self._add_group).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "", "🗑️", self.colors, "danger", 40, 34, self._delete_group).pack(side="left", padx=3)
         
         # Right panel: group editor
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
         right_panel.pack(side="left", fill="both", expand=True)
         
-        self._create_header(right_panel, "Edit Group", "✏️")
+        create_section_header(right_panel, "Edit Group", self.colors, "✏️")
         
         self.group_widgets = {}
         
@@ -1231,24 +1124,9 @@ class PromptEditorWindow:
         self.group_widgets["items"].pack(fill="both", expand=True, pady=(2, 0))
         
         # Save button
-        if self.use_ctk:
-            save_text = "💾 Save Group"
-            save_img = None
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                save_img = renderer.get_ctk_image("💾", size=20)
-                if save_img:
-                    save_text = "Save Group"
-
-            ctk.CTkButton(right_panel, text=save_text, image=save_img,
-                         compound="left" if save_img else None,
-                         font=get_ctk_font(14),
-                         width=150, height=40, **get_ctk_button_colors(self.colors, "success"),
-                         command=self._save_current_group).pack(anchor="w", pady=(18, 0))
-        else:
-            tk.Button(right_panel, text="💾 Save Group", font=("Segoe UI", 10),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=self._save_current_group).pack(anchor="w", pady=(15, 0))
+        create_emoji_button(
+            right_panel, "Save Group", "💾", self.colors, "success", 150, 40, self._save_current_group
+        ).pack(anchor="w", pady=(18, 0))
     
     def _create_playground_tab(self, frame):
         """Create the Playground tab for testing prompts."""
@@ -1267,7 +1145,7 @@ class PromptEditorWindow:
         scroll_left.pack(fill="both", expand=True)
         
         # Mode selector
-        self._create_header(scroll_left, "Mode", "🎯")
+        create_section_header(scroll_left, "Mode", self.colors, "🎯")
         
         self.playground_mode_var = tk.StringVar(master=self.root, value="action")
         mode_frame = ctk.CTkFrame(scroll_left, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_left, bg=self.colors.bg)
@@ -1482,8 +1360,14 @@ class PromptEditorWindow:
         self.image_container_frame.pack(fill="x", pady=(0, 10))
         
         if self.use_ctk:
+            cam_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                cam_img = renderer.get_ctk_image("📷", size=24)
+
             self.image_drop_zone = ctk.CTkLabel(
-                self.image_container_frame, text="📷 No image selected",
+                self.image_container_frame, text=" No image selected",
+                image=cam_img, compound="top",
                 font=get_ctk_font(13), text_color=self.colors.blockquote
             )
         else:
@@ -1517,8 +1401,13 @@ class PromptEditorWindow:
         self.sample_text_container.pack(fill="x")
         
         if self.use_ctk:
-            ctk.CTkLabel(self.sample_text_container, text="📄 Sample Text:", font=get_ctk_font(13),
-                        **get_ctk_label_colors(self.colors)).pack(anchor="w", pady=(12, 8))
+            sample_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                sample_img = renderer.get_ctk_image("📄", size=18)
+
+            ctk.CTkLabel(self.sample_text_container, text=" Sample Text:", image=sample_img, compound="left",
+                        font=get_ctk_font(13), **get_ctk_label_colors(self.colors)).pack(anchor="w", pady=(12, 8))
             self.playground_sample_text = ctk.CTkTextbox(
                 self.sample_text_container, height=120, font=get_ctk_font(12),
                 **get_ctk_textbox_colors(self.colors)
@@ -1539,9 +1428,9 @@ class PromptEditorWindow:
         else:
             self.playground_sample_text.insert("1.0", "The quick brown fox jumps over the lazy dog.")
             self.playground_sample_text.bind('<KeyRelease>', lambda e: self._update_playground_preview())
-
+    
         # API Settings section (below sample text)
-        self._create_header(scroll_left, "API Settings:", "⚙️")
+        create_section_header(scroll_left, "API Settings", self.colors, "⚙️")
             
         api_frame = ctk.CTkFrame(scroll_left, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_left, bg=self.colors.bg)
         api_frame.pack(fill="x", pady=(0, 10))
@@ -1704,9 +1593,16 @@ class PromptEditorWindow:
         meta_frame.pack(fill="x", pady=(10, 0))
         
         if self.use_ctk:
+            meta_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                meta_img = renderer.get_ctk_image("📊", size=18)
+
             self.playground_meta_label = ctk.CTkLabel(
                 meta_frame,
-                text="📊 Tokens: ~0 | Type: edit | Mode: Replace",
+                text=" Tokens: ~0 | Type: edit | Mode: Replace",
+                image=meta_img,
+                compound="left",
                 font=get_ctk_font(12),
                 text_color=self.colors.blockquote
             )
@@ -1909,7 +1805,11 @@ class PromptEditorWindow:
         try:
             pyperclip.copy(content)
             if self.use_ctk:
-                self.playground_test_status.configure(text="✅ Copied!", text_color=self.colors.accent_green)
+                ok_img = None
+                if HAVE_EMOJI:
+                    renderer = get_emoji_renderer()
+                    ok_img = renderer.get_ctk_image("✅", size=16)
+                self.playground_test_status.configure(text=" Copied!", image=ok_img, compound="left", text_color=self.colors.accent_green)
             else:
                 self.playground_test_status.configure(text="✅ Copied!", fg=self.colors.accent_green)
             self.root.after(2000, lambda: self._clear_test_status())
@@ -2026,7 +1926,11 @@ class PromptEditorWindow:
     def _test_playground_with_api(self):
         """Send the current prompt to the API for testing."""
         if self.use_ctk:
-            self.playground_test_status.configure(text="⏳ Sending request...", text_color=self.colors.fg)
+            status_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                status_img = renderer.get_ctk_image("⏳", size=16)
+            self.playground_test_status.configure(text=" Sending request...", image=status_img, compound="left", text_color=self.colors.fg)
         else:
             self.playground_test_status.configure(text="⏳ Sending request...", fg=self.colors.fg)
         self.root.update()
@@ -2111,15 +2015,19 @@ class PromptEditorWindow:
     
     def _show_test_result(self, result: Optional[str], error: Optional[str]):
         """Show API test result in a popup."""
+        renderer = get_emoji_renderer() if HAVE_EMOJI else None
+        
         if error:
             if self.use_ctk:
-                self.playground_test_status.configure(text=f"❌ {error[:40]}...", text_color=self.colors.accent_red)
+                err_img = renderer.get_ctk_image("❌", size=16) if renderer else None
+                self.playground_test_status.configure(text=f" {error[:40]}...", image=err_img, compound="left", text_color=self.colors.accent_red)
             else:
                 self.playground_test_status.configure(text=f"❌ {error[:40]}...", fg=self.colors.accent_red)
             messagebox.showerror("API Test Error", error, parent=self.root)
         else:
             if self.use_ctk:
-                self.playground_test_status.configure(text="✅ Success!", text_color=self.colors.accent_green)
+                ok_img = renderer.get_ctk_image("✅", size=16) if renderer else None
+                self.playground_test_status.configure(text=" Success!", image=ok_img, compound="left", text_color=self.colors.accent_green)
             else:
                 self.playground_test_status.configure(text="✅ Success!", fg=self.colors.accent_green)
             
@@ -2131,8 +2039,9 @@ class PromptEditorWindow:
             
             if self.use_ctk:
                 result_window.configure(fg_color=self.colors.bg)
-                ctk.CTkLabel(result_window, text="📤 API Response:", font=get_ctk_font(12, "bold"),
-                            text_color=self.colors.accent).pack(anchor="w", padx=15, pady=(15, 10))
+                up_img = renderer.get_ctk_image("📤", size=20) if renderer else None
+                ctk.CTkLabel(result_window, text=" API Response:", image=up_img, compound="left",
+                            font=get_ctk_font(12, "bold"), text_color=self.colors.accent).pack(anchor="w", padx=15, pady=(15, 10))
                 result_text = ctk.CTkTextbox(result_window, font=get_ctk_font(10),
                                             **get_ctk_textbox_colors(self.colors))
                 result_text.pack(fill="both", expand=True, padx=15, pady=(0, 10))
@@ -2161,22 +2070,17 @@ class PromptEditorWindow:
     def _clear_test_status(self):
         """Clear the test status label."""
         if self.use_ctk:
-            self.playground_test_status.configure(text="")
+            self.playground_test_status.configure(text="", image=None)
         else:
             self.playground_test_status.configure(text="")
     
     # Event handlers
     
-    def _on_action_select(self, event):
+    def _on_action_select(self, action_name):
         """Handle action selection."""
-        selection = self.action_listbox.curselection()
-        if not selection:
+        if not action_name:
             return
-        
-        display_text = self.action_listbox.get(selection[0])
-        parts = display_text.split(" ", 1)
-        action_name = parts[1] if len(parts) > 1 else parts[0]
-        
+            
         self.current_action = action_name
         action_data = self.options_data.get(action_name, {})
         
@@ -2200,17 +2104,18 @@ class PromptEditorWindow:
         self.editor_widgets["show_chat_var"].set(
             action_data.get("show_chat_window_instead_of_replace", False))
     
-    def _on_modifier_select(self, event):
+    def _on_modifier_select(self, mod_id_str):
         """Handle modifier selection."""
-        selection = self.modifier_listbox.curselection()
-        if not selection:
+        try:
+            index = int(mod_id_str)
+        except ValueError:
             return
-        
+            
         settings = self.options_data.get("_settings", {})
         modifiers = settings.get("modifiers", [])
         
-        if selection[0] < len(modifiers):
-            mod = modifiers[selection[0]]
+        if 0 <= index < len(modifiers):
+            mod = modifiers[index]
             self.modifier_widgets["key_var"].set(mod.get("key", ""))
             self.modifier_widgets["icon_var"].set(mod.get("icon", ""))
             self.modifier_widgets["label_var"].set(mod.get("label", ""))
@@ -2225,17 +2130,18 @@ class PromptEditorWindow:
             
             self.modifier_widgets["forces_chat_var"].set(mod.get("forces_chat_window", False))
     
-    def _on_group_select(self, event):
+    def _on_group_select(self, group_id_str):
         """Handle group selection."""
-        selection = self.group_listbox.curselection()
-        if not selection:
+        try:
+            index = int(group_id_str)
+        except ValueError:
             return
-        
+            
         settings = self.options_data.get("_settings", {})
         groups = settings.get("popup_groups", [])
         
-        if selection[0] < len(groups):
-            grp = groups[selection[0]]
+        if 0 <= index < len(groups):
+            grp = groups[index]
             self.group_widgets["name_var"].set(grp.get("name", ""))
             items = grp.get("items", [])
             
@@ -2264,10 +2170,9 @@ class PromptEditorWindow:
                 "task": "",
                 "show_chat_window_instead_of_replace": False
             }
-            self.action_listbox.insert("end", f"⚡ {name}")
-            self.action_listbox.selection_clear(0, "end")
-            self.action_listbox.selection_set("end")
-            self._on_action_select(None)
+            self.action_listbox.add_item(name, name, "⚡")
+            self.action_listbox.select(name)
+            # Scroll to end not automatically supported but new item is at bottom
     
     def _duplicate_action(self):
         """Duplicate selected action."""
@@ -2284,17 +2189,16 @@ class PromptEditorWindow:
         self.options_data[new_name] = copy.deepcopy(self.options_data[self.current_action])
         
         icon = self.options_data[new_name].get("icon", "")
-        self.action_listbox.insert("end", f"{icon} {new_name}")
+        self.action_listbox.add_item(new_name, new_name, icon)
     
     def _delete_action(self):
         """Delete selected action."""
-        selection = self.action_listbox.curselection()
-        if not selection or not self.current_action:
+        if not self.current_action:
             return
         
         if messagebox.askyesno("Delete Action", f"Delete action '{self.current_action}'?", parent=self.root):
             del self.options_data[self.current_action]
-            self.action_listbox.delete(selection[0])
+            self.action_listbox.delete(self.current_action)
             self.current_action = None
             if self.use_ctk:
                 self.editor_widgets["name"].configure(text="(select an action)")
@@ -2319,12 +2223,8 @@ class PromptEditorWindow:
             "show_chat_window_instead_of_replace": self.editor_widgets["show_chat_var"].get()
         }
         
-        selection = self.action_listbox.curselection()
-        if selection:
-            icon = self.editor_widgets["icon_var"].get()
-            self.action_listbox.delete(selection[0])
-            self.action_listbox.insert(selection[0], f"{icon} {self.current_action}")
-            self.action_listbox.selection_set(selection[0])
+        # Refresh UI list to update icons
+        self._refresh_action_list()
         
         if self.use_ctk:
             self.editor_widgets["save_status"].configure(
@@ -2351,38 +2251,52 @@ class PromptEditorWindow:
                 "injection": "",
                 "forces_chat_window": False
             })
-            self.modifier_listbox.insert("end", f"🔧 {key.title()}")
+            idx = len(modifiers) - 1
+            self.modifier_listbox.add_item(str(idx), key.title(), "🔧")
     
     def _delete_modifier(self):
         """Delete selected modifier."""
-        selection = self.modifier_listbox.curselection()
-        if not selection:
+        selected_id = self.modifier_listbox.get_selected()
+        if not selected_id:
             return
-        
+            
+        try:
+            index = int(selected_id)
+        except ValueError:
+            return
+            
         settings = self.options_data.get("_settings", {})
         modifiers = settings.get("modifiers", [])
         
-        if selection[0] < len(modifiers):
+        if 0 <= index < len(modifiers):
             if messagebox.askyesno("Delete Modifier", "Delete this modifier?", parent=self.root):
-                del modifiers[selection[0]]
-                self.modifier_listbox.delete(selection[0])
+                del modifiers[index]
+                # Rebuild list because indices shifted
+                self.modifier_listbox.clear()
+                for i, mod in enumerate(modifiers):
+                    self.modifier_listbox.add_item(str(i), mod.get('label', mod.get('key', '')), mod.get('icon', ''))
     
     def _save_current_modifier(self):
         """Save the currently edited modifier."""
-        selection = self.modifier_listbox.curselection()
-        if not selection:
+        selected_id = self.modifier_listbox.get_selected()
+        if not selected_id:
+            return
+            
+        try:
+            index = int(selected_id)
+        except ValueError:
             return
         
         settings = self.options_data.get("_settings", {})
         modifiers = settings.get("modifiers", [])
         
-        if selection[0] < len(modifiers):
+        if 0 <= index < len(modifiers):
             if self.use_ctk:
                 injection = self.modifier_widgets["injection"].get("0.0", "end").strip()
             else:
                 injection = self.modifier_widgets["injection"].get("1.0", "end").strip()
             
-            modifiers[selection[0]] = {
+            modifiers[index] = {
                 "key": self.modifier_widgets["key_var"].get(),
                 "icon": self.modifier_widgets["icon_var"].get(),
                 "label": self.modifier_widgets["label_var"].get(),
@@ -2391,11 +2305,11 @@ class PromptEditorWindow:
                 "forces_chat_window": self.modifier_widgets["forces_chat_var"].get()
             }
             
-            icon = self.modifier_widgets["icon_var"].get()
-            label = self.modifier_widgets["label_var"].get()
-            self.modifier_listbox.delete(selection[0])
-            self.modifier_listbox.insert(selection[0], f"{icon} {label}")
-            self.modifier_listbox.selection_set(selection[0])
+            # Rebuild list to update display
+            self.modifier_listbox.clear()
+            for i, mod in enumerate(modifiers):
+                self.modifier_listbox.add_item(str(i), mod.get('label', mod.get('key', '')), mod.get('icon', ''))
+            self.modifier_listbox.select(str(index))
     
     def _add_group(self):
         """Add a new group."""
@@ -2407,95 +2321,82 @@ class PromptEditorWindow:
                 "name": name,
                 "items": []
             })
-            self.group_listbox.insert("end", name)
+            idx = len(groups) - 1
+            self.group_listbox.add_item(str(idx), name, None)
     
     def _delete_group(self):
         """Delete selected group."""
-        selection = self.group_listbox.curselection()
-        if not selection:
+        selected_id = self.group_listbox.get_selected()
+        if not selected_id:
             return
-        
+
+        try:
+            index = int(selected_id)
+        except ValueError:
+            return
+            
         settings = self.options_data.get("_settings", {})
         groups = settings.get("popup_groups", [])
         
-        if selection[0] < len(groups):
+        if 0 <= index < len(groups):
             if messagebox.askyesno("Delete Group", "Delete this group?", parent=self.root):
-                del groups[selection[0]]
-                self.group_listbox.delete(selection[0])
+                del groups[index]
+                # Rebuild list
+                self.group_listbox.clear()
+                for i, grp in enumerate(groups):
+                     self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
     
     def _save_current_group(self):
         """Save the currently edited group."""
-        selection = self.group_listbox.curselection()
-        if not selection:
+        selected_id = self.group_listbox.get_selected()
+        if not selected_id:
+            return
+
+        try:
+            index = int(selected_id)
+        except ValueError:
             return
         
         settings = self.options_data.get("_settings", {})
         groups = settings.get("popup_groups", [])
         
-        if selection[0] < len(groups):
+        if 0 <= index < len(groups):
             if self.use_ctk:
                 items_text = self.group_widgets["items"].get("0.0", "end").strip()
             else:
                 items_text = self.group_widgets["items"].get("1.0", "end").strip()
             items = [item.strip() for item in items_text.split("\n") if item.strip()]
             
-            groups[selection[0]] = {
+            groups[index] = {
                 "name": self.group_widgets["name_var"].get(),
                 "items": items
             }
             
-            name = self.group_widgets["name_var"].get()
-            self.group_listbox.delete(selection[0])
-            self.group_listbox.insert(selection[0], name)
-            self.group_listbox.selection_set(selection[0])
+            # Rebuild list
+            self.group_listbox.clear()
+            for i, grp in enumerate(groups):
+                self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
+            self.group_listbox.select(str(index))
     
     def _create_button_bar(self, parent):
         """Create the bottom button bar."""
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
         btn_frame.pack(fill="x", pady=(10, 0))
         
+        create_emoji_button(
+            btn_frame, "Save All", "💾", self.colors, "success", 140, 42, self._save_all
+        ).pack(side="left", padx=6)
+        
+        create_emoji_button(
+            btn_frame, "Cancel", "✖️", self.colors, "secondary", 120, 42, self._close
+        ).pack(side="left", padx=6)
+        
         if self.use_ctk:
-            save_text = "💾 Save All"
-            save_img = None
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                save_img = renderer.get_ctk_image("💾", size=20)
-                if save_img:
-                    save_text = "Save All"
-
-            ctk.CTkButton(
-                btn_frame, text=save_text, image=save_img,
-                compound="left" if save_img else None,
-                font=get_ctk_font(14),
-                width=140, height=42, **get_ctk_button_colors(self.colors, "success"),
-                command=self._save_all
-            ).pack(side="left", padx=6)
-            
-            cancel_text = "Cancel"
-            cancel_img = None
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                cancel_img = renderer.get_ctk_image("✖️", size=20)
-
-            ctk.CTkButton(
-                btn_frame, text=cancel_text, image=cancel_img,
-                compound="left" if cancel_img else None,
-                font=get_ctk_font(14),
-                width=120, height=42, **get_ctk_button_colors(self.colors, "secondary"),
-                command=self._close
-            ).pack(side="left", padx=6)
-            
-            self.status_label = ctk.CTkLabel(
+             self.status_label = ctk.CTkLabel(
                 btn_frame, text="", font=get_ctk_font(13),
                 text_color=self.colors.accent_green
             )
         else:
-            tk.Button(btn_frame, text="💾 Save All", font=("Segoe UI", 11),
-                     bg=self.colors.accent_green, fg="#ffffff",
-                     command=self._save_all).pack(side="left", padx=5)
-            tk.Button(btn_frame, text="Cancel", font=("Segoe UI", 11),
-                     bg=self.colors.surface1, fg=self.colors.fg,
-                     command=self._close).pack(side="left", padx=5)
             self.status_label = tk.Label(btn_frame, text="", font=("Segoe UI", 10),
                                         bg=self.colors.bg, fg=self.colors.accent_green)
         self.status_label.pack(side="left", padx=20)

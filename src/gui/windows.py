@@ -36,6 +36,7 @@ from ..utils import strip_markdown
 from ..session_manager import add_session, get_session, list_sessions, delete_session, save_sessions, ChatSession
 from .core import get_next_window_id, register_window, unregister_window
 from .utils import copy_to_clipboard, render_markdown, get_color_scheme, setup_text_tags
+from .custom_widgets import create_emoji_button
 from .themes import (
     ThemeColors, get_colors, get_ctk_font,
     get_ctk_button_colors, get_ctk_frame_colors,
@@ -1153,9 +1154,9 @@ class StandaloneSessionBrowserWindow:
             title_text = "📋 Saved Chat Sessions"
             if HAVE_EMOJI:
                 renderer = get_emoji_renderer()
-                title_emoji_img = renderer.get_ctk_image("📋", size=20)
+                title_emoji_img = renderer.get_ctk_image("📋", size=22)
                 if title_emoji_img:
-                    title_text = "Saved Chat Sessions"
+                    title_text = " Saved Chat Sessions"
             
             # Build title label kwargs - only include image/compound if we have an image
             title_label_kwargs = {
@@ -1238,65 +1239,28 @@ class StandaloneSessionBrowserWindow:
             btn_frame = ctk.CTkFrame(self.root, fg_color="transparent")
             btn_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(10, 15))
             
-            # Helper to create button with emoji image support
-            def create_emoji_button(parent, emoji, text, colors, width, command):
-                emoji_img = None
-                btn_text = f"{emoji} {text}" if emoji else text
-                if emoji and HAVE_EMOJI:
-                    renderer = get_emoji_renderer()
-                    emoji_img = renderer.get_ctk_image(emoji, size=16)
-                    if emoji_img:
-                        btn_text = text
-                
-                # Build button kwargs - only include image/compound if we have an image
-                btn_kwargs = {
-                    "text": btn_text,
-                    "font": get_ctk_font(size=12),
-                    "width": width,
-                    "height": 32,
-                    "corner_radius": 8,
-                    "command": command,
-                    **colors
-                }
-                if emoji_img:
-                    btn_kwargs["image"] = emoji_img
-                    btn_kwargs["compound"] = "left"
-                
-                return ctk.CTkButton(parent, **btn_kwargs)
-            
             # Success button
-            success_colors = get_ctk_button_colors(self.theme, "success")
             create_emoji_button(
-                btn_frame, "➕", "New Session", success_colors, 120, self._new_session
+                btn_frame, "New Session", "➕", self.theme, "success", 120, 32, self._new_session
             ).pack(side="left", padx=2)
             
             # Primary button
-            primary_colors = get_ctk_button_colors(self.theme, "primary")
             create_emoji_button(
-                btn_frame, "💬", "Open Chat", primary_colors, 110, self._open_session
+                btn_frame, "Open Chat", "💬", self.theme, "primary", 110, 32, self._open_session
             ).pack(side="left", padx=2)
             
             # Danger button
-            danger_colors = get_ctk_button_colors(self.theme, "danger")
             create_emoji_button(
-                btn_frame, "🗑️", "Delete", danger_colors, 90, self._delete_session
+                btn_frame, "Delete", "🗑️", self.theme, "danger", 90, 32, self._delete_session
             ).pack(side="left", padx=2)
             
             # Secondary buttons
-            sec_colors = get_ctk_button_colors(self.theme, "secondary")
             create_emoji_button(
-                btn_frame, "🔄", "Refresh", sec_colors, 90, self._refresh
+                btn_frame, "Refresh", "🔄", self.theme, "secondary", 90, 32, self._refresh
             ).pack(side="left", padx=2)
             
-            ctk.CTkButton(
-                btn_frame,
-                text="Close",
-                font=get_ctk_font(size=12),
-                width=70,
-                height=32,
-                corner_radius=8,
-                command=self._close,
-                **sec_colors
+            create_emoji_button(
+                btn_frame, "Close", "", self.theme, "secondary", 70, 32, self._close
             ).pack(side="left", padx=2)
             
             # Status label
@@ -2166,9 +2130,9 @@ class AttachedBrowserWindow:
             title_text = "📋 Saved Chat Sessions"
             if HAVE_EMOJI:
                 renderer = get_emoji_renderer()
-                title_emoji_img = renderer.get_ctk_image("📋", size=20)
+                title_emoji_img = renderer.get_ctk_image("📋", size=22)
                 if title_emoji_img:
-                    title_text = "Saved Chat Sessions"
+                    title_text = " Saved Chat Sessions"
             
             # Build title label kwargs - only include image/compound if we have an image
             title_label_kwargs = {
@@ -2230,56 +2194,24 @@ class AttachedBrowserWindow:
         btn_frame = ctk.CTkFrame(self.root, fg_color="transparent")
         btn_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(10, 15))
         
-        # Helper to create button with emoji image support
-        def create_emoji_button(parent, emoji, text, colors, width, command):
-            emoji_img = None
-            btn_text = f"{emoji} {text}" if emoji else text
-            if emoji and HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                emoji_img = renderer.get_ctk_image(emoji, size=16)
-                if emoji_img:
-                    btn_text = text
-            
-            # Build button kwargs - only include image/compound if we have an image
-            btn_kwargs = {
-                "text": btn_text,
-                "font": get_ctk_font(size=12),
-                "width": width,
-                "height": 32,
-                "corner_radius": 8,
-                "command": command,
-                **colors
-            }
-            if emoji_img:
-                btn_kwargs["image"] = emoji_img
-                btn_kwargs["compound"] = "left"
-            
-            return ctk.CTkButton(parent, **btn_kwargs)
-        
-        success_colors = get_ctk_button_colors(self.theme, "success")
         create_emoji_button(
-            btn_frame, "➕", "New Session", success_colors, 120, self._new_session
+            btn_frame, "New Session", "➕", self.theme, "success", 120, 32, self._new_session
         ).pack(side="left", padx=2)
         
-        primary_colors = get_ctk_button_colors(self.theme, "primary")
         create_emoji_button(
-            btn_frame, "💬", "Open Chat", primary_colors, 110, self._open_session
+            btn_frame, "Open Chat", "💬", self.theme, "primary", 110, 32, self._open_session
         ).pack(side="left", padx=2)
         
-        danger_colors = get_ctk_button_colors(self.theme, "danger")
         create_emoji_button(
-            btn_frame, "🗑️", "Delete", danger_colors, 90, self._delete_session
+            btn_frame, "Delete", "🗑️", self.theme, "danger", 90, 32, self._delete_session
         ).pack(side="left", padx=2)
         
-        sec_colors = get_ctk_button_colors(self.theme, "secondary")
         create_emoji_button(
-            btn_frame, "🔄", "Refresh", sec_colors, 90, self._refresh
+            btn_frame, "Refresh", "🔄", self.theme, "secondary", 90, 32, self._refresh
         ).pack(side="left", padx=2)
         
-        ctk.CTkButton(
-            btn_frame, text="Close", font=get_ctk_font(size=12),
-            width=70, height=32, corner_radius=8,
-            command=self._close, **sec_colors
+        create_emoji_button(
+            btn_frame, "Close", "", self.theme, "secondary", 70, 32, self._close
         ).pack(side="left", padx=2)
         
         self.status_label = ctk.CTkLabel(

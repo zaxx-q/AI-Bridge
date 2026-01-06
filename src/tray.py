@@ -338,13 +338,13 @@ class TrayApp:
         # Define menu options
         # Format: (text, icon, callback)
         menu_options = (
-            ("Toggle Console", None, self._on_toggle_console),
-            ("Session Browser", None, self._on_session_browser),
-            ("Settings", None, self._on_settings),
-            ("Prompt Editor", None, self._on_prompt_editor),
-            ("Edit config.ini (file)", None, self._on_edit_config),
-            ("Edit prompts.json (file)", None, self._on_edit_options),
-            ("Restart", None, self._on_restart),
+            ("💻 Toggle Console", None, self._on_toggle_console),
+            ("🔍 Session Browser", None, self._on_session_browser),
+            ("⚙️ Settings", None, self._on_settings),
+            ("✏️ Prompt Editor", None, self._on_prompt_editor),
+            ("📝 Edit config.ini (file)", None, self._on_edit_config),
+            ("📄 Edit prompts.json (file)", None, self._on_edit_options),
+            ("🔄 Restart", None, self._on_restart),
         )
         
         # Create the system tray icon
