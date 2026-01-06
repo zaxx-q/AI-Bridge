@@ -29,8 +29,10 @@ import threading
 try:
     import customtkinter as ctk
     _CTK_AVAILABLE = True
+    HAVE_CTK = True
 except ImportError:
     _CTK_AVAILABLE = False
+    HAVE_CTK = False
     ctk = None
 
 
@@ -47,6 +49,14 @@ from .themes import (
     get_ctk_font
 )
 from .core import get_next_window_id, register_window, unregister_window
+
+# Import emoji renderer for CTkImage support (Windows color emoji fix)
+try:
+    from .emoji_renderer import get_emoji_renderer, HAVE_PIL
+    HAVE_EMOJI = HAVE_PIL and _CTK_AVAILABLE
+except ImportError:
+    HAVE_EMOJI = False
+    get_emoji_renderer = None
 
 
 # =============================================================================
@@ -385,7 +395,7 @@ class SettingsWindow:
         self.vars: Dict[str, tk.Variable] = {}
         
         # Theme preview
-        self.preview_frame: Optional[ctk.CTkFrame] = None
+        self.preview_frame: Optional[Any] = None
         
         # Determine if we can use CTk (must be in main thread)
         self.use_ctk = _can_use_ctk()
@@ -505,11 +515,25 @@ class SettingsWindow:
         title_frame.pack(fill="x", pady=(0, 15))
         
         if self.use_ctk:
+            # Title with emoji image support
+            title_text = "⚙️ Settings"
+            title_label_kwargs = {
+                "text": title_text,
+                "font": get_ctk_font(24, "bold"),
+                "text_color": self.colors.fg
+            }
+            
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                emoji_img = renderer.get_ctk_image("⚙️", size=32)
+                if emoji_img:
+                    title_label_kwargs["text"] = "Settings"
+                    title_label_kwargs["image"] = emoji_img
+                    title_label_kwargs["compound"] = "left"
+                    
             ctk.CTkLabel(
                 title_frame,
-                text="⚙️ Settings",
-                font=get_ctk_font(24, "bold"),
-                **get_ctk_label_colors(self.colors)
+                **title_label_kwargs
             ).pack(side="left")
             
             ctk.CTkLabel(
@@ -543,21 +567,21 @@ class SettingsWindow:
             self.tabview.pack(fill="both", expand=True, pady=(0, 10))
             
             # Create tabs
-            self.tabview.add("General")
-            self.tabview.add("Provider")
-            self.tabview.add("Streaming")
-            self.tabview.add("TextEditTool")
-            self.tabview.add("API Keys")
-            self.tabview.add("Endpoints")
-            self.tabview.add("Theme")
+            self.tabview.add("⚙️ General")
+            self.tabview.add("🌐 Provider")
+            self.tabview.add("⚡ Streaming")
+            self.tabview.add("✏️ TextEditTool")
+            self.tabview.add("🔑 API Keys")
+            self.tabview.add("🔗 Endpoints")
+            self.tabview.add("🎨 Theme")
             
-            self._create_general_tab(self.tabview.tab("General"))
-            self._create_provider_tab(self.tabview.tab("Provider"))
-            self._create_streaming_tab(self.tabview.tab("Streaming"))
-            self._create_textedit_tab(self.tabview.tab("TextEditTool"))
-            self._create_keys_tab(self.tabview.tab("API Keys"))
-            self._create_endpoints_tab(self.tabview.tab("Endpoints"))
-            self._create_theme_tab(self.tabview.tab("Theme"))
+            self._create_general_tab(self.tabview.tab("⚙️ General"))
+            self._create_provider_tab(self.tabview.tab("🌐 Provider"))
+            self._create_streaming_tab(self.tabview.tab("⚡ Streaming"))
+            self._create_textedit_tab(self.tabview.tab("✏️ TextEditTool"))
+            self._create_keys_tab(self.tabview.tab("🔑 API Keys"))
+            self._create_endpoints_tab(self.tabview.tab("🔗 Endpoints"))
+            self._create_theme_tab(self.tabview.tab("🎨 Theme"))
         else:
             from tkinter import ttk
             style = ttk.Style(self.root)
@@ -589,7 +613,7 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Server settings section
-        self._add_section_header(scroll_frame, "Server Settings")
+        self._add_section_header(scroll_frame, "🖥️ Server Settings")
         
         # Host
         self._add_entry_field(scroll_frame, "host", "Host:",
@@ -602,7 +626,7 @@ class SettingsWindow:
                              hint="⚠️ Restart required. Port for Flask server (1-65535)")
         
         # Behavior section
-        self._add_section_header(scroll_frame, "Behavior", top_padding=20)
+        self._add_section_header(scroll_frame, "🧠 Behavior", top_padding=20)
         
         # Show AI response in chat window
         self._add_toggle_field(scroll_frame, "show_ai_response_in_chat_window",
@@ -611,7 +635,7 @@ class SettingsWindow:
                               hint="For endpoint requests. Actions/modifiers override this.")
         
         # Limits section
-        self._add_section_header(scroll_frame, "Limits", top_padding=20)
+        self._add_section_header(scroll_frame, "🚦 Limits", top_padding=20)
         
         # Max sessions
         self._add_spinbox_field(scroll_frame, "max_sessions", "Max sessions:",
@@ -642,7 +666,7 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Default provider
-        self._add_section_header(scroll_frame, "Default Provider")
+        self._add_section_header(scroll_frame, "🥇 Default Provider")
         
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
         row.pack(fill="x", pady=8)
@@ -671,7 +695,7 @@ class SettingsWindow:
         self.widgets["default_provider"].pack(side="left", padx=(10, 0))
         
         # Custom provider settings
-        self._add_section_header(scroll_frame, "Custom Provider", top_padding=20)
+        self._add_section_header(scroll_frame, "🛠️ Custom Provider", top_padding=20)
         
         self._add_entry_field(scroll_frame, "custom_url", "URL:",
                              self.config_data.config.get("custom_url", "") or "",
@@ -682,14 +706,14 @@ class SettingsWindow:
                              width=300)
         
         # OpenRouter settings
-        self._add_section_header(scroll_frame, "OpenRouter", top_padding=20)
+        self._add_section_header(scroll_frame, "🚀 OpenRouter", top_padding=20)
         
         self._add_entry_field(scroll_frame, "openrouter_model", "Model:",
                              self.config_data.config.get("openrouter_model", ""),
                              width=300)
         
         # Google settings
-        self._add_section_header(scroll_frame, "Google Gemini", top_padding=20)
+        self._add_section_header(scroll_frame, "💎 Google Gemini", top_padding=20)
         
         self._add_entry_field(scroll_frame, "google_model", "Model:",
                              self.config_data.config.get("google_model", ""),
@@ -704,14 +728,14 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Streaming section
-        self._add_section_header(scroll_frame, "Streaming")
+        self._add_section_header(scroll_frame, "🌊 Streaming")
         
         self._add_toggle_field(scroll_frame, "streaming_enabled",
                               "Enable streaming responses",
                               self.config_data.config.get("streaming_enabled", True))
         
         # Thinking section
-        self._add_section_header(scroll_frame, "Thinking / Reasoning", top_padding=20)
+        self._add_section_header(scroll_frame, "💭 Thinking / Reasoning", top_padding=20)
         
         self._add_toggle_field(scroll_frame, "thinking_enabled",
                               "Enable thinking mode",
@@ -815,7 +839,7 @@ class SettingsWindow:
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Enable/Disable section
-        self._add_section_header(scroll_frame, "TextEditTool")
+        self._add_section_header(scroll_frame, "✏️ TextEditTool")
         
         self._add_toggle_field(scroll_frame, "text_edit_tool_enabled",
                               "Enable TextEditTool",
@@ -823,7 +847,7 @@ class SettingsWindow:
                               hint="⚠️ Restart required")
         
         # Hotkeys section
-        self._add_section_header(scroll_frame, "Hotkeys", top_padding=20)
+        self._add_section_header(scroll_frame, "⌨️ Hotkeys", top_padding=20)
         
         self._add_entry_field(scroll_frame, "text_edit_tool_hotkey", "Activation hotkey:",
                              self.config_data.config.get("text_edit_tool_hotkey", "ctrl+space"),
@@ -834,7 +858,7 @@ class SettingsWindow:
                              width=200, hint="⚠️ Restart required")
         
         # Typing settings section
-        self._add_section_header(scroll_frame, "Typing Settings", top_padding=20)
+        self._add_section_header(scroll_frame, "🖱️ Typing Settings", top_padding=20)
         
         self._add_spinbox_field(scroll_frame, "streaming_typing_delay", "Typing delay (ms):",
                                self.config_data.config.get("streaming_typing_delay", 5),
@@ -1291,12 +1315,35 @@ class SettingsWindow:
     # Helper methods for creating form fields
     
     def _add_section_header(self, parent, text: str, top_padding: int = 0):
-        """Add a section header."""
+        """Add a section header with emoji support."""
         if self.use_ctk:
-            ctk.CTkLabel(
-                parent, text=text, font=get_ctk_font(15, "bold"),
-                text_color=self.colors.accent
-            ).pack(anchor="w", pady=(top_padding, 12))
+            # Check for emoji at start (simple heuristic: space separator)
+            emoji_char = None
+            label_text = text
+            
+            if " " in text:
+                potential_emoji, rest = text.split(" ", 1)
+                # Check if first part contains non-ascii characters
+                if any(ord(c) > 127 for c in potential_emoji):
+                    emoji_char = potential_emoji
+                    label_text = rest
+            
+            kwargs = {
+                "text": text,
+                "font": get_ctk_font(15, "bold"),
+                "text_color": self.colors.accent
+            }
+            
+            if emoji_char and HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                # Use slightly larger size for headers
+                img = renderer.get_ctk_image(emoji_char, size=22)
+                if img:
+                    kwargs["image"] = img
+                    kwargs["compound"] = "left"
+                    kwargs["text"] = " " + label_text
+            
+            ctk.CTkLabel(parent, **kwargs).pack(anchor="w", pady=(top_padding, 12))
         else:
             tk.Label(parent, text=text, font=("Segoe UI", 11, "bold"),
                     bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(top_padding, 10))
@@ -1410,14 +1457,38 @@ class SettingsWindow:
         btn_frame.pack(fill="x", pady=(10, 0))
         
         if self.use_ctk:
+            # Save button with emoji
+            save_emoji = None
+            save_text = "💾 Save"
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                save_emoji = renderer.get_ctk_image("💾", size=20)
+                if save_emoji:
+                    save_text = "Save"
+            
             ctk.CTkButton(
-                btn_frame, text="💾 Save", font=get_ctk_font(14),
+                btn_frame,
+                text=save_text,
+                image=save_emoji,
+                compound="left" if save_emoji else None,
+                font=get_ctk_font(14),
                 width=120, height=42, **get_ctk_button_colors(self.colors, "success"),
                 command=self._save
             ).pack(side="left", padx=6)
             
+            # Cancel button with emoji (added ✖️)
+            cancel_emoji = None
+            cancel_text = "Cancel"
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                cancel_emoji = renderer.get_ctk_image("✖️", size=20)
+            
             ctk.CTkButton(
-                btn_frame, text="Cancel", font=get_ctk_font(14),
+                btn_frame,
+                text=cancel_text,
+                image=cancel_emoji,
+                compound="left" if cancel_emoji else None,
+                font=get_ctk_font(14),
                 width=110, height=42, **get_ctk_button_colors(self.colors, "secondary"),
                 command=self._close
             ).pack(side="left", padx=6)

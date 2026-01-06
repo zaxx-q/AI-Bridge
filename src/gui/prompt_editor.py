@@ -32,8 +32,10 @@ import threading
 try:
     import customtkinter as ctk
     _CTK_AVAILABLE = True
+    HAVE_CTK = True
 except ImportError:
     _CTK_AVAILABLE = False
+    HAVE_CTK = False
     ctk = None
 
 
@@ -55,6 +57,14 @@ from .themes import (
     get_ctk_font
 )
 from .core import get_next_window_id, register_window, unregister_window
+
+# Import emoji renderer for CTkImage support (Windows color emoji fix)
+try:
+    from .emoji_renderer import get_emoji_renderer, HAVE_PIL
+    HAVE_EMOJI = HAVE_PIL and HAVE_CTK
+except ImportError:
+    HAVE_EMOJI = False
+    get_emoji_renderer = None
 
 
 # =============================================================================
@@ -461,11 +471,25 @@ class PromptEditorWindow:
         title_frame.pack(fill="x", pady=(0, 15))
         
         if self.use_ctk:
+            # Title with emoji image support
+            title_text = "✏️ Prompt Editor"
+            title_label_kwargs = {
+                "text": title_text,
+                "font": get_ctk_font(24, "bold"),
+                **get_ctk_label_colors(self.colors)
+            }
+            
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                emoji_img = renderer.get_ctk_image("✏️", size=32)
+                if emoji_img:
+                    title_label_kwargs["text"] = "Prompt Editor"
+                    title_label_kwargs["image"] = emoji_img
+                    title_label_kwargs["compound"] = "left"
+
             ctk.CTkLabel(
                 title_frame,
-                text="✏️ Prompt Editor",
-                font=get_ctk_font(24, "bold"),
-                **get_ctk_label_colors(self.colors)
+                **title_label_kwargs
             ).pack(side="left")
             
             ctk.CTkLabel(
@@ -499,16 +523,16 @@ class PromptEditorWindow:
             self.tabview.pack(fill="both", expand=True, pady=(0, 10))
             
             # Create tabs
-            self.tabview.add("Actions")
-            self.tabview.add("Settings")
-            self.tabview.add("Modifiers")
-            self.tabview.add("Groups")
+            self.tabview.add("⚡ Actions")
+            self.tabview.add("⚙️ Settings")
+            self.tabview.add("🎛️ Modifiers")
+            self.tabview.add("📁 Groups")
             self.tabview.add("🧪 Playground")
             
-            self._create_actions_tab(self.tabview.tab("Actions"))
-            self._create_settings_tab(self.tabview.tab("Settings"))
-            self._create_modifiers_tab(self.tabview.tab("Modifiers"))
-            self._create_groups_tab(self.tabview.tab("Groups"))
+            self._create_actions_tab(self.tabview.tab("⚡ Actions"))
+            self._create_settings_tab(self.tabview.tab("⚙️ Settings"))
+            self._create_modifiers_tab(self.tabview.tab("🎛️ Modifiers"))
+            self._create_groups_tab(self.tabview.tab("📁 Groups"))
             self._create_playground_tab(self.tabview.tab("🧪 Playground"))
         else:
             # Fallback to ttk.Notebook
@@ -536,6 +560,28 @@ class PromptEditorWindow:
             self._create_groups_tab(groups_frame)
             self._create_playground_tab(playground_frame)
     
+    def _create_header(self, parent, text, emoji=None):
+        """Helper to create a header label with optional emoji image."""
+        if self.use_ctk:
+            kwargs = {
+                "text": text,
+                "font": get_ctk_font(14, "bold"),
+                "text_color": self.colors.accent
+            }
+            if emoji and HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                img = renderer.get_ctk_image(emoji, size=20)
+                if img:
+                    kwargs["image"] = img
+                    kwargs["compound"] = "left"
+                    kwargs["text"] = " " + text
+            
+            ctk.CTkLabel(parent, **kwargs).pack(anchor="w", pady=(0, 12))
+        else:
+            full_text = f"{emoji} {text}" if emoji else text
+            tk.Label(parent, text=full_text, font=("Segoe UI", 11, "bold"),
+                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+
     def _create_actions_tab(self, frame):
         """Create the Actions editing tab."""
         # Container with left/right panes
@@ -547,16 +593,7 @@ class PromptEditorWindow:
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
-        if self.use_ctk:
-            ctk.CTkLabel(
-                left_panel,
-                text="Actions",
-                font=get_ctk_font(14, "bold"),
-                text_color=self.colors.accent
-            ).pack(anchor="w", pady=(0, 12))
-        else:
-            tk.Label(left_panel, text="Actions", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        self._create_header(left_panel, "Actions", "⚡")
         
         # Listbox (using tk.Listbox wrapped in frame for scrolling)
         list_container = ctk.CTkFrame(left_panel, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(left_panel, bg=self.colors.input_bg)
@@ -589,26 +626,28 @@ class PromptEditorWindow:
         btn_frame.pack(fill="x", pady=(12, 0))
         
         if self.use_ctk:
-            ctk.CTkButton(
-                btn_frame, text="➕ Add", font=get_ctk_font(13),
-                width=80, height=34, corner_radius=6,
-                **get_ctk_button_colors(self.colors, "success"),
-                command=self._add_action
-            ).pack(side="left", padx=3)
-            
-            ctk.CTkButton(
-                btn_frame, text="📋", font=get_ctk_font(13),
-                width=40, height=34, corner_radius=6,
-                **get_ctk_button_colors(self.colors, "secondary"),
-                command=self._duplicate_action
-            ).pack(side="left", padx=3)
-            
-            ctk.CTkButton(
-                btn_frame, text="🗑️", font=get_ctk_font(13),
-                width=40, height=34, corner_radius=6,
-                **get_ctk_button_colors(self.colors, "danger"),
-                command=self._delete_action
-            ).pack(side="left", padx=3)
+            # Helper for buttons with emoji
+            def create_btn_with_emoji(emoji, text, color_variant, width, cmd):
+                btn_text = f"{emoji} {text}" if text else emoji
+                img = None
+                if HAVE_EMOJI:
+                    renderer = get_emoji_renderer()
+                    img = renderer.get_ctk_image(emoji, size=16)
+                    if img:
+                        btn_text = text if text else ""
+                
+                return ctk.CTkButton(
+                    btn_frame, text=btn_text, image=img,
+                    compound="left" if img else None,
+                    font=get_ctk_font(13),
+                    width=width, height=34, corner_radius=6,
+                    **get_ctk_button_colors(self.colors, color_variant),
+                    command=cmd
+                )
+
+            create_btn_with_emoji("➕", "Add", "success", 80, self._add_action).pack(side="left", padx=3)
+            create_btn_with_emoji("📋", "", "secondary", 40, self._duplicate_action).pack(side="left", padx=3)
+            create_btn_with_emoji("🗑️", "", "danger", 40, self._delete_action).pack(side="left", padx=3)
         else:
             tk.Button(btn_frame, text="➕ Add", font=("Segoe UI", 9),
                      bg=self.colors.accent_green, fg="#ffffff",
@@ -624,16 +663,7 @@ class PromptEditorWindow:
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
         right_panel.pack(side="left", fill="both", expand=True)
         
-        if self.use_ctk:
-            ctk.CTkLabel(
-                right_panel,
-                text="Edit Action",
-                font=get_ctk_font(14, "bold"),
-                text_color=self.colors.accent
-            ).pack(anchor="w", pady=(0, 12))
-        else:
-            tk.Label(right_panel, text="Edit Action", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        self._create_header(right_panel, "Edit Action", "✏️")
         
         # Editor form in scrollable frame
         if self.use_ctk:
@@ -787,8 +817,18 @@ class PromptEditorWindow:
         btn_frame.pack(fill="x", pady=(18, 0))
         
         if self.use_ctk:
+            save_text = "💾 Save Action"
+            save_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                save_img = renderer.get_ctk_image("💾", size=20)
+                if save_img:
+                    save_text = "Save Action"
+
             ctk.CTkButton(
-                btn_frame, text="💾 Save Action", font=get_ctk_font(14),
+                btn_frame, text=save_text, image=save_img,
+                compound="left" if save_img else None,
+                font=get_ctk_font(14),
                 width=150, height=40, **get_ctk_button_colors(self.colors, "success"),
                 command=self._save_current_action
             ).pack(side="left")
@@ -819,14 +859,7 @@ class PromptEditorWindow:
         self.settings_widgets = {}
         
         # Section: Global Settings
-        if self.use_ctk:
-            ctk.CTkLabel(
-                scroll_frame, text="Global Settings", font=get_ctk_font(15, "bold"),
-                text_color=self.colors.accent
-            ).pack(anchor="w", pady=(0, 12))
-        else:
-            tk.Label(scroll_frame, text="Global Settings", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        self._create_header(scroll_frame, "Global Settings", "🌍")
         
         # Text fields from settings
         text_fields = [
@@ -877,13 +910,9 @@ class PromptEditorWindow:
         
         # Section: Popup Settings
         if self.use_ctk:
-            ctk.CTkLabel(
-                scroll_frame, text="Popup Settings", font=get_ctk_font(15, "bold"),
-                text_color=self.colors.accent
-            ).pack(anchor="w", pady=(25, 12))
-        else:
-            tk.Label(scroll_frame, text="Popup Settings", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(20, 10))
+            # Add extra padding for second section
+            ctk.CTkFrame(scroll_frame, fg_color="transparent", height=15).pack()
+        self._create_header(scroll_frame, "Popup Settings", "🪟")
         
         # Items per page
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
@@ -946,12 +975,7 @@ class PromptEditorWindow:
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
-        if self.use_ctk:
-            ctk.CTkLabel(left_panel, text="Modifiers", font=get_ctk_font(14, "bold"),
-                        text_color=self.colors.accent).pack(anchor="w", pady=(0, 12))
-        else:
-            tk.Label(left_panel, text="Modifiers", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        self._create_header(left_panel, "Modifiers", "🎛️")
         
         list_container = ctk.CTkFrame(left_panel, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(left_panel, bg=self.colors.input_bg)
         list_container.pack(fill="both", expand=True)
@@ -977,12 +1001,27 @@ class PromptEditorWindow:
         btn_frame.pack(fill="x", pady=(12, 0))
         
         if self.use_ctk:
-            ctk.CTkButton(btn_frame, text="➕ Add", font=get_ctk_font(13),
-                         width=80, height=34, **get_ctk_button_colors(self.colors, "success"),
-                         command=self._add_modifier).pack(side="left", padx=3)
-            ctk.CTkButton(btn_frame, text="🗑️", font=get_ctk_font(13),
-                         width=40, height=34, **get_ctk_button_colors(self.colors, "danger"),
-                         command=self._delete_modifier).pack(side="left", padx=3)
+            # Helper for buttons with emoji
+            def create_mod_btn_with_emoji(emoji, text, color_variant, width, cmd):
+                btn_text = f"{emoji} {text}" if text else emoji
+                img = None
+                if HAVE_EMOJI:
+                    renderer = get_emoji_renderer()
+                    img = renderer.get_ctk_image(emoji, size=16)
+                    if img:
+                        btn_text = text if text else ""
+                
+                return ctk.CTkButton(
+                    btn_frame, text=btn_text, image=img,
+                    compound="left" if img else None,
+                    font=get_ctk_font(13),
+                    width=width, height=34, corner_radius=6,
+                    **get_ctk_button_colors(self.colors, color_variant),
+                    command=cmd
+                )
+
+            create_mod_btn_with_emoji("➕", "Add", "success", 80, self._add_modifier).pack(side="left", padx=3)
+            create_mod_btn_with_emoji("🗑️", "", "danger", 40, self._delete_modifier).pack(side="left", padx=3)
         else:
             tk.Button(btn_frame, text="➕ Add", font=("Segoe UI", 9),
                      bg=self.colors.accent_green, fg="#ffffff",
@@ -995,12 +1034,7 @@ class PromptEditorWindow:
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
         right_panel.pack(side="left", fill="both", expand=True)
         
-        if self.use_ctk:
-            ctk.CTkLabel(right_panel, text="Edit Modifier", font=get_ctk_font(14, "bold"),
-                        text_color=self.colors.accent).pack(anchor="w", pady=(0, 12))
-        else:
-            tk.Label(right_panel, text="Edit Modifier", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        self._create_header(right_panel, "Edit Modifier", "✏️")
         
         self.modifier_widgets = {}
         
@@ -1067,7 +1101,17 @@ class PromptEditorWindow:
         
         # Save button
         if self.use_ctk:
-            ctk.CTkButton(right_panel, text="💾 Save Modifier", font=get_ctk_font(14),
+            save_text = "💾 Save Modifier"
+            save_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                save_img = renderer.get_ctk_image("💾", size=20)
+                if save_img:
+                    save_text = "Save Modifier"
+
+            ctk.CTkButton(right_panel, text=save_text, image=save_img,
+                         compound="left" if save_img else None,
+                         font=get_ctk_font(14),
                          width=160, height=40, **get_ctk_button_colors(self.colors, "success"),
                          command=self._save_current_modifier).pack(anchor="w", pady=(18, 0))
         else:
@@ -1085,12 +1129,7 @@ class PromptEditorWindow:
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
-        if self.use_ctk:
-            ctk.CTkLabel(left_panel, text="Groups", font=get_ctk_font(14, "bold"),
-                        text_color=self.colors.accent).pack(anchor="w", pady=(0, 12))
-        else:
-            tk.Label(left_panel, text="Groups", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        self._create_header(left_panel, "Groups", "📁")
         
         list_container = ctk.CTkFrame(left_panel, fg_color=self.colors.input_bg, corner_radius=8) if self.use_ctk else tk.Frame(left_panel, bg=self.colors.input_bg)
         list_container.pack(fill="both", expand=True)
@@ -1116,12 +1155,26 @@ class PromptEditorWindow:
         btn_frame.pack(fill="x", pady=(12, 0))
         
         if self.use_ctk:
-            ctk.CTkButton(btn_frame, text="➕ Add", font=get_ctk_font(13),
-                         width=80, height=34, **get_ctk_button_colors(self.colors, "success"),
-                         command=self._add_group).pack(side="left", padx=3)
-            ctk.CTkButton(btn_frame, text="🗑️", font=get_ctk_font(13),
-                         width=40, height=34, **get_ctk_button_colors(self.colors, "danger"),
-                         command=self._delete_group).pack(side="left", padx=3)
+            def create_grp_btn_with_emoji(emoji, text, color_variant, width, cmd):
+                btn_text = f"{emoji} {text}" if text else emoji
+                img = None
+                if HAVE_EMOJI:
+                    renderer = get_emoji_renderer()
+                    img = renderer.get_ctk_image(emoji, size=16)
+                    if img:
+                        btn_text = text if text else ""
+                
+                return ctk.CTkButton(
+                    btn_frame, text=btn_text, image=img,
+                    compound="left" if img else None,
+                    font=get_ctk_font(13),
+                    width=width, height=34, corner_radius=6,
+                    **get_ctk_button_colors(self.colors, color_variant),
+                    command=cmd
+                )
+
+            create_grp_btn_with_emoji("➕", "Add", "success", 80, self._add_group).pack(side="left", padx=3)
+            create_grp_btn_with_emoji("🗑️", "", "danger", 40, self._delete_group).pack(side="left", padx=3)
         else:
             tk.Button(btn_frame, text="➕ Add", font=("Segoe UI", 9),
                      bg=self.colors.accent_green, fg="#ffffff",
@@ -1134,12 +1187,7 @@ class PromptEditorWindow:
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
         right_panel.pack(side="left", fill="both", expand=True)
         
-        if self.use_ctk:
-            ctk.CTkLabel(right_panel, text="Edit Group", font=get_ctk_font(14, "bold"),
-                        text_color=self.colors.accent).pack(anchor="w", pady=(0, 12))
-        else:
-            tk.Label(right_panel, text="Edit Group", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
+        self._create_header(right_panel, "Edit Group", "✏️")
         
         self.group_widgets = {}
         
@@ -1184,7 +1232,17 @@ class PromptEditorWindow:
         
         # Save button
         if self.use_ctk:
-            ctk.CTkButton(right_panel, text="💾 Save Group", font=get_ctk_font(14),
+            save_text = "💾 Save Group"
+            save_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                save_img = renderer.get_ctk_image("💾", size=20)
+                if save_img:
+                    save_text = "Save Group"
+
+            ctk.CTkButton(right_panel, text=save_text, image=save_img,
+                         compound="left" if save_img else None,
+                         font=get_ctk_font(14),
                          width=150, height=40, **get_ctk_button_colors(self.colors, "success"),
                          command=self._save_current_group).pack(anchor="w", pady=(18, 0))
         else:
@@ -1209,12 +1267,7 @@ class PromptEditorWindow:
         scroll_left.pack(fill="both", expand=True)
         
         # Mode selector
-        if self.use_ctk:
-            ctk.CTkLabel(scroll_left, text="🎯 Mode", font=get_ctk_font(14, "bold"),
-                        text_color=self.colors.accent).pack(anchor="w", pady=(0, 8))
-        else:
-            tk.Label(scroll_left, text="🎯 Mode", font=("Segoe UI", 11, "bold"),
-                    bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 5))
+        self._create_header(scroll_left, "Mode", "🎯")
         
         self.playground_mode_var = tk.StringVar(master=self.root, value="action")
         mode_frame = ctk.CTkFrame(scroll_left, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_left, bg=self.colors.bg)
@@ -1273,8 +1326,20 @@ class PromptEditorWindow:
         
         # Modifiers section
         if self.use_ctk:
-            ctk.CTkLabel(self.action_config_frame, text="🎛️ Modifiers:", font=get_ctk_font(13),
-                        **get_ctk_label_colors(self.colors)).pack(anchor="w", pady=(8, 8))
+            # Header with emoji image
+            kwargs = {
+                "text": " Modifiers:",
+                "font": get_ctk_font(13),
+                **get_ctk_label_colors(self.colors)
+            }
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                img = renderer.get_ctk_image("🎛️", size=18)
+                if img:
+                    kwargs["image"] = img
+                    kwargs["compound"] = "left"
+            
+            ctk.CTkLabel(self.action_config_frame, **kwargs).pack(anchor="w", pady=(8, 8))
             
             self.playground_mod_scroll = ctk.CTkScrollableFrame(
                 self.action_config_frame, height=120, fg_color="transparent"
@@ -1316,8 +1381,20 @@ class PromptEditorWindow:
         # Not packed initially - shown only when needed
         
         if self.use_ctk:
-            ctk.CTkLabel(self.custom_input_frame, text="✏️ Custom Input:", font=get_ctk_font(13),
-                        **get_ctk_label_colors(self.colors)).pack(anchor="w", pady=(0, 8))
+            # Header with emoji image
+            kwargs = {
+                "text": " Custom Input:",
+                "font": get_ctk_font(13),
+                **get_ctk_label_colors(self.colors)
+            }
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                img = renderer.get_ctk_image("✏️", size=18)
+                if img:
+                    kwargs["image"] = img
+                    kwargs["compound"] = "left"
+            
+            ctk.CTkLabel(self.custom_input_frame, **kwargs).pack(anchor="w", pady=(0, 8))
             self.playground_custom_var = tk.StringVar()
             self.playground_custom_entry = ctk.CTkEntry(
                 self.custom_input_frame, textvariable=self.playground_custom_var,
@@ -1464,12 +1541,7 @@ class PromptEditorWindow:
             self.playground_sample_text.bind('<KeyRelease>', lambda e: self._update_playground_preview())
 
         # API Settings section (below sample text)
-        if self.use_ctk:
-            ctk.CTkLabel(scroll_left, text="⚙️ API Settings:", font=get_ctk_font(14, "bold"),
-                        **get_ctk_label_colors(self.colors)).pack(anchor="w", pady=(18, 8))
-        else:
-            tk.Label(scroll_left, text="⚙️ API Settings:", font=("Segoe UI", 10, "bold"),
-                    bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w", pady=(15, 5))
+        self._create_header(scroll_left, "API Settings:", "⚙️")
             
         api_frame = ctk.CTkFrame(scroll_left, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_left, bg=self.colors.bg)
         api_frame.pack(fill="x", pady=(0, 10))
@@ -1526,7 +1598,17 @@ class PromptEditorWindow:
         btn_frame.pack(fill="x", pady=(10, 0))
         
         if self.use_ctk:
-            ctk.CTkButton(btn_frame, text="🧪 Test with API", font=get_ctk_font(14),
+            test_text = "🧪 Test with API"
+            test_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                test_img = renderer.get_ctk_image("🧪", size=20)
+                if test_img:
+                    test_text = "Test with API"
+
+            ctk.CTkButton(btn_frame, text=test_text, image=test_img,
+                         compound="left" if test_img else None,
+                         font=get_ctk_font(14),
                          width=160, height=42, **get_ctk_button_colors(self.colors, "primary"),
                          command=self._test_playground_with_api).pack(side="left", padx=(0, 15))
             self.playground_test_status = ctk.CTkLabel(btn_frame, text="", font=get_ctk_font(12),
@@ -1548,9 +1630,21 @@ class PromptEditorWindow:
         sys_header.pack(fill="x", pady=(0, 5))
         
         if self.use_ctk:
-            ctk.CTkLabel(sys_header, text="📝 System Prompt Preview", font=get_ctk_font(14, "bold"),
-                        text_color=self.colors.accent).pack(side="left")
-            ctk.CTkButton(sys_header, text="📋 Copy", font=get_ctk_font(12), width=80, height=30,
+            # Header with emoji image
+            kwargs = {
+                "text": " System Prompt Preview",
+                "font": get_ctk_font(14, "bold"),
+                "text_color": self.colors.accent
+            }
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                img = renderer.get_ctk_image("📝", size=20)
+                if img:
+                    kwargs["image"] = img
+                    kwargs["compound"] = "left"
+                    
+            ctk.CTkLabel(sys_header, **kwargs).pack(side="left")
+            ctk.CTkButton(sys_header, text="Copy", font=get_ctk_font(12), width=80, height=30,
                          **get_ctk_button_colors(self.colors, "secondary"),
                          command=lambda: self._copy_preview("system")).pack(side="right")
             self.playground_system_preview = ctk.CTkTextbox(
@@ -1573,9 +1667,21 @@ class PromptEditorWindow:
         user_header.pack(fill="x", pady=(0, 5))
         
         if self.use_ctk:
-            ctk.CTkLabel(user_header, text="💬 User Message Preview", font=get_ctk_font(14, "bold"),
-                        text_color=self.colors.accent).pack(side="left")
-            ctk.CTkButton(user_header, text="📋 Copy", font=get_ctk_font(12), width=80, height=30,
+             # Header with emoji image
+            kwargs = {
+                "text": " User Message Preview",
+                "font": get_ctk_font(14, "bold"),
+                "text_color": self.colors.accent
+            }
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                img = renderer.get_ctk_image("💬", size=20)
+                if img:
+                    kwargs["image"] = img
+                    kwargs["compound"] = "left"
+
+            ctk.CTkLabel(user_header, **kwargs).pack(side="left")
+            ctk.CTkButton(user_header, text="Copy", font=get_ctk_font(12), width=80, height=30,
                          **get_ctk_button_colors(self.colors, "secondary"),
                          command=lambda: self._copy_preview("user")).pack(side="right")
             self.playground_user_preview = ctk.CTkTextbox(
@@ -2349,14 +2455,32 @@ class PromptEditorWindow:
         btn_frame.pack(fill="x", pady=(10, 0))
         
         if self.use_ctk:
+            save_text = "💾 Save All"
+            save_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                save_img = renderer.get_ctk_image("💾", size=20)
+                if save_img:
+                    save_text = "Save All"
+
             ctk.CTkButton(
-                btn_frame, text="💾 Save All", font=get_ctk_font(14),
+                btn_frame, text=save_text, image=save_img,
+                compound="left" if save_img else None,
+                font=get_ctk_font(14),
                 width=140, height=42, **get_ctk_button_colors(self.colors, "success"),
                 command=self._save_all
             ).pack(side="left", padx=6)
             
+            cancel_text = "Cancel"
+            cancel_img = None
+            if HAVE_EMOJI:
+                renderer = get_emoji_renderer()
+                cancel_img = renderer.get_ctk_image("✖️", size=20)
+
             ctk.CTkButton(
-                btn_frame, text="Cancel", font=get_ctk_font(14),
+                btn_frame, text=cancel_text, image=cancel_img,
+                compound="left" if cancel_img else None,
+                font=get_ctk_font(14),
                 width=120, height=42, **get_ctk_button_colors(self.colors, "secondary"),
                 command=self._close
             ).pack(side="left", padx=6)
