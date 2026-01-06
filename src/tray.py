@@ -6,6 +6,7 @@ Uses infi.systray for Windows with native .ico support (no Pillow needed)
 
 import os
 import sys
+import shutil
 import subprocess
 import ctypes
 from pathlib import Path
@@ -187,24 +188,46 @@ class TrayApp:
         # Start the new process FIRST, before doing anything that might fail
         if sys.platform == 'win32':
             try:
-                # DETACHED_PROCESS = 0x00000008
-                # CREATE_NEW_CONSOLE = 0x00000010
-                # CREATE_NEW_PROCESS_GROUP = 0x00000200
-                flags = subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP
+                # Check for Windows Terminal
+                wt_path = shutil.which("wt.exe")
                 
-                if script.endswith('.py'):
-                    subprocess.Popen(
-                        [sys.executable, script] + args,
-                        creationflags=flags,
-                        start_new_session=True
-                    )
+                # Check if we should prevent WT launch (e.g. user set flag)
+                no_wt = "--no-wt" in args
+                
+                if wt_path and not no_wt:
+                    # Launch in Windows Terminal
+                    print("🔄 Restarting via Windows Terminal...")
+                    env = os.environ.copy()
+                    env["AI_BRIDGE_WT_LAUNCHED"] = "1"  # Prevent loop
+                    
+                    cmd = [wt_path, "-w", "0", "-d", os.getcwd()]
+                    if script.endswith('.py'):
+                        cmd.extend([sys.executable, script] + args)
+                    else:
+                        cmd.extend([script] + args)
+                        
+                    subprocess.Popen(cmd, env=env, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+                    
                 else:
-                    # Frozen executable
-                    subprocess.Popen(
-                        [script] + args,
-                        creationflags=flags,
-                        start_new_session=True
-                    )
+                    # Legacy console restart
+                    # DETACHED_PROCESS = 0x00000008
+                    # CREATE_NEW_CONSOLE = 0x00000010
+                    # CREATE_NEW_PROCESS_GROUP = 0x00000200
+                    flags = subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP
+                    
+                    if script.endswith('.py'):
+                        subprocess.Popen(
+                            [sys.executable, script] + args,
+                            creationflags=flags,
+                            start_new_session=True
+                        )
+                    else:
+                        # Frozen executable
+                        subprocess.Popen(
+                            [script] + args,
+                            creationflags=flags,
+                            start_new_session=True
+                        )
             except Exception as e:
                 print(f"[Error] Failed to start new process: {e}")
                 return  # Don't exit if we couldn't start new process

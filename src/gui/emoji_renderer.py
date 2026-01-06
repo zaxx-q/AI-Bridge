@@ -243,7 +243,10 @@ class EmojiRenderer:
                 
                 if found_name:
                     with self.zip_file.open(found_name) as f:
-                        return Image.open(f)
+                        # Must read into memory because Image.open is lazy
+                        # and the zip file handle will close when we exit the block
+                        img_data = f.read()
+                        return Image.open(io.BytesIO(img_data))
             
             elif not self.is_zip and self.assets_path.exists():
                 # Look in directory
