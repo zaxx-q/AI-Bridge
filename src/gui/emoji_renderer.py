@@ -260,14 +260,14 @@ class EmojiRenderer:
                             # Must read into memory because Image.open is lazy
                             # and the zip file handle will close when we exit the block
                             img_data = f.read()
-                            return Image.open(io.BytesIO(img_data))
+                            return Image.open(io.BytesIO(img_data)).convert("RGBA")
                 
                 elif not self.is_zip and self.assets_path.exists():
                     # Look in directory
                     for name in name_variants:
                         image_path = self.assets_path / name
                         if image_path.exists():
-                            return Image.open(image_path)
+                            return Image.open(image_path).convert("RGBA")
             
             except Exception:
                 pass

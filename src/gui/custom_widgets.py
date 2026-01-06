@@ -219,7 +219,7 @@ def upgrade_tabview_with_icons(tabview, icon_size: int = 24, font_size: int = 14
                             if img:
                                 btn = tabview._segmented_button._buttons_dict.get(value)
                                 if btn:
-                                    btn.configure(image=img, text=f" {text}")
+                                    btn.configure(image=img, compound="left", text=f" {text}")
     except Exception as e:
         print(f"Error upgrading tabs: {e}")
 

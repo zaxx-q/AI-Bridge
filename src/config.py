@@ -55,7 +55,7 @@ DEFAULT_CONFIG = {
     "streaming_typing_uncapped": False,
     # UI Theme settings
     # Available themes: catppuccin, dracula, nord, gruvbox, onedark, minimal, highcontrast
-    "ui_theme": "catppuccin",
+    "ui_theme": "dracula",
     # Theme mode: auto (follows system), dark, light
     "ui_theme_mode": "auto",
 }
@@ -349,7 +349,7 @@ streaming_typing_uncapped = false
 # UI THEME SETTINGS
 # ============================================================
 # Available themes: catppuccin, dracula, nord, gruvbox, onedark, minimal, highcontrast
-ui_theme = catppuccin
+ui_theme = dracula
 
 # Theme mode: auto (follows system dark/light), dark, light
 ui_theme_mode = auto

@@ -565,7 +565,7 @@ class ThemeRegistry:
     }
     
     # Default theme
-    DEFAULT_THEME = "catppuccin"
+    DEFAULT_THEME = "dracula"
     DEFAULT_MODE = "auto"
     
     @classmethod
