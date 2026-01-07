@@ -20,12 +20,13 @@ class TextHandler:
         self.keyboard = pykeyboard.Controller()
         logging.debug('TextHandler initialized')
     
-    def get_selected_text(self, sleep_duration: float = 0.2) -> str:
+    def get_selected_text(self, sleep_duration: float = 0.05, max_wait: float = 0.5) -> str:
         """
-        Get the currently selected text from any application.
+        Get the currently selected text from any application using polling.
         
         Args:
-            sleep_duration: Time to wait for clipboard update
+            sleep_duration: Short delay before Ctrl+C for stability (default: 0.05s)
+            max_wait: Maximum time to wait for clipboard content (default: 0.5s)
             
         Returns:
             The selected text, or empty string if none
@@ -36,16 +37,15 @@ class TextHandler:
         except Exception:
             clipboard_backup = ""
         
-        logging.debug(f'Clipboard backup: "{clipboard_backup[:50]}..." (sleep: {sleep_duration}s)')
-        
-        # Clear the clipboard
+        # Clear the clipboard explicitly so we can detect new content
         self.clear_clipboard()
         
-        # Simulate Ctrl+C
-        logging.debug('Simulating Ctrl+C')
-        time.sleep(sleep_duration)  # Short delay before pressing
+        # Short stability delay before pressing keys
+        # Reduced from original code since we're using polling
+        time.sleep(sleep_duration)
         
         try:
+            logging.debug('Simulating Ctrl+C')
             self.keyboard.press(pykeyboard.Key.ctrl)
             self.keyboard.press('c')
             self.keyboard.release('c')
@@ -59,15 +59,22 @@ class TextHandler:
                 pass
             return ""
         
-        # Wait for the clipboard to update
-        time.sleep(sleep_duration)
-        logging.debug(f'Waited {sleep_duration}s for clipboard')
+        # Poll for clipboard update
+        # We check frequently (every 10ms) to return as fast as possible
+        start_time = time.time()
+        selected_text = ""
         
-        # Get the selected text
-        try:
-            selected_text = pyperclip.paste()
-        except Exception:
-            selected_text = ""
+        while (time.time() - start_time) < max_wait:
+            try:
+                content = pyperclip.paste()
+                if content:
+                    selected_text = content
+                    break
+            except Exception:
+                pass
+            time.sleep(0.01)  # 10ms poll interval
+            
+        logging.debug(f'Clipboard poll took {time.time() - start_time:.3f}s. Found text: {bool(selected_text)}')
         
         # Restore the clipboard
         try:
@@ -75,22 +82,23 @@ class TextHandler:
         except Exception as e:
             logging.error(f'Failed to restore clipboard: {e}')
         
-        return selected_text if selected_text != clipboard_backup else ""
+        return selected_text
     
     def get_selected_text_with_retry(self) -> str:
         """
-        Get selected text with a retry using longer sleep duration.
+        Get selected text with a retry using longer wait time.
         
         Returns:
             The selected text, or empty string if none
         """
-        # First attempt with default sleep
+        # First attempt with default settings (0.5s max wait)
         selected_text = self.get_selected_text()
         
-        # Retry with longer sleep if no text captured
+        # Retry with longer wait if no text captured
         if not selected_text:
-            logging.debug('No text captured, retrying with longer sleep')
-            selected_text = self.get_selected_text(sleep_duration=0.5)
+            logging.debug('No text captured, retrying with longer wait')
+            # Increase stability delay and max wait
+            selected_text = self.get_selected_text(sleep_duration=0.1, max_wait=0.8)
         
         return selected_text
     
