@@ -137,7 +137,7 @@ executables = [
 
 setup(
     name="AI Bridge",
-    version="2.2.17",
+    version="2.3.6",
     description="Multi-modal AI Assistant Server with TextEditTool and Color Emoji Support",
     author="AI Bridge",
     options={"build_exe": build_exe_options},

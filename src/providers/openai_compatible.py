@@ -324,6 +324,10 @@ class OpenAICompatibleProvider(BaseProvider):
                     callback(CallbackType.DONE, None)
                     break
                 
+                # Ignore SSE comments/keep-alive heartbeats (lines starting with :)
+                if line.startswith(":"):
+                    continue
+                
                 if not line.startswith("data: "):
                     # Log unexpected line format for debugging
                     if line:
