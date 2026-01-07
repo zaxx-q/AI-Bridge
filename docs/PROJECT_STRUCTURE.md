@@ -23,6 +23,7 @@ AI-Bridge/
     ├── __init__.py
     ├── api_client.py           # Unified API interface using providers
     ├── config.py               # Custom INI parser, configuration management
+    ├── console.py              # Centralized Rich console configuration
     ├── key_manager.py          # API key rotation with exhaustion tracking
     ├── request_pipeline.py     # Unified request processing with logging
     ├── session_manager.py      # Session persistence with sequential IDs
@@ -63,6 +64,7 @@ AI-Bridge/
 | `tray.py` | System tray icon with console show/hide, restart, session browser |
 | `web_server.py` | Flask REST API endpoints for image processing |
 | `terminal.py` | Interactive terminal commands when console is visible |
+| `console.py` | Centralized Rich console configuration with custom theme |
 | `config.py` | Custom INI parser with multiline support |
 | `key_manager.py` | Multi-key management with automatic rotation |
 | `request_pipeline.py` | Unified logging and token tracking for all requests |

@@ -9,10 +9,11 @@ AI Bridge is a Windows application consisting of:
 1. **Flask Web Server** - REST API endpoints for image/text processing
 2. **System Tray Application** - Background process management with `infi.systray`
 3. **CustomTkinter GUI** - Modern chat windows, session browser, and popups with multi-theme support
-4. **TextEditTool** - Global hotkey integration with `pynput` and interactive popups
-5. **AI Provider System** - Unified abstraction for multiple AI backends
-6. **Theme System** - Multi-theme support with dark/light modes and system detection
-7. **Settings Infrastructure** - GUI editors for config.ini and prompt options with hot-reload
+4. **Rich Console Interface** - Modernized terminal UI with structured logging and panels
+5. **TextEditTool** - Global hotkey integration with `pynput` and interactive popups
+6. **AI Provider System** - Unified abstraction for multiple AI backends
+7. **Theme System** - Multi-theme support with dark/light modes and system detection
+8. **Settings Infrastructure** - GUI editors for config.ini and prompt options with hot-reload
 
 ## Component Diagram
 
@@ -20,6 +21,7 @@ AI Bridge is a Windows application consisting of:
 flowchart TB
     subgraph Main["main.py"]
         Tray["System Tray<br/>(tray.py)"]
+        Console["Console UI<br/>(terminal.py)"]
         Flask["Flask Server<br/>(web_server.py)"]
         TET["TextEditTool<br/>(text_edit_tool.py)"]
         Popups["Popups<br/>(popups.py)"]
@@ -140,7 +142,7 @@ flowchart LR
 
 ## Request Pipeline
 
-All AI requests flow through `RequestPipeline` for consistent observability:
+All AI requests flow through `RequestPipeline` for consistent observability, utilizing `src/console.py` for rich output:
 
 ```python
 pipeline = RequestPipeline(
@@ -152,10 +154,11 @@ result = pipeline.execute(provider, messages, config, ai_params, key_manager)
 
 ### Features
 
-- Console logging with origin context
-- Token usage tracking (input/output/total)
-- Timing information
-- Error categorization
+- **Structured Logging**: Uses Rich panels to display request details (model, provider, status)
+- **Token Tracking**: Input/Output/Total usage visualized in tables
+- **Origin Context**: Clear indication of where the request originated
+- **Timing**: Execution time tracking within the results panel
+- **Error Handling**: Distinct red panels for failure states
 
 ## Session Management
 
@@ -211,6 +214,15 @@ The tray application (`src/tray.py`) manages:
 | Tray → Hide Console | Hides console window |
 | Tray → Show Console | Shows and focuses console |
 | Tray → Quit | Clean shutdown |
+
+## Console Interface (Rich)
+
+The terminal interface (`src/terminal.py` and `src/console.py`) uses the `rich` library for modern console UI:
+
+- **Centralized Configuration**: `src/console.py` defines the global `Console` instance and custom theme.
+- **Panels & Tables**: Menus, session lists, and status screens use styled tables tailored for readability.
+- **Color-Coded Logs**: Success, error, warning, and info messages have distinct styles.
+- **Robust Fallback**: Automatically degrades gracefully if `rich` is missing (though it is a hard dependency).
 
 ## Thinking/Reasoning Configuration
 
