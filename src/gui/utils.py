@@ -104,7 +104,7 @@ def copy_to_clipboard(text: str, root = None) -> bool:
 
 def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeColors]):
     """
-    Configure text tags for markdown styling.
+    Configure text tags for markdown styling with card-based message layout.
     
     Uses tk.Text tags which provide rich text formatting.
     This is why we keep tk.Text for chat display instead of CTkTextbox.
@@ -126,17 +126,27 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
             "blockquote": colors.blockquote,
             "user_accent": colors.user_accent,
             "assistant_accent": colors.assistant_accent,
+            "user_bg": colors.user_bg,
+            "assistant_bg": colors.assistant_bg,
             "border": colors.border,
             "accent_yellow": colors.accent_yellow,
+            "overlay0": colors.overlay0,
+            "surface1": colors.surface1,
+            "select_bg": colors.accent,
+            "select_fg": colors.bg,
         }
         colors = color_dict
+    
+    # Configure text selection colors
+    select_bg = colors.get("select_bg", colors.get("accent", "#89b4fa"))
+    select_fg = colors.get("select_fg", colors.get("bg", "#1e1e2e"))
+    text_widget.configure(selectbackground=select_bg, selectforeground=select_fg)
     
     # Get available fonts with Segoe UI Emoji fallback for Windows
     try:
         if sys.platform == 'win32':
             mono_font = "Consolas"
             base_font = "Segoe UI"
-            # Note: For emoji support, the font rendering will automatically fall back
         else:
             mono_font = "DejaVu Sans Mono"
             base_font = "DejaVu Sans"
@@ -145,96 +155,126 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
         base_font = "TkDefaultFont"
     
     # Headers
-    text_widget.tag_configure("h1", 
-        font=(base_font, 18, "bold"), 
+    text_widget.tag_configure("h1",
+        font=(base_font, 16, "bold"),
         foreground=colors["header1"],
-        spacing1=10, spacing3=5)
+        spacing1=6, spacing3=4)
     
-    text_widget.tag_configure("h2", 
-        font=(base_font, 16, "bold"), 
+    text_widget.tag_configure("h2",
+        font=(base_font, 14, "bold"),
         foreground=colors["header2"],
-        spacing1=8, spacing3=4)
+        spacing1=5, spacing3=3)
     
-    text_widget.tag_configure("h3", 
-        font=(base_font, 14, "bold"), 
+    text_widget.tag_configure("h3",
+        font=(base_font, 12, "bold"),
         foreground=colors["header3"],
-        spacing1=6, spacing3=3)
-    
-    text_widget.tag_configure("h4", 
-        font=(base_font, 12, "bold"), 
-        foreground=colors["fg"],
         spacing1=4, spacing3=2)
+    
+    text_widget.tag_configure("h4",
+        font=(base_font, 11, "bold"),
+        foreground=colors["fg"],
+        spacing1=3, spacing3=2)
     
     # Inline formatting
     text_widget.tag_configure("bold", font=(base_font, 11, "bold"))
     text_widget.tag_configure("italic", font=(base_font, 11, "italic"))
     text_widget.tag_configure("bold_italic", font=(base_font, 11, "bold italic"))
+    text_widget.tag_configure("strikethrough", font=(base_font, 11), overstrike=True)
     
     # Code
-    text_widget.tag_configure("code", 
-        font=(mono_font, 10), 
+    text_widget.tag_configure("code",
+        font=(mono_font, 10),
         background=colors["code_bg"],
         foreground=colors["accent"])
     
-    text_widget.tag_configure("codeblock", 
-        font=(mono_font, 10), 
+    text_widget.tag_configure("codeblock",
+        font=(mono_font, 10),
         background=colors["code_bg"],
-        lmargin1=15, lmargin2=15, rmargin=10,
-        spacing1=5, spacing3=5)
+        lmargin1=12, lmargin2=12, rmargin=8,
+        spacing1=4, spacing3=4)
     
     # Lists
-    text_widget.tag_configure("bullet", 
-        lmargin1=20, lmargin2=35,
+    text_widget.tag_configure("bullet",
+        lmargin1=16, lmargin2=28,
         foreground=colors["fg"])
     
     text_widget.tag_configure("bullet_marker",
         foreground=colors["bullet"])
     
     text_widget.tag_configure("numbered",
-        lmargin1=20, lmargin2=35,
+        lmargin1=16, lmargin2=28,
         foreground=colors["fg"])
     
     # Blockquote
     text_widget.tag_configure("blockquote",
-        lmargin1=20, lmargin2=25,
+        lmargin1=16, lmargin2=20,
         foreground=colors["blockquote"],
         font=(base_font, 11, "italic"))
     
-    # Role labels for chat
+    # =================================================================
+    # Card-style message blocks with accent bars
+    # =================================================================
+    
+    # User message card - left accent bar color
+    text_widget.tag_configure("user_accent_bar",
+        foreground=colors["user_accent"],
+        font=(base_font, 11))
+    
+    # User message label
     text_widget.tag_configure("user_label",
         font=(base_font, 11, "bold"),
         foreground=colors["user_accent"],
-        spacing1=10)
+        background=colors["user_bg"],
+        spacing1=0, spacing3=2)
     
+    # User message content background
+    text_widget.tag_configure("user_message",
+        background=colors["user_bg"],
+        lmargin1=0, lmargin2=0, rmargin=8,
+        spacing1=0, spacing3=0)
+    
+    # Assistant message card - left accent bar color
+    text_widget.tag_configure("assistant_accent_bar",
+        foreground=colors["assistant_accent"],
+        font=(base_font, 11))
+    
+    # Assistant message label
     text_widget.tag_configure("assistant_label",
         font=(base_font, 11, "bold"),
         foreground=colors["assistant_accent"],
-        spacing1=10)
+        background=colors["assistant_bg"],
+        spacing1=0, spacing3=2)
     
-    text_widget.tag_configure("user_message",
-        lmargin1=10, lmargin2=10, rmargin=10,
-        spacing3=5)
-    
+    # Assistant message content background
     text_widget.tag_configure("assistant_message",
-        lmargin1=10, lmargin2=10, rmargin=10,
-        spacing3=5)
+        background=colors["assistant_bg"],
+        lmargin1=0, lmargin2=0, rmargin=8,
+        spacing1=0, spacing3=0)
+    
+    # Card gap (transparent space between messages)
+    text_widget.tag_configure("card_gap",
+        spacing1=4, spacing3=4,
+        font=(base_font, 4))  # Small font for minimal height
     
     # Normal text
     text_widget.tag_configure("normal",
         font=(base_font, 11),
         foreground=colors["fg"])
     
-    # Separator
+    # Separator (only used within cards, not between them)
     text_widget.tag_configure("separator",
-        foreground=colors["border"],
-        justify="center")
+        foreground=colors.get("surface1", colors["border"]),
+        spacing1=4, spacing3=4)
     
-    # Thinking/Reasoning display - clickable header
+    # =================================================================
+    # Thinking/Reasoning display - improved styling
+    # =================================================================
+    
+    # Thinking header - clickable, yellow accent
     text_widget.tag_configure("thinking_header",
         font=(base_font, 10, "bold"),
         foreground=colors["accent_yellow"],
-        spacing1=5,
-        spacing3=2)
+        spacing1=4, spacing3=2)
     
     # Add cursor change on hover for thinking header
     text_widget.tag_bind("thinking_header", "<Enter>",
@@ -242,16 +282,22 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
     text_widget.tag_bind("thinking_header", "<Leave>",
         lambda e: text_widget.config(cursor=""))
     
+    # Thinking content - improved contrast (use overlay0 instead of blockquote)
     text_widget.tag_configure("thinking_content",
         font=(base_font, 10),
-        foreground=colors["blockquote"],
-        lmargin1=20, lmargin2=20,
-        spacing1=2, spacing3=0)
+        foreground=colors.get("overlay0", colors["blockquote"]),
+        lmargin1=12, lmargin2=12,
+        spacing1=2, spacing3=2)
+    
+    # Thinking message role (for markdown-rendered thinking)
+    text_widget.tag_configure("thinking_message",
+        lmargin1=12, lmargin2=12, rmargin=8,
+        spacing1=1, spacing3=2)
 
 
 def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
                    wrap: bool = True, as_role: Optional[str] = None,
-                   enable_emojis: bool = True):
+                   enable_emojis: bool = True, block_tag: Optional[str] = None):
     """
     Render markdown text to a Tkinter Text widget with formatting.
     
@@ -260,8 +306,9 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
         text_widget: The Tkinter Text widget to render into
         colors: Color scheme dictionary
         wrap: Whether to enable word wrapping
-        as_role: Optional role ('user' or 'assistant') for message styling
+        as_role: Optional role ('user', 'assistant', or 'thinking') for message styling
         enable_emojis: Whether to render emojis as images (Windows only)
+        block_tag: Optional additional tag to apply to all content (for card backgrounds)
     """
     # Setup tags if not already done
     setup_text_tags(text_widget, colors)
@@ -273,12 +320,23 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
     in_code_block = False
     code_block_lines = []
     
-    # Apply role-based background if specified
+    # Apply role-based styling
     role_tag = None
     if as_role == "user":
         role_tag = "user_message"
     elif as_role == "assistant":
         role_tag = "assistant_message"
+    elif as_role == "thinking":
+        role_tag = "thinking_message"
+    
+    def build_tags(*primary_tags):
+        """Build tag tuple including role_tag and block_tag if present."""
+        result = list(primary_tags)
+        if role_tag:
+            result.append(role_tag)
+        if block_tag:
+            result.append(block_tag)
+        return tuple(result) if result else None
     
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -289,7 +347,7 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
                 # End code block - render accumulated lines
                 if code_block_lines:
                     code_text = '\n'.join(code_block_lines)
-                    tags = ("codeblock",) if not role_tag else ("codeblock", role_tag)
+                    tags = build_tags("codeblock")
                     # Don't render emojis in code blocks
                     text_widget.insert(tk.END, code_text + '\n', tags)
                 code_block_lines = []
@@ -305,11 +363,13 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
         
         # Add newline between lines (except first)
         if text_widget.index(tk.END) != "1.0" and i > 0:
-            text_widget.insert(tk.END, '\n')
+            newline_tags = build_tags("normal")
+            text_widget.insert(tk.END, '\n', newline_tags)
         
-        # Empty line
+        # Empty line - minimal spacing
         if not stripped:
-            text_widget.insert(tk.END, '\n')
+            empty_tags = build_tags("normal")
+            text_widget.insert(tk.END, '\n', empty_tags)
             continue
         
         # Headers
@@ -324,14 +384,14 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
             if level <= 6 and len(stripped) > level and stripped[level] == ' ':
                 content = stripped[level+1:]
                 tag = f"h{min(level, 4)}"
-                tags = (tag,) if not role_tag else (tag, role_tag)
+                tags = build_tags(tag)
                 _insert_with_emojis(text_widget, content, tags, enable_emojis)
                 continue
         
         # Blockquote
         if stripped.startswith('>'):
             content = stripped[1:].strip()
-            tags = ("blockquote",) if not role_tag else ("blockquote", role_tag)
+            tags = build_tags("blockquote")
             _insert_with_emojis(text_widget, "│ " + content, tags, enable_emojis)
             continue
         
@@ -339,34 +399,34 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
         if stripped.startswith('- ') or stripped.startswith('* '):
             content = stripped[2:]
             # Insert bullet marker
-            tags = ("bullet_marker",) if not role_tag else ("bullet_marker", role_tag)
+            tags = build_tags("bullet_marker")
             text_widget.insert(tk.END, "  • ", tags)
             # Insert content with inline formatting
-            _render_inline(content, text_widget, colors, role_tag, enable_emojis)
+            _render_inline(content, text_widget, colors, role_tag, enable_emojis, block_tag)
             continue
         
         # Numbered list
         match = re.match(r'^(\d+)\.\s+(.+)$', stripped)
         if match:
             num, content = match.groups()
-            tags = ("numbered",) if not role_tag else ("numbered", role_tag)
+            tags = build_tags("numbered")
             text_widget.insert(tk.END, f"  {num}. ", tags)
-            _render_inline(content, text_widget, colors, role_tag, enable_emojis)
+            _render_inline(content, text_widget, colors, role_tag, enable_emojis, block_tag)
             continue
         
         # Horizontal rule
         if re.match(r'^[-*_]{3,}$', stripped):
-            tags = ("separator",) if not role_tag else ("separator", role_tag)
+            tags = build_tags("separator")
             text_widget.insert(tk.END, "─" * 40, tags)
             continue
         
         # Regular paragraph with inline formatting
-        _render_inline(line, text_widget, colors, role_tag, enable_emojis)
+        _render_inline(line, text_widget, colors, role_tag, enable_emojis, block_tag)
     
     # Flush any remaining code block
     if in_code_block and code_block_lines:
         code_text = '\n'.join(code_block_lines)
-        tags = ("codeblock",) if not role_tag else ("codeblock", role_tag)
+        tags = build_tags("codeblock")
         # Don't render emojis in code blocks
         text_widget.insert(tk.END, code_text + '\n', tags)
 
@@ -410,11 +470,21 @@ def _insert_with_emojis(
 
 
 def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
-                   role_tag: Optional[str] = None, enable_emojis: bool = True):
+                   role_tag: Optional[str] = None, enable_emojis: bool = True,
+                   block_tag: Optional[str] = None):
     """Render inline markdown formatting (bold, italic, code) with emoji support."""
     
+    def build_tags(*primary_tags):
+        """Build tag tuple including role_tag and block_tag if present."""
+        result = list(primary_tags)
+        if role_tag:
+            result.append(role_tag)
+        if block_tag:
+            result.append(block_tag)
+        return tuple(result) if result else ("normal",)
+    
     # Pattern for inline elements
-    # Order matters: check bold+italic first, then bold, then italic, then code
+    # Order matters: check bold+italic first, then bold, then italic, then code, then strikethrough
     patterns = [
         (r'\*\*\*(.+?)\*\*\*', 'bold_italic'),  # ***text***
         (r'___(.+?)___', 'bold_italic'),         # ___text___
@@ -423,20 +493,21 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
         (r'\*(.+?)\*', 'italic'),                # *text*
         (r'_(.+?)_', 'italic'),                  # _text_ (word boundary aware)
         (r'`([^`]+)`', 'code'),                  # `code`
+        (r'~~(.+?)~~', 'strikethrough'),         # ~~text~~
     ]
     
     # Build a combined pattern to find all matches in order
     combined = r'(\*\*\*.+?\*\*\*|___.+?___|' \
                r'\*\*.+?\*\*|__.+?__|' \
                r'\*[^\*]+\*|(?<![a-zA-Z])_[^_]+_(?![a-zA-Z])|' \
-               r'`[^`]+`)'
+               r'`[^`]+`|~~.+?~~)'
     
     pos = 0
     for match in re.finditer(combined, text):
         # Insert any text before this match
         if match.start() > pos:
             plain_text = text[pos:match.start()]
-            tags = ("normal",) if not role_tag else ("normal", role_tag)
+            tags = build_tags("normal")
             _insert_with_emojis(text_widget, plain_text, tags, enable_emojis)
         
         matched_text = match.group(0)
@@ -459,6 +530,9 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
         elif matched_text.startswith('`') and matched_text.endswith('`'):
             content = matched_text[1:-1]
             tag = "code"
+        elif matched_text.startswith('~~') and matched_text.endswith('~~'):
+            content = matched_text[2:-2]
+            tag = "strikethrough"
         elif matched_text.startswith('*') and matched_text.endswith('*'):
             content = matched_text[1:-1]
             tag = "italic"
@@ -467,7 +541,7 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
             tag = "italic"
         
         if content:
-            tags = (tag,) if not role_tag else (tag, role_tag)
+            tags = build_tags(tag)
             _insert_with_emojis(text_widget, content, tags, enable_emojis)
         
         pos = match.end()
@@ -475,7 +549,7 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
     # Insert any remaining text
     if pos < len(text):
         remaining = text[pos:]
-        tags = ("normal",) if not role_tag else ("normal", role_tag)
+        tags = build_tags("normal")
         _insert_with_emojis(text_widget, remaining, tags, enable_emojis)
 
 

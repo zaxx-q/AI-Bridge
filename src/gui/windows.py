@@ -346,7 +346,7 @@ class StandaloneChatWindow:
         self.streaming_text = ""
         self.streaming_thinking = ""
         self.is_streaming = False
-        self.thinking_collapsed = True
+        self.thinking_collapsed_states = {}  # {message_index: bool} - per-message collapse state
         self.last_usage = None
         
         # Available models cache
@@ -631,26 +631,68 @@ class StandaloneChatWindow:
             )
             self.input_text.grid(row=0, column=0, sticky="ew")
             
-            # Placeholder
-            placeholder = "Type your follow-up message here... (Ctrl+Enter to send)"
+            # Placeholder - updated hint text
+            placeholder = "Type your follow-up message here... (Enter to send, Shift+Enter for newline)"
+            self._placeholder = placeholder  # Store for reference
             self.input_text.insert("0.0", placeholder)
             self.input_text.configure(text_color=self.theme.overlay0)
+            self._has_placeholder = True
             
             def on_focus_in(event):
                 content = self.input_text.get("0.0", "end-1c")
                 if content == placeholder:
                     self.input_text.delete("0.0", "end")
                     self.input_text.configure(text_color=self.theme.fg)
+                    self._has_placeholder = False
             
             def on_focus_out(event):
                 content = self.input_text.get("0.0", "end-1c").strip()
                 if not content:
                     self.input_text.insert("0.0", placeholder)
                     self.input_text.configure(text_color=self.theme.overlay0)
+                    self._has_placeholder = True
+            
+            def on_key_return(event):
+                """Handle Enter key - send message unless Shift is pressed."""
+                # Check if Shift is held (state bit 0x1)
+                if event.state & 0x1:
+                    # Shift+Enter: insert newline (let default behavior happen)
+                    return None
+                else:
+                    # Enter without Shift: send message
+                    self._send()
+                    return "break"  # Prevent default newline insertion
+            
+            def on_ctrl_backspace(event):
+                """Handle Ctrl+Backspace - delete word before cursor."""
+                try:
+                    # Get cursor position
+                    cursor_pos = self.input_text.index(tk.INSERT)
+                    line, col = map(int, cursor_pos.split('.'))
+                    
+                    if col == 0:
+                        # At start of line, just delete previous char (newline)
+                        return None
+                    
+                    # Get text from start of line to cursor
+                    line_start = f"{line}.0"
+                    text_before = self.input_text.get(line_start, cursor_pos)
+                    
+                    # Find word boundary
+                    import re
+                    # Match trailing whitespace + non-whitespace (the word)
+                    match = re.search(r'(\s*\S+\s*)$', text_before)
+                    if match:
+                        delete_start = f"{line}.{col - len(match.group(0))}"
+                        self.input_text.delete(delete_start, cursor_pos)
+                    return "break"
+                except Exception:
+                    return None
             
             self.input_text.bind('<FocusIn>', on_focus_in)
             self.input_text.bind('<FocusOut>', on_focus_out)
-            self.input_text.bind('<Control-Return>', lambda e: self._send())
+            self.input_text.bind('<Return>', on_key_return)
+            self.input_text.bind('<Control-BackSpace>', on_ctrl_backspace)
         else:
             # Fallback
             input_frame = tk.Frame(self.root, bg=self.colors["bg"])
@@ -740,7 +782,7 @@ class StandaloneChatWindow:
             pass
     
     def _update_chat_display(self, scroll_to_bottom: bool = False, preserve_scroll: bool = False):
-        """Update the chat display."""
+        """Update the chat display with card-style message layout."""
         saved_scroll = None
         if preserve_scroll:
             saved_scroll = self.chat_text.yview()
@@ -754,35 +796,90 @@ class StandaloneChatWindow:
             self.md_btn.configure(text="Markdown" if self.markdown else "Raw Text")
             self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         
-        # Render messages
+        # Render messages with card-style layout
         for i, msg in enumerate(self.session.messages):
             role = msg["role"]
             content = msg["content"]
             thinking = msg.get("thinking", "")
             
+            # Add gap between messages (not before first)
             if i > 0:
-                self.chat_text.insert(tk.END, "\n")
+                self.chat_text.insert(tk.END, "\n", "card_gap")
             
+            # Determine styling based on role
             if role == "user":
-                self.chat_text.insert(tk.END, "You:\n", "user_label")
+                accent_tag = "user_accent_bar"
+                label_tag = "user_label"
+                message_tag = "user_message"
+                label_text = "You"
             else:
-                self.chat_text.insert(tk.END, "Assistant:\n", "assistant_label")
+                accent_tag = "assistant_accent_bar"
+                label_tag = "assistant_label"
+                message_tag = "assistant_message"
+                label_text = "Assistant"
             
+            # Insert accent bar + label (first line of card only)
+            self.chat_text.insert(tk.END, "▌ ", (accent_tag, message_tag))
+            self.chat_text.insert(tk.END, f"{label_text}\n", (label_tag, message_tag))
+            
+            # Thinking section (if assistant and has thinking)
             if role == "assistant" and thinking:
-                thinking_header = "▶ Thinking (click to expand)..." if self.thinking_collapsed else "▼ Thinking:"
-                self.chat_text.insert(tk.END, f"{thinking_header}\n", "thinking_header")
-                if not self.thinking_collapsed:
-                    self.chat_text.insert(tk.END, thinking + "\n\n", "thinking_content")
+                is_collapsed = self.thinking_collapsed_states.get(i, True)
+                
+                # Create per-message thinking header tag
+                thinking_tag = f"thinking_header_{i}"
+                self.chat_text.tag_configure(thinking_tag,
+                    font=("Segoe UI", 10, "bold"),
+                    foreground=self.theme.accent_yellow,
+                    spacing1=2, spacing3=2)
+                
+                # Bind click event for this specific message
+                self.chat_text.tag_bind(thinking_tag, "<Button-1>",
+                    lambda e, idx=i: self._toggle_thinking(idx))
+                self.chat_text.tag_bind(thinking_tag, "<Enter>",
+                    lambda e: self.chat_text.config(cursor="hand2"))
+                self.chat_text.tag_bind(thinking_tag, "<Leave>",
+                    lambda e: self.chat_text.config(cursor=""))
+                
+                # Insert thinking header (no accent bar on content lines)
+                thinking_header = "▶ Thinking..." if is_collapsed else "▼ Thinking:"
+                self.chat_text.insert(tk.END, f"  {thinking_header}\n", (thinking_tag, message_tag))
+                
+                # Show thinking content if expanded
+                if not is_collapsed:
+                    # Render thinking content with markdown (disable emojis to avoid black backgrounds)
+                    if self.markdown:
+                        for t_line in thinking.split('\n'):
+                            if t_line.strip():
+                                self.chat_text.insert(tk.END, "    ", (message_tag,))
+                                render_markdown(t_line, self.chat_text, self.colors,
+                                              wrap=self.wrapped, as_role="thinking",
+                                              block_tag=message_tag, enable_emojis=False)
+                            self.chat_text.insert(tk.END, "\n", (message_tag,))
+                    else:
+                        for t_line in thinking.split('\n'):
+                            self.chat_text.insert(tk.END, "    " + t_line + "\n", ("thinking_content", message_tag))
             
+            # Render content (no accent bars on content lines, disable emojis for card backgrounds)
             if self.markdown:
-                role_for_bg = "user" if role == "user" else "assistant"
-                render_markdown(content, self.chat_text, self.colors,
-                              wrap=self.wrapped, as_role=role_for_bg)
+                content_lines = content.split('\n')
+                for c_idx, c_line in enumerate(content_lines):
+                    self.chat_text.insert(tk.END, "  ", (message_tag,))
+                    if c_line.strip():
+                        render_markdown(c_line, self.chat_text, self.colors,
+                                      wrap=self.wrapped, as_role=role,
+                                      block_tag=message_tag, enable_emojis=False)
+                    if c_idx < len(content_lines) - 1:
+                        self.chat_text.insert(tk.END, "\n", (message_tag,))
             else:
                 self.chat_text.configure(wrap=tk.WORD if self.wrapped else tk.NONE)
-                self.chat_text.insert(tk.END, content, "normal")
+                for c_idx, c_line in enumerate(content.split('\n')):
+                    self.chat_text.insert(tk.END, "  " + c_line, ("normal", message_tag))
+                    if c_idx < len(content.split('\n')) - 1:
+                        self.chat_text.insert(tk.END, "\n", (message_tag,))
             
-            self.chat_text.insert(tk.END, "\n" + "─" * 50 + "\n", "separator")
+            # End of card - add trailing newline
+            self.chat_text.insert(tk.END, "\n", (message_tag,))
         
         self.chat_text.configure(state=tk.DISABLED)
         
@@ -811,10 +908,25 @@ class StandaloneChatWindow:
             self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         self._update_status(f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
     
-    def _on_thinking_click(self, event):
-        self.thinking_collapsed = not self.thinking_collapsed
+    def _toggle_thinking(self, message_index: int):
+        """Toggle thinking section visibility for a specific message."""
+        current = self.thinking_collapsed_states.get(message_index, True)
+        self.thinking_collapsed_states[message_index] = not current
         self._update_chat_display(preserve_scroll=True)
-        self._update_status(f"Thinking: {'collapsed' if self.thinking_collapsed else 'expanded'}")
+        state = "collapsed" if self.thinking_collapsed_states[message_index] else "expanded"
+        self._update_status(f"Thinking: {state}")
+    
+    def _on_thinking_click(self, event):
+        """Legacy handler - toggles all thinking sections."""
+        # Toggle all thinking sections
+        all_collapsed = all(self.thinking_collapsed_states.get(i, True)
+                          for i, msg in enumerate(self.session.messages)
+                          if msg.get("thinking"))
+        for i, msg in enumerate(self.session.messages):
+            if msg.get("thinking"):
+                self.thinking_collapsed_states[i] = not all_collapsed
+        self._update_chat_display(preserve_scroll=True)
+        self._update_status(f"Thinking: {'collapsed' if all_collapsed else 'expanded'}")
     
     def _update_status(self, text: str, color: str = None):
         """Update status label."""
@@ -885,7 +997,7 @@ class StandaloneChatWindow:
         else:
             user_input = self.input_text.get("1.0", tk.END).strip()
         
-        placeholder = "Type your follow-up message here... (Ctrl+Enter to send)"
+        placeholder = getattr(self, '_placeholder', "Type your follow-up message here...")
         
         if not user_input or user_input == placeholder:
             self._update_status("Please enter a message")
@@ -1030,32 +1142,55 @@ class StandaloneChatWindow:
         threading.Thread(target=process_message, daemon=True).start()
     
     def _update_streaming_display(self):
-        """Update display during streaming."""
+        """Update display during streaming with card-style layout."""
         if not self.is_streaming or self._destroyed:
             return
         
         self.chat_text.configure(state=tk.NORMAL)
         
+        # Find and remove the streaming message (last card gap onwards)
         try:
-            last_sep_pos = self.chat_text.search("─" * 50, "end", backwards=True)
-            if last_sep_pos:
-                self.chat_text.delete(last_sep_pos, tk.END)
+            # Find last Assistant label
+            gap_pos = self.chat_text.search("▌ Assistant", "end", backwards=True)
+            if gap_pos:
+                # Find the newline before this
+                line_num = int(gap_pos.split('.')[0])
+                if line_num > 1:
+                    self.chat_text.delete(f"{line_num - 1}.0", tk.END)
         except:
             pass
         
-        self.chat_text.insert(tk.END, "─" * 50 + "\n", "separator")
-        self.chat_text.insert(tk.END, "\nAssistant:\n", "assistant_label")
+        # Add gap before streaming message
+        self.chat_text.insert(tk.END, "\n", "card_gap")
+        
+        accent_tag = "assistant_accent_bar"
+        message_tag = "assistant_message"
+        
+        # Insert assistant label (accent bar only on label line)
+        self.chat_text.insert(tk.END, "▌ ", (accent_tag, message_tag))
+        self.chat_text.insert(tk.END, "Assistant\n", ("assistant_label", message_tag))
+        
+        # Streaming message index for thinking toggle
+        streaming_idx = len(self.session.messages)
+        is_collapsed = self.thinking_collapsed_states.get(streaming_idx, True)
         
         if self.streaming_thinking:
-            thinking_header = "▶ Thinking..." if self.thinking_collapsed else "▼ Thinking:"
-            self.chat_text.insert(tk.END, f"{thinking_header}\n", "thinking_header")
-            if not self.thinking_collapsed:
-                self.chat_text.insert(tk.END, self.streaming_thinking + "\n", "thinking_content")
+            thinking_header = "▶ Thinking..." if is_collapsed else "▼ Thinking:"
+            self.chat_text.insert(tk.END, f"  {thinking_header}\n", ("thinking_header", message_tag))
+            if not is_collapsed:
+                for t_line in self.streaming_thinking.split('\n'):
+                    self.chat_text.insert(tk.END, "    " + t_line + "\n", ("thinking_content", message_tag))
         
+        # Streaming content (no accent bars on content lines)
         if self.streaming_text:
-            self.chat_text.insert(tk.END, self.streaming_text, "normal")
+            for c_idx, c_line in enumerate(self.streaming_text.split('\n')):
+                self.chat_text.insert(tk.END, "  " + c_line, ("normal", message_tag))
+                if c_idx < len(self.streaming_text.split('\n')) - 1:
+                    self.chat_text.insert(tk.END, "\n", (message_tag,))
         else:
-            self.chat_text.insert(tk.END, "...", "normal")
+            self.chat_text.insert(tk.END, "  ...", ("normal", message_tag))
+        
+        self.chat_text.insert(tk.END, "\n", (message_tag,))
         
         self.chat_text.configure(state=tk.DISABLED)
         
@@ -1477,7 +1612,7 @@ class AttachedChatWindow:
         self.streaming_text = ""
         self.streaming_thinking = ""
         self.is_streaming = False
-        self.thinking_collapsed = True
+        self.thinking_collapsed_states = {}  # {message_index: bool} - per-message collapse state
         self.last_usage = None
         
         # Models
@@ -1674,25 +1809,68 @@ class AttachedChatWindow:
         )
         self.input_text.grid(row=0, column=0, sticky="ew")
         
-        placeholder = "Type your follow-up message here... (Ctrl+Enter to send)"
+        # Placeholder - updated hint text
+        placeholder = "Type your follow-up message here... (Enter to send, Shift+Enter for newline)"
+        self._placeholder = placeholder  # Store for reference
         self.input_text.insert("0.0", placeholder)
         self.input_text.configure(text_color=self.theme.overlay0)
+        self._has_placeholder = True
         
         def on_focus_in(event):
             content = self.input_text.get("0.0", "end-1c")
             if content == placeholder:
                 self.input_text.delete("0.0", "end")
                 self.input_text.configure(text_color=self.theme.fg)
+                self._has_placeholder = False
         
         def on_focus_out(event):
             content = self.input_text.get("0.0", "end-1c").strip()
             if not content:
                 self.input_text.insert("0.0", placeholder)
                 self.input_text.configure(text_color=self.theme.overlay0)
+                self._has_placeholder = True
+        
+        def on_key_return(event):
+            """Handle Enter key - send message unless Shift is pressed."""
+            # Check if Shift is held (state bit 0x1)
+            if event.state & 0x1:
+                # Shift+Enter: insert newline (let default behavior happen)
+                return None
+            else:
+                # Enter without Shift: send message
+                self._send()
+                return "break"  # Prevent default newline insertion
+        
+        def on_ctrl_backspace(event):
+            """Handle Ctrl+Backspace - delete word before cursor."""
+            try:
+                import re
+                # Get cursor position
+                cursor_pos = self.input_text.index(tk.INSERT)
+                line, col = map(int, cursor_pos.split('.'))
+                
+                if col == 0:
+                    # At start of line, just delete previous char (newline)
+                    return None
+                
+                # Get text from start of line to cursor
+                line_start = f"{line}.0"
+                text_before = self.input_text.get(line_start, cursor_pos)
+                
+                # Find word boundary
+                # Match trailing whitespace + non-whitespace (the word)
+                match = re.search(r'(\s*\S+\s*)$', text_before)
+                if match:
+                    delete_start = f"{line}.{col - len(match.group(0))}"
+                    self.input_text.delete(delete_start, cursor_pos)
+                return "break"
+            except Exception:
+                return None
         
         self.input_text.bind('<FocusIn>', on_focus_in)
         self.input_text.bind('<FocusOut>', on_focus_out)
-        self.input_text.bind('<Control-Return>', lambda e: self._send())
+        self.input_text.bind('<Return>', on_key_return)
+        self.input_text.bind('<Control-BackSpace>', on_ctrl_backspace)
     
     def _create_action_buttons(self):
         """Create action buttons."""
@@ -1754,7 +1932,7 @@ class AttachedChatWindow:
                 pass
     
     def _update_chat_display(self, scroll_to_bottom: bool = False, preserve_scroll: bool = False):
-        """Update chat display."""
+        """Update chat display with card-style message layout."""
         if self._destroyed or not self.chat_text:
             return
         
@@ -1773,34 +1951,90 @@ class AttachedChatWindow:
         if self.scroll_btn:
             self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         
+        # Render messages with card-style layout
         for i, msg in enumerate(self.session.messages):
             role = msg["role"]
             content = msg["content"]
             thinking = msg.get("thinking", "")
             
+            # Add gap between messages (not before first)
             if i > 0:
-                self.chat_text.insert(tk.END, "\n")
+                self.chat_text.insert(tk.END, "\n", "card_gap")
             
+            # Determine styling based on role
             if role == "user":
-                self.chat_text.insert(tk.END, "You:\n", "user_label")
+                accent_tag = "user_accent_bar"
+                label_tag = "user_label"
+                message_tag = "user_message"
+                label_text = "You"
             else:
-                self.chat_text.insert(tk.END, "Assistant:\n", "assistant_label")
+                accent_tag = "assistant_accent_bar"
+                label_tag = "assistant_label"
+                message_tag = "assistant_message"
+                label_text = "Assistant"
             
+            # Insert accent bar + label (first line of card only)
+            self.chat_text.insert(tk.END, "▌ ", (accent_tag, message_tag))
+            self.chat_text.insert(tk.END, f"{label_text}\n", (label_tag, message_tag))
+            
+            # Thinking section (if assistant and has thinking)
             if role == "assistant" and thinking:
-                thinking_header = "▶ Thinking (click to expand)..." if self.thinking_collapsed else "▼ Thinking:"
-                self.chat_text.insert(tk.END, f"{thinking_header}\n", "thinking_header")
-                if not self.thinking_collapsed:
-                    self.chat_text.insert(tk.END, thinking + "\n\n", "thinking_content")
+                is_collapsed = self.thinking_collapsed_states.get(i, True)
+                
+                # Create per-message thinking header tag
+                thinking_tag = f"thinking_header_{i}"
+                self.chat_text.tag_configure(thinking_tag,
+                    font=("Segoe UI", 10, "bold"),
+                    foreground=self.theme.accent_yellow,
+                    spacing1=2, spacing3=2)
+                
+                # Bind click event for this specific message
+                self.chat_text.tag_bind(thinking_tag, "<Button-1>",
+                    lambda e, idx=i: self._toggle_thinking(idx))
+                self.chat_text.tag_bind(thinking_tag, "<Enter>",
+                    lambda e: self.chat_text.config(cursor="hand2"))
+                self.chat_text.tag_bind(thinking_tag, "<Leave>",
+                    lambda e: self.chat_text.config(cursor=""))
+                
+                # Insert thinking header (no accent bar on content lines)
+                thinking_header = "▶ Thinking..." if is_collapsed else "▼ Thinking:"
+                self.chat_text.insert(tk.END, f"  {thinking_header}\n", (thinking_tag, message_tag))
+                
+                # Show thinking content if expanded
+                if not is_collapsed:
+                    # Render thinking content with markdown (disable emojis to avoid black backgrounds)
+                    if self.markdown:
+                        for t_line in thinking.split('\n'):
+                            if t_line.strip():
+                                self.chat_text.insert(tk.END, "    ", (message_tag,))
+                                render_markdown(t_line, self.chat_text, self.colors,
+                                              wrap=self.wrapped, as_role="thinking",
+                                              block_tag=message_tag, enable_emojis=False)
+                            self.chat_text.insert(tk.END, "\n", (message_tag,))
+                    else:
+                        for t_line in thinking.split('\n'):
+                            self.chat_text.insert(tk.END, "    " + t_line + "\n", ("thinking_content", message_tag))
             
+            # Render content (no accent bars on content lines, disable emojis for card backgrounds)
             if self.markdown:
-                role_for_bg = "user" if role == "user" else "assistant"
-                render_markdown(content, self.chat_text, self.colors,
-                              wrap=self.wrapped, as_role=role_for_bg)
+                content_lines = content.split('\n')
+                for c_idx, c_line in enumerate(content_lines):
+                    self.chat_text.insert(tk.END, "  ", (message_tag,))
+                    if c_line.strip():
+                        render_markdown(c_line, self.chat_text, self.colors,
+                                      wrap=self.wrapped, as_role=role,
+                                      block_tag=message_tag, enable_emojis=False)
+                    if c_idx < len(content_lines) - 1:
+                        self.chat_text.insert(tk.END, "\n", (message_tag,))
             else:
                 self.chat_text.configure(wrap=tk.WORD if self.wrapped else tk.NONE)
-                self.chat_text.insert(tk.END, content, "normal")
+                for c_idx, c_line in enumerate(content.split('\n')):
+                    self.chat_text.insert(tk.END, "  " + c_line, ("normal", message_tag))
+                    if c_idx < len(content.split('\n')) - 1:
+                        self.chat_text.insert(tk.END, "\n", (message_tag,))
             
-            self.chat_text.insert(tk.END, "\n" + "─" * 50 + "\n", "separator")
+            # End of card - add trailing newline
+            self.chat_text.insert(tk.END, "\n", (message_tag,))
         
         self.chat_text.configure(state=tk.DISABLED)
         
@@ -1830,10 +2064,25 @@ class AttachedChatWindow:
             self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
         self._update_status(f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
     
-    def _on_thinking_click(self, event):
-        self.thinking_collapsed = not self.thinking_collapsed
+    def _toggle_thinking(self, message_index: int):
+        """Toggle thinking section visibility for a specific message."""
+        current = self.thinking_collapsed_states.get(message_index, True)
+        self.thinking_collapsed_states[message_index] = not current
         self._update_chat_display(preserve_scroll=True)
-        self._update_status(f"Thinking: {'collapsed' if self.thinking_collapsed else 'expanded'}")
+        state = "collapsed" if self.thinking_collapsed_states[message_index] else "expanded"
+        self._update_status(f"Thinking: {state}")
+    
+    def _on_thinking_click(self, event):
+        """Legacy handler - toggles all thinking sections."""
+        # Toggle all thinking sections
+        all_collapsed = all(self.thinking_collapsed_states.get(i, True)
+                          for i, msg in enumerate(self.session.messages)
+                          if msg.get("thinking"))
+        for i, msg in enumerate(self.session.messages):
+            if msg.get("thinking"):
+                self.thinking_collapsed_states[i] = not all_collapsed
+        self._update_chat_display(preserve_scroll=True)
+        self._update_status(f"Thinking: {'collapsed' if all_collapsed else 'expanded'}")
     
     def _update_status(self, text: str, color: str = None):
         """Update status label (with null check)."""
@@ -1895,7 +2144,7 @@ class AttachedChatWindow:
             return
         
         user_input = self.input_text.get("0.0", "end-1c").strip()
-        placeholder = "Type your follow-up message here... (Ctrl+Enter to send)"
+        placeholder = getattr(self, '_placeholder', "Type your follow-up message here...")
         
         if not user_input or user_input == placeholder:
             self._update_status("Please enter a message")
@@ -2024,32 +2273,55 @@ class AttachedChatWindow:
         threading.Thread(target=process_message, daemon=True).start()
     
     def _update_streaming_display(self):
-        """Update streaming display."""
+        """Update streaming display with card-style layout."""
         if not self.is_streaming or self._destroyed:
             return
         
         self.chat_text.configure(state=tk.NORMAL)
         
+        # Find and remove the streaming message (last card gap onwards)
         try:
-            last_sep_pos = self.chat_text.search("─" * 50, "end", backwards=True)
-            if last_sep_pos:
-                self.chat_text.delete(last_sep_pos, tk.END)
+            # Find last Assistant label
+            gap_pos = self.chat_text.search("▌ Assistant", "end", backwards=True)
+            if gap_pos:
+                # Find the newline before this
+                line_num = int(gap_pos.split('.')[0])
+                if line_num > 1:
+                    self.chat_text.delete(f"{line_num - 1}.0", tk.END)
         except:
             pass
         
-        self.chat_text.insert(tk.END, "─" * 50 + "\n", "separator")
-        self.chat_text.insert(tk.END, "\nAssistant:\n", "assistant_label")
+        # Add gap before streaming message
+        self.chat_text.insert(tk.END, "\n", "card_gap")
+        
+        accent_tag = "assistant_accent_bar"
+        message_tag = "assistant_message"
+        
+        # Insert assistant label (accent bar only on label line)
+        self.chat_text.insert(tk.END, "▌ ", (accent_tag, message_tag))
+        self.chat_text.insert(tk.END, "Assistant\n", ("assistant_label", message_tag))
+        
+        # Streaming message index for thinking toggle
+        streaming_idx = len(self.session.messages)
+        is_collapsed = self.thinking_collapsed_states.get(streaming_idx, True)
         
         if self.streaming_thinking:
-            thinking_header = "▶ Thinking..." if self.thinking_collapsed else "▼ Thinking:"
-            self.chat_text.insert(tk.END, f"{thinking_header}\n", "thinking_header")
-            if not self.thinking_collapsed:
-                self.chat_text.insert(tk.END, self.streaming_thinking + "\n", "thinking_content")
+            thinking_header = "▶ Thinking..." if is_collapsed else "▼ Thinking:"
+            self.chat_text.insert(tk.END, f"  {thinking_header}\n", ("thinking_header", message_tag))
+            if not is_collapsed:
+                for t_line in self.streaming_thinking.split('\n'):
+                    self.chat_text.insert(tk.END, "    " + t_line + "\n", ("thinking_content", message_tag))
         
+        # Streaming content (no accent bars on content lines)
         if self.streaming_text:
-            self.chat_text.insert(tk.END, self.streaming_text, "normal")
+            for c_idx, c_line in enumerate(self.streaming_text.split('\n')):
+                self.chat_text.insert(tk.END, "  " + c_line, ("normal", message_tag))
+                if c_idx < len(self.streaming_text.split('\n')) - 1:
+                    self.chat_text.insert(tk.END, "\n", (message_tag,))
         else:
-            self.chat_text.insert(tk.END, "...", "normal")
+            self.chat_text.insert(tk.END, "  ...", ("normal", message_tag))
+        
+        self.chat_text.insert(tk.END, "\n", (message_tag,))
         
         self.chat_text.configure(state=tk.DISABLED)
         
