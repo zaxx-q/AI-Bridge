@@ -293,6 +293,10 @@ AIBridge.exe --no-wt            # Skip Windows Terminal detection
 
 [MIT License](LICENSE)
 
+### Attribution & Third-Party Licenses
+
+This project uses [Twemoji](https://github.com/jdecked/twemoji) graphics, licensed under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 ---
 
 <p align="center">
