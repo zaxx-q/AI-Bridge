@@ -426,9 +426,13 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
         # Bullet points
         if stripped.startswith('- ') or stripped.startswith('* '):
             content = stripped[2:]
-            # Insert bullet marker
+            # Calculate indentation from original line
+            indent_len = len(line) - len(line.lstrip())
+            indent_str = " " * indent_len
+            
+            # Insert bullet marker with indentation
             tags = build_tags("bullet_marker")
-            text_widget.insert(tk.END, "  • ", tags)
+            text_widget.insert(tk.END, f"{indent_str}  • ", tags)
             # Insert content with inline formatting
             _render_inline(content, text_widget, colors, role_tag, enable_emojis, block_tag)
             continue
@@ -437,8 +441,12 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
         match = re.match(r'^(\d+)\.\s+(.+)$', stripped)
         if match:
             num, content = match.groups()
+            # Calculate indentation from original line
+            indent_len = len(line) - len(line.lstrip())
+            indent_str = " " * indent_len
+            
             tags = build_tags("numbered")
-            text_widget.insert(tk.END, f"  {num}. ", tags)
+            text_widget.insert(tk.END, f"{indent_str}  {num}. ", tags)
             _render_inline(content, text_widget, colors, role_tag, enable_emojis, block_tag)
             continue
         
