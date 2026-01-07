@@ -76,11 +76,11 @@ def set_window_icon(window, delay_ms: int = 100):
     
     For CustomTkinter windows, the icon must be set AFTER the window
     is fully initialized, because CTk overrides the icon during setup.
-    We use after() to delay the icon setting.
+    We use multiple after() calls to ensuring the icon persists.
     
     Args:
         window: The Tk/CTk window
-        delay_ms: Delay in milliseconds before setting icon (default 100)
+        delay_ms: Initial delay (deprecated, kept for compatibility)
     """
     icon_path = get_icon_path()
     if icon_path and sys.platform == "win32":
@@ -91,9 +91,12 @@ def set_window_icon(window, delay_ms: int = 100):
             except Exception:
                 pass  # Icon setting may fail on some systems
         
-        # Use after() to set icon after CTk has finished its internal setup
+        # Use multiple after() calls to override CTk defaults and race conditions
         try:
-            window.after(delay_ms, _set_icon)
+            window.after(50, _set_icon)
+            window.after(150, _set_icon)
+            window.after(300, _set_icon)
+            window.after(500, _set_icon)  # Extra check for slower systems/frozen starts
         except Exception:
             pass
 
