@@ -176,8 +176,8 @@ class TextEditToolApp:
         from .core import GUICoordinator
         
         # Get selected text with quick check first, then retry if empty
-        # Use short delay (0.05s) because we now use smart polling
-        self.current_selected_text = self.text_handler.get_selected_text(sleep_duration=0.05)
+        # Use default optimized polling settings
+        self.current_selected_text = self.text_handler.get_selected_text()
         
         if self.current_selected_text:
             logging.debug(f'Selected text: "{self.current_selected_text[:50]}..."')

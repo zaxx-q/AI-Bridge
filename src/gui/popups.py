@@ -52,6 +52,7 @@ from .themes import (
     CatppuccinMocha, CatppuccinLatte
 )
 
+from .utils import hide_from_taskbar
 from .custom_widgets import create_emoji_button
 
 # Import emoji renderer for CTkImage support (Windows color emoji fix)
@@ -1132,6 +1133,9 @@ class InputPopup(BasePopup):
         # Set up transparent corners on Windows
         setup_transparent_popup(self.root, self.colors)
         
+        # Hide from taskbar
+        hide_from_taskbar(self.root)
+        
         if HAVE_CTK:
             main_frame = ctk.CTkFrame(
                 self.root,
@@ -1320,6 +1324,9 @@ class PromptSelectionPopup(BasePopup):
         
         # Set up transparent corners on Windows
         setup_transparent_popup(self.root, self.colors)
+        
+        # Hide from taskbar
+        hide_from_taskbar(self.root)
         
         if HAVE_CTK:
             main_frame = ctk.CTkFrame(
@@ -1548,6 +1555,9 @@ class AttachedInputPopup:
         # Set up transparent corners on Windows
         setup_transparent_popup(self.root, self.colors)
         
+        # Hide from taskbar
+        hide_from_taskbar(self.root)
+        
         if HAVE_CTK:
             main_frame = ctk.CTkFrame(
                 self.root,
@@ -1739,6 +1749,9 @@ class AttachedPromptPopup:
         
         # Set up transparent corners on Windows
         setup_transparent_popup(self.root, self.colors)
+        
+        # Hide from taskbar
+        hide_from_taskbar(self.root)
         
         if HAVE_CTK:
             main_frame = ctk.CTkFrame(
@@ -2186,6 +2199,9 @@ class TypingIndicator:
         # Set up transparent corners on Windows
         setup_transparent_popup(self.root, self.colors)
         
+        # Hide from taskbar
+        hide_from_taskbar(self.root)
+        
         if HAVE_CTK:
             main_frame = ctk.CTkFrame(
                 self.root,
@@ -2306,6 +2322,7 @@ class TypingIndicator:
         
         if self.root:
             try:
+                self.root.withdraw()  # Immediate visual feedback
                 self.root.destroy()
             except tk.TclError:
                 pass

@@ -18,6 +18,20 @@ import tkinter as tk
 from tkinter import font as tkfont
 from typing import Optional, Dict, Union, Tuple
 
+# Windows-specific imports and constants
+_user32 = None
+_GWL_EXSTYLE = -20
+_WS_EX_APPWINDOW = 0x00040000
+_WS_EX_TOOLWINDOW = 0x00000080
+
+if sys.platform == "win32":
+    try:
+        import ctypes
+        from ctypes import wintypes
+        _user32 = ctypes.windll.user32
+    except ImportError:
+        pass
+
 # Import CustomTkinter with fallback
 try:
     import customtkinter as ctk
@@ -652,6 +666,38 @@ def render_plain_text(text: str, text_widget: tk.Text, wrap: bool = True):
     plain = strip_markdown(text)
     text_widget.configure(wrap=tk.WORD if wrap else tk.NONE)
     text_widget.insert(tk.END, plain)
+
+
+def hide_from_taskbar(window):
+    """
+    Remove the window from the taskbar on Windows.
+    Uses GWL_EXSTYLE to set WS_EX_TOOLWINDOW and remove WS_EX_APPWINDOW.
+    
+    Args:
+        window: The Tkinter or CTk window instance
+    """
+    if sys.platform == "win32" and _user32:
+        try:
+            # Get the window handle (HWND)
+            # For Tkinter/CTkToplevel, we need the wrapper's parent sometimes
+            # But winfo_id() usually returns the HWND of the inner window
+            # CTk creates a frame inside a toplevel, so we might need the parent
+            try:
+                hwnd = window.winfo_id()
+                # Check if we need to get parent (for some CTk setups)
+                parent_hwnd = _user32.GetParent(hwnd)
+                if parent_hwnd != 0:
+                    hwnd = parent_hwnd
+            except Exception:
+                hwnd = window.winfo_id()
+            
+            # Modify the style
+            style = _user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+            style = style & ~_WS_EX_APPWINDOW
+            style = style | _WS_EX_TOOLWINDOW
+            _user32.SetWindowLongW(hwnd, _GWL_EXSTYLE, style)
+        except Exception as e:
+            print(f"Error hiding from taskbar: {e}")
 
 
 def get_tk_text_for_ctk_frame(parent_frame, colors: Union[Dict[str, str], ThemeColors], **kwargs) -> tk.Text:

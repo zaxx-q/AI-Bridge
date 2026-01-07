@@ -20,13 +20,14 @@ class TextHandler:
         self.keyboard = pykeyboard.Controller()
         logging.debug('TextHandler initialized')
     
-    def get_selected_text(self, sleep_duration: float = 0.05, max_wait: float = 0.5) -> str:
+    def get_selected_text(self, sleep_duration: float = 0.01, max_wait: float = 0.4) -> str:
         """
         Get the currently selected text from any application using polling.
+        Uses a sentinel value to robustly detect clipboard updates vs existing content.
         
         Args:
-            sleep_duration: Short delay before Ctrl+C for stability (default: 0.05s)
-            max_wait: Maximum time to wait for clipboard content (default: 0.5s)
+            sleep_duration: Short delay before Ctrl+C for stability (default: 0.01s)
+            max_wait: Maximum time to wait for clipboard content (default: 0.4s)
             
         Returns:
             The selected text, or empty string if none
@@ -37,15 +38,23 @@ class TextHandler:
         except Exception:
             clipboard_backup = ""
         
-        # Clear the clipboard explicitly so we can detect new content
-        self.clear_clipboard()
+        # Use a unique sentinel to detect changes (better than clearing to empty string)
+        # identifying random tokens helps avoid false matches
+        sentinel = f"__AI_BRIDGE_SENTINEL_{time.time()}__"
+        
+        try:
+            pyperclip.copy(sentinel)
+        except Exception as e:
+            logging.error(f"Failed to set clipboard sentinel: {e}")
+            # Try clearing as fallback
+            self.clear_clipboard()
+            sentinel = ""
         
         # Short stability delay before pressing keys
-        # Reduced from original code since we're using polling
         time.sleep(sleep_duration)
         
         try:
-            logging.debug('Simulating Ctrl+C')
+            # logging.debug('Simulating Ctrl+C')
             self.keyboard.press(pykeyboard.Key.ctrl)
             self.keyboard.press('c')
             self.keyboard.release('c')
@@ -67,14 +76,15 @@ class TextHandler:
         while (time.time() - start_time) < max_wait:
             try:
                 content = pyperclip.paste()
-                if content:
+                # Check if content changed from sentinel
+                if content != sentinel:
                     selected_text = content
                     break
             except Exception:
                 pass
             time.sleep(0.01)  # 10ms poll interval
             
-        logging.debug(f'Clipboard poll took {time.time() - start_time:.3f}s. Found text: {bool(selected_text)}')
+        # logging.debug(f'Clipboard poll took {time.time() - start_time:.3f}s. Found text: {len(selected_text) > 0}')
         
         # Restore the clipboard
         try:
