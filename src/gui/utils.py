@@ -13,6 +13,7 @@ Emoji Support:
 
 import re
 import sys
+import webbrowser
 import tkinter as tk
 from tkinter import font as tkfont
 from typing import Optional, Dict, Union, Tuple
@@ -101,6 +102,22 @@ def copy_to_clipboard(text: str, root = None) -> bool:
         print(f"[Clipboard Error] {e}")
         return False
 
+
+def _handle_link_click(event):
+    """Handle click on a link tag."""
+    widget = event.widget
+    try:
+        # Get index of click
+        index = widget.index(f"@{event.x},{event.y}")
+        # Get tags at index
+        tags = widget.tag_names(index)
+        for tag in tags:
+            if tag.startswith("url_"):
+                url = tag[4:]
+                webbrowser.open(url)
+                return "break"
+    except Exception as e:
+        print(f"Error opening link: {e}")
 
 def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeColors]):
     """
@@ -192,6 +209,14 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
         background=colors["code_bg"],
         lmargin1=12, lmargin2=12, rmargin=8,
         spacing1=4, spacing3=4)
+
+    # Links
+    text_widget.tag_configure("link",
+        foreground=colors["accent"],
+        underline=True)
+    text_widget.tag_bind("link", "<Enter>", lambda e: text_widget.config(cursor="hand2"))
+    text_widget.tag_bind("link", "<Leave>", lambda e: text_widget.config(cursor=""))
+    text_widget.tag_bind("link", "<Button-1>", _handle_link_click)
     
     # Lists
     text_widget.tag_configure("bullet",
@@ -224,12 +249,10 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
     text_widget.tag_configure("user_label",
         font=(base_font, 11, "bold"),
         foreground=colors["user_accent"],
-        background=colors["user_bg"],
         spacing1=0, spacing3=2)
     
-    # User message content background
+    # User message content (transparent background)
     text_widget.tag_configure("user_message",
-        background=colors["user_bg"],
         lmargin1=0, lmargin2=0, rmargin=8,
         spacing1=0, spacing3=0)
     
@@ -242,12 +265,10 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
     text_widget.tag_configure("assistant_label",
         font=(base_font, 11, "bold"),
         foreground=colors["assistant_accent"],
-        background=colors["assistant_bg"],
         spacing1=0, spacing3=2)
     
-    # Assistant message content background
+    # Assistant message content (transparent background)
     text_widget.tag_configure("assistant_message",
-        background=colors["assistant_bg"],
         lmargin1=0, lmargin2=0, rmargin=8,
         spacing1=0, spacing3=0)
     
@@ -297,7 +318,8 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
 
 def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
                    wrap: bool = True, as_role: Optional[str] = None,
-                   enable_emojis: bool = True, block_tag: Optional[str] = None):
+                   enable_emojis: bool = True, block_tag: Optional[str] = None,
+                   line_prefix: str = ""):
     """
     Render markdown text to a Tkinter Text widget with formatting.
     
@@ -309,6 +331,7 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
         as_role: Optional role ('user', 'assistant', or 'thinking') for message styling
         enable_emojis: Whether to render emojis as images (Windows only)
         block_tag: Optional additional tag to apply to all content (for card backgrounds)
+        line_prefix: Optional string to prepend to each line (preserves indentation)
     """
     # Setup tags if not already done
     setup_text_tags(text_widget, colors)
@@ -346,14 +369,16 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
             if in_code_block:
                 # End code block - render accumulated lines
                 if code_block_lines:
-                    code_text = '\n'.join(code_block_lines)
+                    # Apply indentation to code block lines
+                    code_lines_prefixed = [line_prefix + l for l in code_block_lines]
+                    code_text = '\n'.join(code_lines_prefixed)
                     tags = build_tags("codeblock")
                     # Don't render emojis in code blocks
                     text_widget.insert(tk.END, code_text + '\n', tags)
                 code_block_lines = []
                 in_code_block = False
             else:
-                # Start code block
+                # Start code block (ignore language identifier)
                 in_code_block = True
             continue
         
@@ -368,9 +393,12 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
         
         # Empty line - minimal spacing
         if not stripped:
-            empty_tags = build_tags("normal")
-            text_widget.insert(tk.END, '\n', empty_tags)
             continue
+
+        # Insert prefix for this line
+        if line_prefix:
+            prefix_tags = build_tags("normal")
+            text_widget.insert(tk.END, line_prefix, prefix_tags)
         
         # Headers
         if stripped.startswith('#'):
@@ -425,7 +453,8 @@ def render_markdown(text: str, text_widget: tk.Text, colors: Dict[str, str],
     
     # Flush any remaining code block
     if in_code_block and code_block_lines:
-        code_text = '\n'.join(code_block_lines)
+        code_lines_prefixed = [line_prefix + l for l in code_block_lines]
+        code_text = '\n'.join(code_lines_prefixed)
         tags = build_tags("codeblock")
         # Don't render emojis in code blocks
         text_widget.insert(tk.END, code_text + '\n', tags)
@@ -450,12 +479,21 @@ def _insert_with_emojis(
         tags: Tags to apply to the text
         enable_emojis: Whether to render emojis as images (default True)
     """
+    # Special handling for links (don't render emojis inside link URLs)
+    link_url = None
+    if tags:
+        for tag in tags:
+            if tag.startswith("url_"):
+                link_url = tag[4:]
+                break
+    
     # Only use emoji rendering on Windows and if available
     use_emoji_renderer = (
         enable_emojis and
         HAVE_EMOJI_RENDERER and
         sys.platform == 'win32' and
-        get_emoji_renderer is not None
+        get_emoji_renderer is not None and
+        not link_url # Check if this is a link URL segment
     )
     
     if use_emoji_renderer:
@@ -467,6 +505,26 @@ def _insert_with_emojis(
             text_widget.insert(tk.END, text, tags)
     else:
         text_widget.insert(tk.END, text, tags)
+        
+    # Bind click event if it's a link
+    if link_url:
+        # We need to bind to the specific tag that contains the URL info
+        # But tk.Text bindings are per-tag.
+        # We can't bind to "url_..." because it's dynamic.
+        # Instead, we rely on the 'link' tag we added, and this helper doesn't do the binding.
+        # The binding needs to be generic on the 'link' tag in setup_text_tags,
+        # but that can't access the URL unless we inspect the tags at the click position.
+        
+        # Binding is already done in setup_text_tags for 'link' tag class?
+        # No, we need a way to open the specific URL.
+        
+        def open_specific_url(event=None, u=link_url):
+            webbrowser.open(u)
+            
+        # Create a unique tag for this specific link instance to bind the click
+        # This is a bit heavy but reliable.
+        # Alternatively, use the global 'link' tag binding and find the url_ tag at current index.
+        pass
 
 
 def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
@@ -484,7 +542,7 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
         return tuple(result) if result else ("normal",)
     
     # Pattern for inline elements
-    # Order matters: check bold+italic first, then bold, then italic, then code, then strikethrough
+    # Order matters: check bold+italic first, then bold, then italic, then code, then strikethrough, then links
     patterns = [
         (r'\*\*\*(.+?)\*\*\*', 'bold_italic'),  # ***text***
         (r'___(.+?)___', 'bold_italic'),         # ___text___
@@ -494,13 +552,15 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
         (r'_(.+?)_', 'italic'),                  # _text_ (word boundary aware)
         (r'`([^`]+)`', 'code'),                  # `code`
         (r'~~(.+?)~~', 'strikethrough'),         # ~~text~~
+        (r'\[([^\]]+)\]\(([^)]+)\)', 'link'),    # [text](url)
     ]
     
     # Build a combined pattern to find all matches in order
     combined = r'(\*\*\*.+?\*\*\*|___.+?___|' \
                r'\*\*.+?\*\*|__.+?__|' \
                r'\*[^\*]+\*|(?<![a-zA-Z])_[^_]+_(?![a-zA-Z])|' \
-               r'`[^`]+`|~~.+?~~)'
+               r'`[^`]+`|~~.+?~~|' \
+               r'\[[^\]]+\]\([^)]+\))'
     
     pos = 0
     for match in re.finditer(combined, text):
@@ -533,6 +593,26 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
         elif matched_text.startswith('~~') and matched_text.endswith('~~'):
             content = matched_text[2:-2]
             tag = "strikethrough"
+        elif matched_text.startswith('[') and matched_text.endswith(')'):
+            # Parse link [text](url)
+            match_link = re.match(r'\[([^\]]+)\]\(([^)]+)\)', matched_text)
+            if match_link:
+                content = match_link.group(1)
+                url = match_link.group(2)
+                tag = "link"
+                # We need to bind a unique tag for this URL
+                # Since we can't easily modify the 'tags' tuple later in _insert_with_emojis to add a unique callback,
+                # we'll handle insertion directly here for links?
+                # No, _insert_with_emojis expects content.
+                
+                # We will add a dynamic tag "url_{url}"
+                # But tkinter tags with spaces or odd chars might be an issue? URL encoded?
+                # Let's just use the url if safe, or a safe hash?
+                # Tkinter tags are strings.
+                
+                # We'll allow spaces in tags? yes.
+                url_tag = f"url_{url}"
+                extra_tag = url_tag
         elif matched_text.startswith('*') and matched_text.endswith('*'):
             content = matched_text[1:-1]
             tag = "italic"
@@ -541,7 +621,12 @@ def _render_inline(text: str, text_widget: tk.Text, colors: Dict[str, str],
             tag = "italic"
         
         if content:
-            tags = build_tags(tag)
+            if tag == "link" and 'extra_tag' in locals():
+                tags = build_tags(tag, extra_tag)
+                # Cleanup local variable for next iteration
+                del extra_tag
+            else:
+                tags = build_tags(tag)
             _insert_with_emojis(text_widget, content, tags, enable_emojis)
         
         pos = match.end()

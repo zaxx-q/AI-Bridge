@@ -847,30 +847,24 @@ class StandaloneChatWindow:
                 
                 # Show thinking content if expanded
                 if not is_collapsed:
-                    # Render thinking content with markdown (disable emojis to avoid black backgrounds)
+                    # Render thinking content with markdown
                     if self.markdown:
-                        for t_line in thinking.split('\n'):
-                            if t_line.strip():
-                                self.chat_text.insert(tk.END, "    ", (message_tag,))
-                                render_markdown(t_line, self.chat_text, self.colors,
-                                              wrap=self.wrapped, as_role="thinking",
-                                              block_tag=message_tag, enable_emojis=False)
-                            self.chat_text.insert(tk.END, "\n", (message_tag,))
+                        # Use line_prefix to handle indentation while preserving markdown blocks
+                        render_markdown(thinking, self.chat_text, self.colors,
+                                      wrap=self.wrapped, as_role="thinking",
+                                      block_tag=message_tag, enable_emojis=True,
+                                      line_prefix="    ")
                     else:
                         for t_line in thinking.split('\n'):
                             self.chat_text.insert(tk.END, "    " + t_line + "\n", ("thinking_content", message_tag))
             
-            # Render content (no accent bars on content lines, disable emojis for card backgrounds)
+            # Render content (no accent bars on content lines)
             if self.markdown:
-                content_lines = content.split('\n')
-                for c_idx, c_line in enumerate(content_lines):
-                    self.chat_text.insert(tk.END, "  ", (message_tag,))
-                    if c_line.strip():
-                        render_markdown(c_line, self.chat_text, self.colors,
-                                      wrap=self.wrapped, as_role=role,
-                                      block_tag=message_tag, enable_emojis=False)
-                    if c_idx < len(content_lines) - 1:
-                        self.chat_text.insert(tk.END, "\n", (message_tag,))
+                # Use line_prefix to handle indentation while preserving markdown blocks
+                render_markdown(content, self.chat_text, self.colors,
+                              wrap=self.wrapped, as_role=role,
+                              block_tag=message_tag, enable_emojis=True,
+                              line_prefix="  ")
             else:
                 self.chat_text.configure(wrap=tk.WORD if self.wrapped else tk.NONE)
                 for c_idx, c_line in enumerate(content.split('\n')):
@@ -2002,30 +1996,22 @@ class AttachedChatWindow:
                 
                 # Show thinking content if expanded
                 if not is_collapsed:
-                    # Render thinking content with markdown (disable emojis to avoid black backgrounds)
+                    # Render thinking content with markdown
                     if self.markdown:
-                        for t_line in thinking.split('\n'):
-                            if t_line.strip():
-                                self.chat_text.insert(tk.END, "    ", (message_tag,))
-                                render_markdown(t_line, self.chat_text, self.colors,
-                                              wrap=self.wrapped, as_role="thinking",
-                                              block_tag=message_tag, enable_emojis=False)
-                            self.chat_text.insert(tk.END, "\n", (message_tag,))
+                        render_markdown(thinking, self.chat_text, self.colors,
+                                      wrap=self.wrapped, as_role="thinking",
+                                      block_tag=message_tag, enable_emojis=True,
+                                      line_prefix="    ")
                     else:
                         for t_line in thinking.split('\n'):
                             self.chat_text.insert(tk.END, "    " + t_line + "\n", ("thinking_content", message_tag))
             
-            # Render content (no accent bars on content lines, disable emojis for card backgrounds)
+            # Render content (no accent bars on content lines)
             if self.markdown:
-                content_lines = content.split('\n')
-                for c_idx, c_line in enumerate(content_lines):
-                    self.chat_text.insert(tk.END, "  ", (message_tag,))
-                    if c_line.strip():
-                        render_markdown(c_line, self.chat_text, self.colors,
-                                      wrap=self.wrapped, as_role=role,
-                                      block_tag=message_tag, enable_emojis=False)
-                    if c_idx < len(content_lines) - 1:
-                        self.chat_text.insert(tk.END, "\n", (message_tag,))
+                render_markdown(content, self.chat_text, self.colors,
+                              wrap=self.wrapped, as_role=role,
+                              block_tag=message_tag, enable_emojis=True,
+                              line_prefix="  ")
             else:
                 self.chat_text.configure(wrap=tk.WORD if self.wrapped else tk.NONE)
                 for c_idx, c_line in enumerate(content.split('\n')):
