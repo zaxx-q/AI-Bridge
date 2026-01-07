@@ -38,25 +38,65 @@ def get_base_url_for_status(config, provider):
 def print_commands_box():
     """Print the terminal commands box"""
     if HAVE_RICH:
-        commands_table = Table(box=None, show_header=False, padding=(0, 2))
-        commands_table.add_column("Key", style="bold cyan", justify="right")
-        commands_table.add_column("Action", style="white")
-        commands_table.add_column("Key", style="bold cyan", justify="right")
-        commands_table.add_column("Action", style="white")
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.layout import Layout
+        from rich.align import Align
         
-        commands_table.add_row("[L]", "📋 Sessions", "[P]", "🔄 Provider")
-        commands_table.add_row("[O]", "🖥️ Browser", "[M]", "🤖 Models")
-        commands_table.add_row("[E]", "📡 Endpoints", "[S]", "📊 Status")
-        commands_table.add_row("[G]", "⚙️ Settings", "[W]", "✏️ Prompts")
-        commands_table.add_row("[T]", "💭 Thinking", "[R]", "🌊 Streaming")
-        commands_table.add_row("[H]", "❓ Help", "", "")
+        # Create a grid for the content - do NOT expand, keep it compact
+        grid = Table.grid(expand=False, padding=(0, 4))
         
-        console.print(Panel(
-            Align.center(commands_table),
-            title="[bold]COMMANDS[/bold]",
-            subtitle="[dim]Ctrl+C to stop[/dim]",
+        # Helper to create sub-tables for columns with explicit emoji separation
+        def create_column_table(items):
+            t = Table.grid(padding=(0, 1))
+            # Col 1: Key (e.g. [L]) - Fixed width
+            t.add_column(style="bold cyan", width=4, justify="right")
+            # Col 2: Icon (Emoji) - Fixed width sufficient for 2-cell emojis
+            t.add_column(width=3, justify="center")
+            # Col 3: Description - Left aligned
+            t.add_column(style="white")
+            
+            for key, icon, desc in items:
+                if key:
+                    t.add_row(f"[{key}]", icon, desc)
+                else:
+                    t.add_row("", "", "")
+            return t
+
+        # Column 1: Core/Navigation
+        col1 = create_column_table([
+            ("L", "📋", "Sessions"),
+            ("O", "🌐", "Browser"),
+            ("E", "📡", "Endpoints"),
+            ("H", "❓", "Help"),
+        ])
+        
+        # Column 2: Configuration
+        col2 = create_column_table([
+            ("P", "🔄", "Provider"),
+            ("M", "🤖", "Models"),
+            ("G", "🔨", "Settings"),
+            ("W", "📝", "Prompts"),
+        ])
+        
+        # Column 3: Toggles/Status
+        col3 = create_column_table([
+            ("S", "📊", "Status"),
+            ("T", "💭", "Thinking"),
+            ("R", "🌊", "Streaming"),
+            ("", "", ""), # Spacer
+        ])
+        
+        grid.add_row(col1, col2, col3)
+        
+        # Use Panel.fit to wrap tightly around the grid, and Align.center to place it in the middle
+        console.print(Align.center(Panel.fit(
+            grid,
+            title="[bold blue] COMMANDS [/bold blue]",
+            subtitle="[dim] Ctrl+C to stop [/dim]",
             border_style="blue",
-        ))
+            padding=(0, 2),
+        )))
         console.print()
     else:
         print("─" * 64)
@@ -123,10 +163,16 @@ def terminal_session_manager(endpoints=None):
             
             elif key == 'o':
                 if HAVE_GUI:
-                    print("\n🖥️  Opening session browser...\n")
+                    if HAVE_RICH:
+                        console.print("\n[bold]🌐  Opening session browser...[/bold]\n")
+                    else:
+                        print("\n🖥️  Opening session browser...\n")
                     show_session_browser()
                 else:
-                    print("\n✗ GUI not available\n")
+                    if HAVE_RICH:
+                        console.print("\n[red]✗ GUI not available[/red]\n")
+                    else:
+                        print("\n✗ GUI not available\n")
             
             elif key == 'e':
                 # List endpoints
@@ -472,20 +518,32 @@ def terminal_session_manager(endpoints=None):
             elif key == 'g':
                 # Open Settings window
                 if HAVE_GUI:
-                    print("\n⚙️  Opening settings...\n")
+                    if HAVE_RICH:
+                        console.print("\n[bold]🔨  Opening settings...[/bold]\n")
+                    else:
+                        print("\n⚙️  Opening settings...\n")
                     from .gui.core import show_settings_window
                     show_settings_window()
                 else:
-                    print("\n✗ GUI not available\n")
+                    if HAVE_RICH:
+                        console.print("\n[red]✗ GUI not available[/red]\n")
+                    else:
+                        print("\n✗ GUI not available\n")
             
             elif key == 'w':
                 # Open Prompt Editor window
                 if HAVE_GUI:
-                    print("\n✏️  Opening prompt editor...\n")
+                    if HAVE_RICH:
+                        console.print("\n[bold]📝  Opening prompt editor...[/bold]\n")
+                    else:
+                        print("\n✏️  Opening prompt editor...\n")
                     from .gui.core import show_prompt_editor
                     show_prompt_editor()
                 else:
-                    print("\n✗ GUI not available\n")
+                    if HAVE_RICH:
+                        console.print("\n[red]✗ GUI not available[/red]\n")
+                    else:
+                        print("\n✗ GUI not available\n")
             
             elif key == 'h':
                 print(f"\n{'─'*64}")
