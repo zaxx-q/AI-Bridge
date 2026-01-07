@@ -11,6 +11,7 @@ from typing import Callable, Optional, Any, List, Dict
 from enum import Enum
 import time
 
+from src.console import console, HAVE_RICH
 
 class CallbackType(Enum):
     """Types of callback events during streaming"""
@@ -275,12 +276,25 @@ class BaseProvider(ABC):
             message: Log message
             **kwargs: Additional context
         """
-        prefix = f"[{self.name}]"
-        if kwargs:
-            details = ", ".join(f"{k}={v}" for k, v in kwargs.items())
-            print(f"    {prefix} {message} ({details})")
+        prefix = f"[bold dim][{self.name}][/bold dim]"
+        if HAVE_RICH:
+            details = ""
+            if kwargs:
+                details = " (" + ", ".join(f"[cyan]{k}[/cyan]=[yellow]{v}[/yellow]" for k, v in kwargs.items()) + ")"
+            
+            style = "white"
+            if level == "error": style = "red"
+            elif level == "warn": style = "yellow"
+            elif level == "debug": style = "dim"
+            
+            console.print(f"    {prefix} [{style}]{message}[/{style}]{details}")
         else:
-            print(f"    {prefix} {message}")
+            prefix = f"[{self.name}]"
+            if kwargs:
+                details = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+                print(f"    {prefix} {message} ({details})")
+            else:
+                print(f"    {prefix} {message}")
     
     def log_request(self, model: str, key_num: int, thinking: bool, streaming: bool, retry: int = 0):
         """Log request start"""

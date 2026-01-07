@@ -21,18 +21,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-# Rich console for beautiful output
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
-    from rich import print as rprint
-    HAVE_RICH = True
-    console = Console()
-except ImportError:
-    HAVE_RICH = False
-    console = None
-
+from src.console import console, Panel, Table, print_panel, print_success, print_error, print_warning, HAVE_RICH
 from src.config import load_config, generate_example_config, CONFIG_FILE, OPENROUTER_URL
 from src.key_manager import KeyManager
 from src.session_manager import load_sessions, list_sessions
@@ -81,10 +70,10 @@ def initialize():
     # ─── Banner ───────────────────────────────────────────────────────────
     if HAVE_RICH:
         console.print()
-        console.print(Panel.fit(
+        print_panel(
             "[bold cyan]🌉 AI Bridge[/bold cyan]\n[dim]Multi-modal AI Assistant Server[/dim]",
             border_style="cyan"
-        ))
+        )
         console.print()
     else:
         print()
@@ -185,15 +174,24 @@ def initialize_text_edit_tool(config, ai_params):
     global TEXT_EDIT_TOOL_APP
     
     if not HAVE_TEXT_EDIT_TOOL:
-        print("  ✗ TextEditTool: Not available (missing dependencies)")
+        if HAVE_RICH:
+            console.print("  [red]✗[/red] TextEditTool: Not available (missing dependencies)")
+        else:
+            print("  ✗ TextEditTool: Not available (missing dependencies)")
         return None
     
     if not config.get("text_edit_tool_enabled", True):
-        print("  ✗ TextEditTool: Disabled in config")
+        if HAVE_RICH:
+            console.print("  [red]✗[/red] TextEditTool: Disabled in config")
+        else:
+            print("  ✗ TextEditTool: Disabled in config")
         return None
     
     try:
-        print("\nInitializing TextEditTool...")
+        if HAVE_RICH:
+            console.print("\nInitializing TextEditTool...")
+        else:
+            print("\nInitializing TextEditTool...")
         TEXT_EDIT_TOOL_APP = TextEditToolApp(
             config=config,
             ai_params=ai_params,
@@ -208,7 +206,10 @@ def initialize_text_edit_tool(config, ai_params):
         
         return TEXT_EDIT_TOOL_APP
     except Exception as e:
-        print(f"  ✗ TextEditTool: Failed to initialize: {e}")
+        if HAVE_RICH:
+            console.print(f"  [red]✗ TextEditTool: Failed to initialize: {e}[/red]")
+        else:
+            print(f"  ✗ TextEditTool: Failed to initialize: {e}")
         return None
 
 
@@ -217,14 +218,20 @@ def cleanup():
     global TEXT_EDIT_TOOL_APP
     
     if TEXT_EDIT_TOOL_APP:
-        print("\nStopping TextEditTool...")
+        if HAVE_RICH:
+            console.print("\nStopping TextEditTool...")
+        else:
+            print("\nStopping TextEditTool...")
         TEXT_EDIT_TOOL_APP.stop()
         TEXT_EDIT_TOOL_APP = None
 
 
 def signal_handler(signum, frame):
     """Handle interrupt signals"""
-    print("\n\nShutdown signal received...")
+    if HAVE_RICH:
+        console.print("\n\n[bold yellow]Shutdown signal received...[/bold yellow]")
+    else:
+        print("\n\nShutdown signal received...")
     cleanup()
     sys.exit(0)
 
@@ -369,7 +376,7 @@ def main():
     # Create example config if needed (don't use tray mode for first-run config creation)
     if not Path(CONFIG_FILE).exists():
         if HAVE_RICH:
-            console.print(f"[yellow]Config file '{CONFIG_FILE}' not found.[/yellow]")
+            print_warning(f"Config file '{CONFIG_FILE}' not found.")
             console.print("Creating example configuration file...")
         else:
             print(f"Config file '{CONFIG_FILE}' not found.")
@@ -377,7 +384,7 @@ def main():
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             f.write(generate_example_config())
         if HAVE_RICH:
-            console.print(f"[green]✅ Created '{CONFIG_FILE}'[/green]")
+            print_success(f"Created '{CONFIG_FILE}'")
         else:
             print(f"✅ Created '{CONFIG_FILE}'")
     
@@ -389,7 +396,7 @@ def main():
     if not has_any_keys:
         if HAVE_GUI:
             if HAVE_RICH:
-                console.print("[bold yellow]⚠️  No API keys configured![/bold yellow]")
+                print_warning("[bold yellow]No API keys configured![/bold yellow]")
                 console.print("   Opening Settings Window...")
                 console.print()
             else:
@@ -423,9 +430,9 @@ def main():
     if not check_port_available(host, port):
         if HAVE_RICH:
             console.print()
-            console.print(f"[bold red]❌ ERROR: Port {port} is already in use![/bold red]")
+            print_error(f"Port {port} is already in use!")
             console.print()
-            console.print("[yellow]Another instance of AI Bridge may already be running.[/yellow]")
+            print_warning("Another instance of AI Bridge may already be running.")
             console.print(f"[dim]Check if port {port} is in use: netstat -an | findstr {port}[/dim]")
             console.print()
             console.print("[dim]Press Enter to exit...[/dim]")
@@ -456,7 +463,10 @@ def main():
     if text_tool_result:
         hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
     
-    print()
+    if HAVE_RICH:
+        console.print()
+    else:
+        print()
     
     # ─── Tray Mode vs Terminal Mode ───────────────────────────────────────
     use_tray = HAVE_TRAY and not args.no_tray and sys.platform == 'win32'

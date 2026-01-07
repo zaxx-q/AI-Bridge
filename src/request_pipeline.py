@@ -15,6 +15,7 @@ from enum import Enum
 from typing import Optional, Callable, Dict, Any, List
 import time
 
+from src.console import console, Panel, HAVE_RICH, print_panel
 
 class RequestOrigin(Enum):
     """Origin of an API request - helps identify request source in logs"""
@@ -85,33 +86,75 @@ class RequestPipeline:
     @staticmethod
     def log_request_start(ctx: RequestContext):
         """Log when request starts"""
-        print(f"\n{'='*60}")
-        print(f"[API REQUEST] {ctx.origin.value}")
-        print(f"  Provider: {ctx.provider}")
-        print(f"  Model: {ctx.model}")
-        print(f"  Streaming: {'ON' if ctx.streaming else 'OFF'}")
-        print(f"  Thinking: {'ON' if ctx.thinking_enabled else 'OFF'}")
-        if ctx.session_id:
-            print(f"  Session: {ctx.session_id}")
+        if HAVE_RICH:
+            info = [
+                f"[bold]Provider:[/bold] {ctx.provider}",
+                f"[bold]Model:[/bold] {ctx.model}",
+                f"[bold]Streaming:[/bold] {'[green]ON[/green]' if ctx.streaming else '[red]OFF[/red]'}",
+                f"[bold]Thinking:[/bold] {'[green]ON[/green]' if ctx.thinking_enabled else '[red]OFF[/red]'}"
+            ]
+            if ctx.session_id:
+                info.append(f"[bold]Session:[/bold] {ctx.session_id}")
+            
+            console.print()
+            print_panel(
+                "\n".join(info),
+                title=f"[bold]API REQUEST: {ctx.origin.value}[/bold]",
+                border_style="blue",
+                style="white"
+            )
+        else:
+            print(f"\n{'='*60}")
+            print(f"[API REQUEST] {ctx.origin.value}")
+            print(f"  Provider: {ctx.provider}")
+            print(f"  Model: {ctx.model}")
+            print(f"  Streaming: {'ON' if ctx.streaming else 'OFF'}")
+            print(f"  Thinking: {'ON' if ctx.thinking_enabled else 'OFF'}")
+            if ctx.session_id:
+                print(f"  Session: {ctx.session_id}")
     
     @staticmethod
     def log_request_complete(ctx: RequestContext):
         """Log when request completes - always includes token usage"""
-        if ctx.error:
-            print(f"  [FAILED] {ctx.error}")
-            if ctx.elapsed_time > 0:
-                print(f"  Elapsed: {ctx.elapsed_time:.1f}s")
-        else:
-            print(f"  [SUCCESS] {len(ctx.response_text)} chars")
-            if ctx.reasoning_text:
-                print(f"  Thinking: {len(ctx.reasoning_text)} chars")
-            print(f"  Elapsed: {ctx.elapsed_time:.1f}s")
+        if HAVE_RICH:
+            style = "green" if not ctx.error else "red"
+            title = "[bold green]SUCCESS[/bold green]" if not ctx.error else f"[bold red]FAILED: {ctx.error}[/bold red]"
+            
+            summary = []
+            if not ctx.error:
+                summary.append(f"Length: {len(ctx.response_text)} chars")
+                if ctx.reasoning_text:
+                    summary.append(f"Thinking: {len(ctx.reasoning_text)} chars")
+            
+            summary.append(f"Elapsed: {ctx.elapsed_time:.2f}s")
             if ctx.retry_count > 0:
-                print(f"  Retries: {ctx.retry_count}")
-        
-        # ALWAYS log token usage
-        print(f"  {ctx.get_usage_summary()}")
-        print(f"{'='*60}\n")
+                summary.append(f"Retries: {ctx.retry_count}")
+            
+            summary.append(f"\n{ctx.get_usage_summary()}")
+            
+            print_panel(
+                "\n".join(summary),
+                title=title,
+                border_style=style,
+                style="white"
+            )
+            console.print()
+        else:
+            if ctx.error:
+                print(f"  [FAILED] {ctx.error}")
+                if ctx.elapsed_time > 0:
+                    print(f"  Elapsed: {ctx.elapsed_time:.1f}s")
+            else:
+                print(f"  [SUCCESS] {len(ctx.response_text)} chars")
+                if ctx.reasoning_text:
+                    print(f"  Thinking: {len(ctx.reasoning_text)} chars")
+                print(f"  Elapsed: {ctx.elapsed_time:.1f}s")
+                if ctx.retry_count > 0:
+                    print(f"  Retries: {ctx.retry_count}")
+            
+            # ALWAYS log token usage
+            print(f"  {ctx.get_usage_summary()}")
+            print(f"{'='*60}\n")
     
     @staticmethod
     def log_raw_response(ctx: RequestContext, log_full: bool = False):
@@ -123,13 +166,24 @@ class RequestPipeline:
             log_full: If True, log full content; if False, log truncated
         """
         if ctx.response_text:
-            if log_full:
-                print(f"\n--- RAW AI OUTPUT ({ctx.origin.value}) ---")
-                print(ctx.response_text)
-                print("--- END RAW OUTPUT ---\n")
+            if HAVE_RICH:
+                if log_full:
+                    print_panel(
+                        ctx.response_text,
+                        title=f"RAW AI OUTPUT ({ctx.origin.value})",
+                        border_style="dim white"
+                    )
+                else:
+                    preview = ctx.response_text[:200] + "..." if len(ctx.response_text) > 200 else ctx.response_text
+                    console.print(f"[dim]Preview: {preview}[/dim]")
             else:
-                preview = ctx.response_text[:200] + "..." if len(ctx.response_text) > 200 else ctx.response_text
-                print(f"  Preview: {preview}")
+                if log_full:
+                    print(f"\n--- RAW AI OUTPUT ({ctx.origin.value}) ---")
+                    print(ctx.response_text)
+                    print("--- END RAW OUTPUT ---\n")
+                else:
+                    preview = ctx.response_text[:200] + "..." if len(ctx.response_text) > 200 else ctx.response_text
+                    print(f"  Preview: {preview}")
     
     @staticmethod
     def execute_streaming(

@@ -12,6 +12,10 @@ from .session_manager import (
 )
 from .gui.core import show_session_browser, get_gui_status, HAVE_GUI
 from .config import OPENROUTER_URL
+from .console import console, Panel, Table, print_panel, print_success, print_error, print_warning, print_info, HAVE_RICH
+from rich.align import Align
+from rich.columns import Columns
+from rich.text import Text
 
 
 def get_base_url_for_status(config, provider):
@@ -33,15 +37,37 @@ def get_base_url_for_status(config, provider):
 
 def print_commands_box():
     """Print the terminal commands box"""
-    print("─" * 64)
-    print("  COMMANDS                                       Ctrl+C to stop")
-    print("─" * 64)
-    print("  [L] 📋 Sessions      [P] 🔄 Provider     [T] 💭 Thinking")
-    print("  [O] 🖥️ Browser       [M] 🤖 Models       [R] 🌊 Streaming")
-    print("  [E] 📡 Endpoints     [S] 📊 Status       [H] ❓ Help")
-    print("  [G] ⚙️ Settings      [W] ✏️ Prompts")
-    print("─" * 64)
-    print()
+    if HAVE_RICH:
+        commands_table = Table(box=None, show_header=False, padding=(0, 2))
+        commands_table.add_column("Key", style="bold cyan", justify="right")
+        commands_table.add_column("Action", style="white")
+        commands_table.add_column("Key", style="bold cyan", justify="right")
+        commands_table.add_column("Action", style="white")
+        
+        commands_table.add_row("[L]", "📋 Sessions", "[P]", "🔄 Provider")
+        commands_table.add_row("[O]", "🖥️ Browser", "[M]", "🤖 Models")
+        commands_table.add_row("[E]", "📡 Endpoints", "[S]", "📊 Status")
+        commands_table.add_row("[G]", "⚙️ Settings", "[W]", "✏️ Prompts")
+        commands_table.add_row("[T]", "💭 Thinking", "[R]", "🌊 Streaming")
+        commands_table.add_row("[H]", "❓ Help", "", "")
+        
+        console.print(Panel(
+            Align.center(commands_table),
+            title="[bold]COMMANDS[/bold]",
+            subtitle="[dim]Ctrl+C to stop[/dim]",
+            border_style="blue",
+        ))
+        console.print()
+    else:
+        print("─" * 64)
+        print("  COMMANDS                                       Ctrl+C to stop")
+        print("─" * 64)
+        print("  [L] 📋 Sessions      [P] 🔄 Provider     [T] 💭 Thinking")
+        print("  [O] 🖥️ Browser       [M] 🤖 Models       [R] 🌊 Streaming")
+        print("  [E] 📡 Endpoints     [S] 📊 Status       [H] ❓ Help")
+        print("  [G] ⚙️ Settings      [W] ✏️ Prompts")
+        print("─" * 64)
+        print()
 
 
 def terminal_session_manager(endpoints=None):
@@ -104,17 +130,31 @@ def terminal_session_manager(endpoints=None):
             
             elif key == 'e':
                 # List endpoints
-                print(f"\n{'─'*64}")
-                print(f"📡 ENDPOINTS ({len(_endpoints)} registered)")
-                print(f"{'─'*64}")
-                if not _endpoints:
-                    print("   (No endpoints)")
+                if HAVE_RICH:
+                    table = Table(title=f"📡 Endpoints ({len(_endpoints)} registered)", box=None)
+                    table.add_column("Path", style="bold green")
+                    table.add_column("System Prompt Preview", style="dim")
+                    
+                    if not _endpoints:
+                        console.print(Panel("No endpoints registered", style="yellow"))
+                    else:
+                        for name, prompt in _endpoints.items():
+                            preview = prompt[:60] + "..." if len(prompt) > 60 else prompt
+                            table.add_row(f"/{name}", preview)
+                        console.print(table)
+                        console.print()
                 else:
-                    for name, prompt in _endpoints.items():
-                        preview = prompt[:50] + "..." if len(prompt) > 50 else prompt
-                        print(f"   /{name}")
-                        print(f"      → {preview}")
-                print(f"{'─'*64}\n")
+                    print(f"\n{'─'*64}")
+                    print(f"📡 ENDPOINTS ({len(_endpoints)} registered)")
+                    print(f"{'─'*64}")
+                    if not _endpoints:
+                        print("   (No endpoints)")
+                    else:
+                        for name, prompt in _endpoints.items():
+                            preview = prompt[:50] + "..." if len(prompt) > 50 else prompt
+                            print(f"   /{name}")
+                            print(f"      → {preview}")
+                    print(f"{'─'*64}\n")
             
             elif key == 'm':
                 # Model management
@@ -122,25 +162,52 @@ def terminal_session_manager(endpoints=None):
                 from .api_client import fetch_models
                 from .config import save_config_value
                 
-                print(f"\n{'─'*64}")
-                print("🤖 MODEL MANAGEMENT")
-                print(f"{'─'*64}")
+                if HAVE_RICH:
+                    console.print("[bold]🤖 Model Management[/bold]")
+                
                 provider = web_server.CONFIG.get("default_provider", "custom")
                 current_model = web_server.CONFIG.get(f"{provider}_model", "not set")
-                print(f"   Provider: {provider}")
-                print(f"   Current:  {current_model}")
-                print(f"\n   Fetching available models...")
                 
-                models, error = fetch_models(web_server.CONFIG, web_server.KEY_MANAGERS)
+                if HAVE_RICH:
+                    console.print(f"   Provider: [cyan]{provider}[/cyan]")
+                    console.print(f"   Current:  [green]{current_model}[/green]")
+                    with console.status("[bold blue]Fetching available models...[/bold blue]"):
+                        models, error = fetch_models(web_server.CONFIG, web_server.KEY_MANAGERS)
+                else:
+                    print(f"\n{'─'*64}")
+                    print("🤖 MODEL MANAGEMENT")
+                    print(f"{'─'*64}")
+                    print(f"   Provider: {provider}")
+                    print(f"   Current:  {current_model}")
+                    print(f"\n   Fetching available models...")
+                    models, error = fetch_models(web_server.CONFIG, web_server.KEY_MANAGERS)
+                
                 if error:
-                    print(f"   ✗ {error}")
+                    if HAVE_RICH:
+                        print_error(error)
+                    else:
+                        print(f"   ✗ {error}")
                 elif models:
-                    print(f"\n   Available ({len(models)}):")
-                    for i, m in enumerate(models):
-                        marker = " ◄" if m['id'] == current_model else ""
-                        print(f"      [{i+1:2}] {m['id']}{marker}")
-                    
-                    print("\n   Enter number or model name (q = cancel): ", end='', flush=True)
+                    if HAVE_RICH:
+                        table = Table(show_header=True, box=None)
+                        table.add_column("#", style="dim", justify="right")
+                        table.add_column("Model ID", style="bold")
+                        table.add_column("Context", style="dim")
+                        
+                        for i, m in enumerate(models):
+                            marker = " [bold green]◄[/bold green]" if m['id'] == current_model else ""
+                            ctx = str(m.get('context_length', '?'))
+                            table.add_row(str(i+1), f"{m['id']}{marker}", ctx)
+                        
+                        console.print(table)
+                        console.print("\n   Enter number or model name (q = cancel): ", end="")
+                    else:
+                        print(f"\n   Available ({len(models)}):")
+                        for i, m in enumerate(models):
+                            marker = " ◄" if m['id'] == current_model else ""
+                            print(f"      [{i+1:2}] {m['id']}{marker}")
+                        
+                        print("\n   Enter number or model name (q = cancel): ", end='', flush=True)
                     try:
                         choice = input().strip()
                         if choice.lower() != 'q':
@@ -220,56 +287,68 @@ def terminal_session_manager(endpoints=None):
                 # Status command - enhanced with base_url
                 from . import web_server
                 
-                print(f"\n{'─'*64}")
-                print("📊 STATUS")
-                print(f"{'─'*64}")
-                
-                # Provider/Model with base URL
                 provider = web_server.CONFIG.get("default_provider", "google")
                 model = web_server.CONFIG.get(f"{provider}_model", "not set")
                 base_url = get_base_url_for_status(web_server.CONFIG, provider)
-                
-                print(f"   📡 Provider:  {provider}")
-                print(f"      Base URL:  {base_url}")
-                print(f"   🤖 Model:     {model}")
-                
-                # Streaming/Thinking
                 streaming = web_server.CONFIG.get("streaming_enabled", True)
                 thinking = web_server.CONFIG.get("thinking_enabled", False)
-                stream_status = "✅ ON" if streaming else "✗ OFF"
-                think_status = "✅ ON" if thinking else "✗ OFF"
-                print(f"\n   🌊 Streaming: {stream_status}")
-                print(f"   💭 Thinking:  {think_status}")
                 
-                if thinking:
-                    thinking_output = web_server.CONFIG.get("thinking_output", "reasoning_content")
-                    print(f"      Output: {thinking_output}")
-                    if provider == "google":
-                        budget = web_server.CONFIG.get("thinking_budget", -1)
-                        level = web_server.CONFIG.get("thinking_level", "high")
-                        print(f"      Budget: {budget} | Level: {level}")
-                    else:
-                        effort = web_server.CONFIG.get("reasoning_effort", "high")
-                        print(f"      Effort: {effort}")
-                
-                # Server
-                host = web_server.CONFIG.get("host", "127.0.0.1")
-                port = web_server.CONFIG.get("port", 5000)
-                print(f"\n   🚀 Server:    http://{host}:{port}")
-                
-                # Sessions
-                sessions = list_sessions()
-                print(f"   📂 Sessions:  {len(sessions)} saved")
-                
-                # API Keys
-                print(f"\n   🔑 API Keys:")
-                for p, km in web_server.KEY_MANAGERS.items():
-                    count = km.get_key_count()
-                    key_icon = "✅" if count > 0 else "✗"
-                    marker = " ◄" if p == provider else ""
-                    print(f"      {key_icon} {p}: {count} key{'s' if count != 1 else ''}{marker}")
-                
-                print(f"{'─'*64}\n")
+                if HAVE_RICH:
+                    grid = Table.grid(expand=True, padding=(0, 2))
+                    grid.add_column(justify="left")
+                    grid.add_column(justify="left")
+                    
+                    # Provider Info
+                    grid.add_row("[bold]📡 Provider[/bold]", f"[cyan]{provider}[/cyan]")
+                    grid.add_row("[dim]   Base URL[/dim]", f"[dim]{base_url}[/dim]")
+                    grid.add_row("[bold]🤖 Model[/bold]", f"[green]{model}[/green]")
+                    
+                    # Settings
+                    stream_icon = "[green]ON[/green]" if streaming else "[red]OFF[/red]"
+                    think_icon = "[green]ON[/green]" if thinking else "[red]OFF[/red]"
+                    grid.add_row("[bold]🌊 Streaming[/bold]", stream_icon)
+                    grid.add_row("[bold]💭 Thinking[/bold]", think_icon)
+                    
+                    if thinking:
+                        thinking_output = web_server.CONFIG.get("thinking_output", "reasoning_content")
+                        grid.add_row("[dim]   Output[/dim]", thinking_output)
+                    
+                    # Server
+                    host = web_server.CONFIG.get("host", "127.0.0.1")
+                    port = web_server.CONFIG.get("port", 5000)
+                    grid.add_row("[bold]🚀 Server[/bold]", f"[link=http://{host}:{port}]http://{host}:{port}[/link]")
+                    
+                    # Keys
+                    key_status = []
+                    for p, km in web_server.KEY_MANAGERS.items():
+                        count = km.get_key_count()
+                        color = "green" if count > 0 else "red"
+                        active = " [bold]◄[/bold]" if p == provider else ""
+                        key_status.append(f"[{color}]{p}: {count}[/{color}]{active}")
+                    
+                    grid.add_row("[bold]🔑 API Keys[/bold]", ", ".join(key_status))
+                    
+                    console.print(Panel(grid, title="[bold]System Status[/bold]", border_style="blue"))
+                    console.print()
+                else:
+                    print(f"\n{'─'*64}")
+                    print("📊 STATUS")
+                    print(f"{'─'*64}")
+                    print(f"   📡 Provider:  {provider}")
+                    print(f"      Base URL:  {base_url}")
+                    print(f"   🤖 Model:     {model}")
+                    stream_status = "✅ ON" if streaming else "✗ OFF"
+                    think_status = "✅ ON" if thinking else "✗ OFF"
+                    print(f"\n   🌊 Streaming: {stream_status}")
+                    print(f"   💭 Thinking:  {think_status}")
+                    host = web_server.CONFIG.get("host", "127.0.0.1")
+                    port = web_server.CONFIG.get("port", 5000)
+                    print(f"\n   🚀 Server:    http://{host}:{port}")
+                    print(f"\n   🔑 API Keys:")
+                    for p, km in web_server.KEY_MANAGERS.items():
+                        count = km.get_key_count()
+                        print(f"      {p}: {count}")
+                    print(f"{'─'*64}\n")
             
             elif key == 't':
                 # Toggle thinking mode
@@ -281,14 +360,19 @@ def terminal_session_manager(endpoints=None):
                 
                 if save_config_value("thinking_enabled", new_value):
                     web_server.CONFIG["thinking_enabled"] = new_value
-                    status = "✅ ON" if new_value else "✗ OFF"
-                    print(f"\n💭 Thinking: {status}")
-                    if new_value:
-                        output_mode = web_server.CONFIG.get("thinking_output", "reasoning_content")
-                        print(f"   Output: {output_mode}")
+                    if HAVE_RICH:
+                        status = "[green]ON[/green]" if new_value else "[red]OFF[/red]"
+                        console.print(f"\n💭 Thinking: {status}")
+                    else:
+                        status = "✅ ON" if new_value else "✗ OFF"
+                        print(f"\n💭 Thinking: {status}")
                 else:
-                    print("\n✗ Failed to toggle thinking")
-                print()
+                    if HAVE_RICH:
+                        print_error("Failed to toggle thinking")
+                    else:
+                        print("\n✗ Failed to toggle thinking")
+                if HAVE_RICH: console.print()
+                else: print()
             
             elif key == 'r':
                 # Toggle streaming mode
@@ -300,30 +384,55 @@ def terminal_session_manager(endpoints=None):
                 
                 if save_config_value("streaming_enabled", new_value):
                     web_server.CONFIG["streaming_enabled"] = new_value
-                    status = "✅ ON" if new_value else "✗ OFF"
-                    print(f"\n🌊 Streaming: {status}\n")
+                    if HAVE_RICH:
+                        status = "[green]ON[/green]" if new_value else "[red]OFF[/red]"
+                        console.print(f"\n🌊 Streaming: {status}\n")
+                    else:
+                        status = "✅ ON" if new_value else "✗ OFF"
+                        print(f"\n🌊 Streaming: {status}\n")
                 else:
-                    print("\n✗ Failed to toggle streaming\n")
+                    if HAVE_RICH:
+                        print_error("Failed to toggle streaming")
+                    else:
+                        print("\n✗ Failed to toggle streaming\n")
             
             elif key == 'v':
-                print("\nEnter session ID: ", end='', flush=True)
+                if HAVE_RICH:
+                    console.print("\n[bold]Enter session ID: [/bold]", end="")
+                else:
+                    print("\nEnter session ID: ", end='', flush=True)
                 try:
                     session_id = input().strip()
                     session = get_session(session_id)
                     if session:
-                        print(f"\n{'─'*64}")
-                        print(f"📋 SESSION: {session.session_id}")
-                        print(f"{'─'*64}")
-                        print(f"   Title:    {session.title}")
-                        print(f"   Endpoint: {session.endpoint}")
-                        print(f"   Created:  {session.created_at}")
-                        print(f"{'─'*64}")
-                        for msg in session.messages:
-                            role_icon = "👤" if msg["role"] == "user" else "🤖"
-                            role = "USER" if msg["role"] == "user" else "AI"
-                            print(f"\n{role_icon} [{role}]")
-                            print(msg['content'][:500] + ('...' if len(msg['content']) > 500 else ''))
-                        print(f"{'─'*64}\n")
+                        if HAVE_RICH:
+                            console.print(Panel(
+                                f"[bold]Title:[/bold] {session.title}\n"
+                                f"[dim]Endpoint:[/dim] {session.endpoint}\n"
+                                f"[dim]Created:[/dim] {session.created_at}",
+                                title=f"📋 Session: {session.session_id}"
+                            ))
+                            for msg in session.messages:
+                                role_style = "green" if msg["role"] == "user" else "blue"
+                                role_name = "User" if msg["role"] == "user" else "AI"
+                                content = msg['content'][:500] + ('...' if len(msg['content']) > 500 else '')
+                                console.print(Panel(content, title=f"[{role_style}]{role_name}[/{role_style}]", border_style=role_style))
+                        else:
+                            print(f"\n{'─'*64}")
+                            print(f"📋 SESSION: {session.session_id}")
+                            print(f"{'─'*64}")
+                            print(f"   Title:    {session.title}")
+                            # ... (keep existing non-rich code implicitly via structure, but simplified here for diff)
+                            # Actually I should keep the fallback complete for safety
+                            print(f"   Endpoint: {session.endpoint}")
+                            print(f"   Created:  {session.created_at}")
+                            print(f"{'─'*64}")
+                            for msg in session.messages:
+                                role_icon = "👤" if msg["role"] == "user" else "🤖"
+                                role = "USER" if msg["role"] == "user" else "AI"
+                                print(f"\n{role_icon} [{role}]")
+                                print(msg['content'][:500] + ('...' if len(msg['content']) > 500 else ''))
+                            print(f"{'─'*64}\n")
                         
                         if HAVE_GUI:
                             open_gui = input("Open in GUI? [y/N]: ").strip().lower()
@@ -416,5 +525,9 @@ def print_usage(usage_data, prefix=""):
     estimated = usage_data.get("estimated", False)
     
     est_mark = " (est)" if estimated else ""
-    print(f"{prefix}📊 Tokens: {input_tokens} in | {output_tokens} out | {total_tokens} total{est_mark}")
+    
+    if HAVE_RICH:
+        console.print(f"{prefix}[dim]📊 Tokens: [bold green]{input_tokens}[/bold green] in | [bold blue]{output_tokens}[/bold blue] out | [bold white]{total_tokens}[/bold white] total{est_mark}[/dim]")
+    else:
+        print(f"{prefix}📊 Tokens: {input_tokens} in | {output_tokens} out | {total_tokens} total{est_mark}")
 
