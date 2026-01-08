@@ -536,9 +536,53 @@ class StandaloneChatWindow:
             threading.Thread(target=self._load_models, daemon=True).start()
         else:
             # Fallback to tk
+            from tkinter import ttk
             btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
             btn_frame.grid(row=1, column=0, sticky=tk.EW, padx=15, pady=5)
-            # ... tk implementation (kept for fallback)
+            
+            tk.Label(
+                btn_frame, text="Conversation:", font=("Segoe UI", 10, "bold"),
+                bg=self.colors["bg"], fg=self.colors["accent"]
+            ).pack(side=tk.LEFT, padx=(0, 10))
+            
+            self.wrap_btn = tk.Button(
+                btn_frame, text="Wrap: ON", font=("Segoe UI", 9),
+                bg=self.colors["button_bg"], fg=self.colors["fg"],
+                relief=tk.FLAT, padx=8, pady=4,
+                command=self._toggle_wrap, cursor="hand2"
+            )
+            self.wrap_btn.pack(side=tk.LEFT, padx=2)
+            
+            self.md_btn = tk.Button(
+                btn_frame, text="Markdown", font=("Segoe UI", 9),
+                bg=self.colors["button_bg"], fg=self.colors["fg"],
+                relief=tk.FLAT, padx=8, pady=4,
+                command=self._toggle_markdown, cursor="hand2"
+            )
+            self.md_btn.pack(side=tk.LEFT, padx=2)
+            
+            self.scroll_btn = tk.Button(
+                btn_frame, text="Autoscroll: ON", font=("Segoe UI", 9),
+                bg=self.colors["button_bg"], fg=self.colors["fg"],
+                relief=tk.FLAT, padx=8, pady=4,
+                command=self._toggle_autoscroll, cursor="hand2"
+            )
+            self.scroll_btn.pack(side=tk.LEFT, padx=2)
+            
+            tk.Label(
+                btn_frame, text="Model:", font=("Segoe UI", 9),
+                bg=self.colors["bg"], fg=self.colors["fg"]
+            ).pack(side=tk.LEFT, padx=(15, 5))
+            
+            self.model_dropdown = ttk.Combobox(
+                btn_frame, values=["(loading...)"], width=30, state="readonly"
+            )
+            self.model_dropdown.pack(side=tk.LEFT, padx=5)
+            self.model_dropdown.set(self.selected_model or "(default)")
+            self.model_dropdown.bind("<<ComboboxSelected>>", lambda e: self._on_model_select(self.model_dropdown.get()))
+            
+            # Load models in background
+            threading.Thread(target=self._load_models, daemon=True).start()
     
     def _create_chat_area(self):
         """Create the chat display area (hybrid: CTkFrame + tk.Text for markdown)."""
@@ -599,10 +643,46 @@ class StandaloneChatWindow:
             setup_text_tags(self.chat_text, self.colors)
             self.chat_text.tag_bind("thinking_header", "<Button-1>", self._on_thinking_click)
         else:
-            # Fallback
-            chat_frame = tk.Frame(self.root, bg=self.colors["bg"])
+            # Fallback to tk
+            from tkinter import ttk
+            chat_frame = tk.Frame(
+                self.root, bg=self.colors["text_bg"],
+                highlightbackground=self.colors["border"],
+                highlightthickness=1
+            )
             chat_frame.grid(row=2, column=0, sticky=tk.NSEW, padx=15, pady=5)
-            # ... tk implementation
+            chat_frame.columnconfigure(0, weight=1)
+            chat_frame.rowconfigure(0, weight=1)
+            
+            self.chat_text = tk.Text(
+                chat_frame,
+                wrap=tk.WORD,
+                font=("Segoe UI", 11),
+                bg=self.colors["text_bg"],
+                fg=self.colors["fg"],
+                insertbackground=self.colors["fg"],
+                relief=tk.FLAT,
+                highlightthickness=0,
+                padx=12,
+                pady=12,
+                borderwidth=0
+            )
+            self.chat_text.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
+            
+            # Vertical scrollbar
+            self.v_scrollbar = ttk.Scrollbar(chat_frame, orient=tk.VERTICAL, command=self.chat_text.yview)
+            self.v_scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 4), pady=8)
+            self.chat_text.configure(yscrollcommand=self.v_scrollbar.set)
+            
+            # Horizontal scrollbar (hidden initially)
+            self.h_scrollbar = ttk.Scrollbar(chat_frame, orient=tk.HORIZONTAL, command=self.chat_text.xview)
+            self.h_scrollbar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
+            self.h_scrollbar.grid_remove()
+            self.chat_text.configure(xscrollcommand=self.h_scrollbar.set)
+            
+            # Setup text tags for markdown
+            setup_text_tags(self.chat_text, self.colors)
+            self.chat_text.tag_bind("thinking_header", "<Button-1>", self._on_thinking_click)
     
     def _create_input_area(self):
         """Create the message input area."""
@@ -694,9 +774,62 @@ class StandaloneChatWindow:
             self.input_text.bind('<Return>', on_key_return)
             self.input_text.bind('<Control-BackSpace>', on_ctrl_backspace)
         else:
-            # Fallback
+            # Fallback to tk
+            tk.Label(
+                self.root, text="Your message:", font=("Segoe UI", 10, "bold"),
+                bg=self.colors["bg"], fg=self.colors["accent"]
+            ).grid(row=3, column=0, sticky=tk.W, padx=15, pady=(10, 5))
+            
             input_frame = tk.Frame(self.root, bg=self.colors["bg"])
             input_frame.grid(row=4, column=0, sticky=tk.EW, padx=15, pady=5)
+            input_frame.columnconfigure(0, weight=1)
+            
+            self.input_text = tk.Text(
+                input_frame,
+                height=4,
+                font=("Segoe UI", 11),
+                bg=self.colors["input_bg"],
+                fg=self.colors["fg"],
+                insertbackground=self.colors["fg"],
+                relief=tk.FLAT,
+                highlightbackground=self.colors["border"],
+                highlightthickness=1,
+                padx=8,
+                pady=8,
+                wrap=tk.WORD
+            )
+            self.input_text.grid(row=0, column=0, sticky="ew")
+            
+            # Placeholder text
+            self._placeholder = "Type your follow-up message here... (Enter to send, Shift+Enter for newline)"
+            self.input_text.insert("1.0", self._placeholder)
+            self.input_text.configure(fg=self.colors["blockquote"])
+            self._has_placeholder = True
+            
+            def on_focus_in(event):
+                content = self.input_text.get("1.0", "end-1c")
+                if content == self._placeholder:
+                    self.input_text.delete("1.0", tk.END)
+                    self.input_text.configure(fg=self.colors["fg"])
+                    self._has_placeholder = False
+            
+            def on_focus_out(event):
+                content = self.input_text.get("1.0", "end-1c").strip()
+                if not content:
+                    self.input_text.insert("1.0", self._placeholder)
+                    self.input_text.configure(fg=self.colors["blockquote"])
+                    self._has_placeholder = True
+            
+            def on_key_return(event):
+                if event.state & 0x1:  # Shift held
+                    return None
+                else:
+                    self._send()
+                    return "break"
+            
+            self.input_text.bind('<FocusIn>', on_focus_in)
+            self.input_text.bind('<FocusOut>', on_focus_out)
+            self.input_text.bind('<Return>', on_key_return)
     
     def _create_action_buttons(self):
         """Create the action button row."""
@@ -763,9 +896,32 @@ class StandaloneChatWindow:
             )
             self.status_label.pack(side="left", padx=15)
         else:
-            # Fallback
+            # Fallback to tk
             btn_row = tk.Frame(self.root, bg=self.colors["bg"])
             btn_row.grid(row=5, column=0, sticky=tk.EW, padx=15, pady=(5, 15))
+            
+            self.send_btn = tk.Button(
+                btn_row, text="Send", font=("Segoe UI", 10, "bold"),
+                bg=self.colors["accent"], fg="#ffffff",
+                relief=tk.FLAT, padx=12, pady=6,
+                command=self._send, cursor="hand2"
+            )
+            self.send_btn.pack(side=tk.LEFT, padx=2)
+            
+            for text, cmd in [("Copy All", self._copy_all), ("Copy Last", self._copy_last), ("Close", self._close)]:
+                btn = tk.Button(
+                    btn_row, text=text, font=("Segoe UI", 10),
+                    bg=self.colors["button_bg"], fg=self.colors["fg"],
+                    relief=tk.FLAT, padx=10, pady=6,
+                    command=cmd, cursor="hand2"
+                )
+                btn.pack(side=tk.LEFT, padx=2)
+            
+            self.status_label = tk.Label(
+                btn_row, text="", font=("Segoe UI", 9),
+                bg=self.colors["bg"], fg=self.colors["accent"]
+            )
+            self.status_label.pack(side=tk.LEFT, padx=15)
     
     def _run_event_loop(self):
         """Run event loop without blocking other Tk instances."""
@@ -792,6 +948,10 @@ class StandaloneChatWindow:
         
         # Update button labels
         if HAVE_CTK:
+            self.wrap_btn.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
+            self.md_btn.configure(text="Markdown" if self.markdown else "Raw Text")
+            self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
+        else:
             self.wrap_btn.configure(text=f"Wrap: {'ON' if self.wrapped else 'OFF'}")
             self.md_btn.configure(text="Markdown" if self.markdown else "Raw Text")
             self.scroll_btn.configure(text=f"Autoscroll: {'ON' if self.auto_scroll else 'OFF'}")
@@ -930,6 +1090,8 @@ class StandaloneChatWindow:
                 self.status_label.configure(text_color=color)
         else:
             self.status_label.configure(text=text)
+            if color:
+                self.status_label.configure(fg=color)
     
     def _load_models(self):
         """Load available models in background."""
@@ -1308,6 +1470,12 @@ class StandaloneSessionBrowserWindow:
                 title_label_kwargs["compound"] = "left"
             
             ctk.CTkLabel(self.root, **title_label_kwargs).grid(row=0, column=0, sticky="w", padx=15, pady=(15, 10))
+        else:
+            tk.Label(
+                self.root, text="📋 Saved Chat Sessions",
+                font=("Segoe UI", 14, "bold"),
+                bg=self.colors["bg"], fg=self.colors["accent"]
+            ).grid(row=0, column=0, sticky=tk.W, padx=15, pady=(15, 10))
         
         # Session list container
         self._create_session_list()
@@ -1371,6 +1539,60 @@ class StandaloneSessionBrowserWindow:
             )
             self.session_list.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
             self.session_list.columnconfigure(0, weight=1)
+        else:
+            # Fallback to tk with canvas-based scrolling
+            list_container = tk.Frame(
+                self.root, bg=self.colors["text_bg"],
+                highlightbackground=self.colors["border"],
+                highlightthickness=1
+            )
+            list_container.grid(row=1, column=0, sticky=tk.NSEW, padx=15, pady=5)
+            list_container.columnconfigure(0, weight=1)
+            list_container.rowconfigure(1, weight=1)
+            
+            # Header
+            self.list_header = SessionListHeader(
+                list_container,
+                self.theme,
+                on_sort=self._sort_by_column,
+                current_sort=self.sort_column,
+                descending=self.sort_descending
+            )
+            self.list_header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+            
+            # Scrollable canvas for session list
+            canvas_frame = tk.Frame(list_container, bg=self.colors["text_bg"])
+            canvas_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=8, pady=(0, 8))
+            canvas_frame.columnconfigure(0, weight=1)
+            canvas_frame.rowconfigure(0, weight=1)
+            
+            self._list_canvas = tk.Canvas(
+                canvas_frame, bg=self.colors["text_bg"],
+                highlightthickness=0, bd=0
+            )
+            self._list_canvas.grid(row=0, column=0, sticky=tk.NSEW)
+            
+            from tkinter import ttk
+            scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self._list_canvas.yview)
+            scrollbar.grid(row=0, column=1, sticky=tk.NS)
+            self._list_canvas.configure(yscrollcommand=scrollbar.set)
+            
+            self.session_list = tk.Frame(self._list_canvas, bg=self.colors["text_bg"])
+            self._canvas_window = self._list_canvas.create_window((0, 0), window=self.session_list, anchor=tk.NW)
+            
+            def on_frame_configure(event):
+                self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+            
+            def on_canvas_configure(event):
+                self._list_canvas.itemconfig(self._canvas_window, width=event.width)
+            
+            self.session_list.bind('<Configure>', on_frame_configure)
+            self._list_canvas.bind('<Configure>', on_canvas_configure)
+            
+            # Mouse wheel scrolling
+            def on_mousewheel(event):
+                self._list_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            self._list_canvas.bind_all("<MouseWheel>", on_mousewheel)
     
     def _create_action_buttons(self):
         """Create the action button row."""
@@ -1410,6 +1632,32 @@ class StandaloneSessionBrowserWindow:
                 text_color=self.theme.overlay0
             )
             self.status_label.pack(side="left", padx=15)
+        else:
+            # Fallback to tk
+            btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
+            btn_frame.grid(row=2, column=0, sticky=tk.EW, padx=15, pady=(10, 15))
+            
+            for text, cmd, bg_color in [
+                ("➕ New Session", self._new_session, self.colors["accent"]),
+                ("💬 Open Chat", self._open_session, self.colors["button_bg"]),
+                ("🗑️ Delete", self._delete_session, self.colors["button_bg"]),
+                ("🔄 Refresh", self._refresh, self.colors["button_bg"]),
+                ("Close", self._close, self.colors["button_bg"])
+            ]:
+                btn = tk.Button(
+                    btn_frame, text=text, font=("Segoe UI", 9),
+                    bg=bg_color, fg="#ffffff" if bg_color == self.colors["accent"] else self.colors["fg"],
+                    relief=tk.FLAT, padx=10, pady=6,
+                    command=cmd, cursor="hand2"
+                )
+                btn.pack(side=tk.LEFT, padx=2)
+            
+            self.status_label = tk.Label(
+                btn_frame, text="Click on a session to select it",
+                font=("Segoe UI", 9),
+                bg=self.colors["bg"], fg=self.colors["blockquote"]
+            )
+            self.status_label.pack(side=tk.LEFT, padx=15)
     
     def _run_event_loop(self):
         """Run event loop."""
@@ -1433,9 +1681,8 @@ class StandaloneSessionBrowserWindow:
             self.sort_column = column
             self.sort_descending = True
         
-        # Update header indicators
-        if HAVE_CTK:
-            self.list_header.update_sort_indicators(self.sort_column, self.sort_descending)
+        # Update header indicators (SessionListHeader is pure tk, works in both modes)
+        self.list_header.update_sort_indicators(self.sort_column, self.sort_descending)
         
         self._refresh()
     
@@ -1466,18 +1713,17 @@ class StandaloneSessionBrowserWindow:
         elif self.sort_column == "Updated":
             sessions.sort(key=lambda s: s['updated'] or '', reverse=reverse)
         
-        # Create items
+        # Create items (SessionListItem is pure tk, works in both modes)
         for session in sessions:
-            if HAVE_CTK:
-                item = SessionListItem(
-                    self.session_list,
-                    session,
-                    self.theme,
-                    on_click=self._on_select,
-                    on_double_click=self._on_double_click
-                )
-                item.pack(fill="x", pady=1)
-                self.session_items.append(item)
+            item = SessionListItem(
+                self.session_list,
+                session,
+                self.theme,
+                on_click=self._on_select,
+                on_double_click=self._on_double_click
+            )
+            item.pack(fill="x", pady=1)
+            self.session_items.append(item)
         
         self._update_status(f"{len(sessions)} session(s) found")
     
@@ -1504,7 +1750,7 @@ class StandaloneSessionBrowserWindow:
     
     def _update_status(self, text: str):
         """Update status label."""
-        if HAVE_CTK:
+        if hasattr(self, 'status_label') and self.status_label:
             self.status_label.configure(text=text)
     
     def _new_session(self):
@@ -1641,7 +1887,7 @@ class AttachedChatWindow:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(2, weight=1)
         
-        # Build UI (same as standalone but using CTkToplevel)
+        # Build UI (same as standalone but using CTkToplevel/Toplevel)
         from .. import web_server
         current_provider = web_server.CONFIG.get("default_provider", "google")
         info_text = f"Session: {self.session.session_id} | Endpoint: /{self.session.endpoint} | Provider: {current_provider}"
@@ -1653,18 +1899,23 @@ class AttachedChatWindow:
                 font=get_ctk_font(size=11),
                 text_color=self.theme.blockquote
             ).grid(row=0, column=0, sticky="w", padx=15, pady=(10, 5))
-            
-            # Toolbar
-            self._create_toolbar()
-            
-            # Chat area
-            self._create_chat_area()
-            
-            # Input area
-            self._create_input_area()
-            
-            # Action buttons
-            self._create_action_buttons()
+        else:
+            tk.Label(
+                self.root, text=info_text, font=("Segoe UI", 9),
+                bg=self.colors["bg"], fg=self.colors["blockquote"]
+            ).grid(row=0, column=0, sticky=tk.W, padx=15, pady=(10, 5))
+        
+        # Toolbar
+        self._create_toolbar()
+        
+        # Chat area
+        self._create_chat_area()
+        
+        # Input area
+        self._create_input_area()
+        
+        # Action buttons
+        self._create_action_buttons()
         
         register_window(self.window_tag)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
@@ -1698,204 +1949,360 @@ class AttachedChatWindow:
     
     def _create_toolbar(self):
         """Create toolbar."""
-        btn_frame = ctk.CTkFrame(self.root, fg_color="transparent")
-        btn_frame.grid(row=1, column=0, sticky="ew", padx=15, pady=5)
-        
-        ctk.CTkLabel(
-            btn_frame,
-            text="Conversation:",
-            font=get_ctk_font(size=12, weight="bold"),
-            text_color=self.theme.accent
-        ).pack(side="left", padx=(0, 10))
-        
-        btn_colors = get_ctk_button_colors(self.theme, "secondary")
-        
-        self.wrap_btn = ctk.CTkButton(
-            btn_frame, text="Wrap: ON", font=get_ctk_font(size=11),
-            width=85, height=28, corner_radius=6,
-            command=self._toggle_wrap, **btn_colors
-        )
-        self.wrap_btn.pack(side="left", padx=2)
-        
-        self.md_btn = ctk.CTkButton(
-            btn_frame, text="Markdown", font=get_ctk_font(size=11),
-            width=85, height=28, corner_radius=6,
-            command=self._toggle_markdown, **btn_colors
-        )
-        self.md_btn.pack(side="left", padx=2)
-        
-        self.scroll_btn = ctk.CTkButton(
-            btn_frame, text="Autoscroll: ON", font=get_ctk_font(size=11),
-            width=100, height=28, corner_radius=6,
-            command=self._toggle_autoscroll, **btn_colors
-        )
-        self.scroll_btn.pack(side="left", padx=2)
-        
-        ctk.CTkLabel(
-            btn_frame, text="Model:", font=get_ctk_font(size=11),
-            text_color=self.theme.fg
-        ).pack(side="left", padx=(15, 5))
-        
-        combo_colors = get_ctk_combobox_colors(self.theme)
-        self.model_dropdown = ctk.CTkComboBox(
-            btn_frame, values=["(loading...)"], width=220, height=28,
-            corner_radius=6, command=self._on_model_select, **combo_colors
-        )
-        self.model_dropdown.pack(side="left", padx=5)
-        self.model_dropdown.set(self.selected_model or "(default)")
+        if HAVE_CTK:
+            btn_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+            btn_frame.grid(row=1, column=0, sticky="ew", padx=15, pady=5)
+            
+            ctk.CTkLabel(
+                btn_frame,
+                text="Conversation:",
+                font=get_ctk_font(size=12, weight="bold"),
+                text_color=self.theme.accent
+            ).pack(side="left", padx=(0, 10))
+            
+            btn_colors = get_ctk_button_colors(self.theme, "secondary")
+            
+            self.wrap_btn = ctk.CTkButton(
+                btn_frame, text="Wrap: ON", font=get_ctk_font(size=11),
+                width=85, height=28, corner_radius=6,
+                command=self._toggle_wrap, **btn_colors
+            )
+            self.wrap_btn.pack(side="left", padx=2)
+            
+            self.md_btn = ctk.CTkButton(
+                btn_frame, text="Markdown", font=get_ctk_font(size=11),
+                width=85, height=28, corner_radius=6,
+                command=self._toggle_markdown, **btn_colors
+            )
+            self.md_btn.pack(side="left", padx=2)
+            
+            self.scroll_btn = ctk.CTkButton(
+                btn_frame, text="Autoscroll: ON", font=get_ctk_font(size=11),
+                width=100, height=28, corner_radius=6,
+                command=self._toggle_autoscroll, **btn_colors
+            )
+            self.scroll_btn.pack(side="left", padx=2)
+            
+            ctk.CTkLabel(
+                btn_frame, text="Model:", font=get_ctk_font(size=11),
+                text_color=self.theme.fg
+            ).pack(side="left", padx=(15, 5))
+            
+            combo_colors = get_ctk_combobox_colors(self.theme)
+            self.model_dropdown = ctk.CTkComboBox(
+                btn_frame, values=["(loading...)"], width=220, height=28,
+                corner_radius=6, command=self._on_model_select, **combo_colors
+            )
+            self.model_dropdown.pack(side="left", padx=5)
+            self.model_dropdown.set(self.selected_model or "(default)")
+        else:
+            # Fallback to tk
+            from tkinter import ttk
+            btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
+            btn_frame.grid(row=1, column=0, sticky=tk.EW, padx=15, pady=5)
+            
+            tk.Label(
+                btn_frame, text="Conversation:", font=("Segoe UI", 10, "bold"),
+                bg=self.colors["bg"], fg=self.colors["accent"]
+            ).pack(side=tk.LEFT, padx=(0, 10))
+            
+            self.wrap_btn = tk.Button(
+                btn_frame, text="Wrap: ON", font=("Segoe UI", 9),
+                bg=self.colors["button_bg"], fg=self.colors["fg"],
+                relief=tk.FLAT, padx=8, pady=4,
+                command=self._toggle_wrap, cursor="hand2"
+            )
+            self.wrap_btn.pack(side=tk.LEFT, padx=2)
+            
+            self.md_btn = tk.Button(
+                btn_frame, text="Markdown", font=("Segoe UI", 9),
+                bg=self.colors["button_bg"], fg=self.colors["fg"],
+                relief=tk.FLAT, padx=8, pady=4,
+                command=self._toggle_markdown, cursor="hand2"
+            )
+            self.md_btn.pack(side=tk.LEFT, padx=2)
+            
+            self.scroll_btn = tk.Button(
+                btn_frame, text="Autoscroll: ON", font=("Segoe UI", 9),
+                bg=self.colors["button_bg"], fg=self.colors["fg"],
+                relief=tk.FLAT, padx=8, pady=4,
+                command=self._toggle_autoscroll, cursor="hand2"
+            )
+            self.scroll_btn.pack(side=tk.LEFT, padx=2)
+            
+            tk.Label(
+                btn_frame, text="Model:", font=("Segoe UI", 9),
+                bg=self.colors["bg"], fg=self.colors["fg"]
+            ).pack(side=tk.LEFT, padx=(15, 5))
+            
+            self.model_dropdown = ttk.Combobox(
+                btn_frame, values=["(loading...)"], width=30, state="readonly"
+            )
+            self.model_dropdown.pack(side=tk.LEFT, padx=5)
+            self.model_dropdown.set(self.selected_model or "(default)")
+            self.model_dropdown.bind("<<ComboboxSelected>>", lambda e: self._on_model_select(self.model_dropdown.get()))
         
         self.root.after(100, self._load_models)
     
     def _create_chat_area(self):
         """Create chat area."""
-        chat_frame = ctk.CTkFrame(
-            self.root, corner_radius=10, fg_color=self.theme.text_bg,
-            border_color=self.theme.border, border_width=1
-        )
-        chat_frame.grid(row=2, column=0, sticky="nsew", padx=15, pady=5)
-        chat_frame.columnconfigure(0, weight=1)
-        chat_frame.rowconfigure(0, weight=1)
+        if HAVE_CTK:
+            chat_frame = ctk.CTkFrame(
+                self.root, corner_radius=10, fg_color=self.theme.text_bg,
+                border_color=self.theme.border, border_width=1
+            )
+            chat_frame.grid(row=2, column=0, sticky="nsew", padx=15, pady=5)
+            chat_frame.columnconfigure(0, weight=1)
+            chat_frame.rowconfigure(0, weight=1)
+            
+            self.chat_text = tk.Text(
+                chat_frame, wrap=tk.WORD, font=("Segoe UI", 11),
+                bg=self.theme.text_bg, fg=self.theme.fg,
+                insertbackground=self.theme.fg, relief=tk.FLAT,
+                highlightthickness=0, padx=12, pady=12, borderwidth=0
+            )
+            self.chat_text.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
+            
+            scrollbar_colors = get_ctk_scrollbar_colors(self.theme)
+            self.v_scrollbar = ctk.CTkScrollbar(
+                chat_frame, command=self.chat_text.yview,
+                corner_radius=4, width=14, **scrollbar_colors
+            )
+            self.v_scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 4), pady=8)
+            self.chat_text.configure(yscrollcommand=self.v_scrollbar.set)
+            
+            self.h_scrollbar = ctk.CTkScrollbar(
+                chat_frame, orientation="horizontal", command=self.chat_text.xview,
+                corner_radius=4, height=14, **scrollbar_colors
+            )
+            self.h_scrollbar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
+            self.h_scrollbar.grid_remove()
+            self.chat_text.configure(xscrollcommand=self.h_scrollbar.set)
+        else:
+            # Fallback to tk
+            from tkinter import ttk
+            chat_frame = tk.Frame(
+                self.root, bg=self.colors["text_bg"],
+                highlightbackground=self.colors["border"],
+                highlightthickness=1
+            )
+            chat_frame.grid(row=2, column=0, sticky=tk.NSEW, padx=15, pady=5)
+            chat_frame.columnconfigure(0, weight=1)
+            chat_frame.rowconfigure(0, weight=1)
+            
+            self.chat_text = tk.Text(
+                chat_frame,
+                wrap=tk.WORD,
+                font=("Segoe UI", 11),
+                bg=self.colors["text_bg"],
+                fg=self.colors["fg"],
+                insertbackground=self.colors["fg"],
+                relief=tk.FLAT,
+                highlightthickness=0,
+                padx=12,
+                pady=12,
+                borderwidth=0
+            )
+            self.chat_text.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
+            
+            # Vertical scrollbar
+            self.v_scrollbar = ttk.Scrollbar(chat_frame, orient=tk.VERTICAL, command=self.chat_text.yview)
+            self.v_scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 4), pady=8)
+            self.chat_text.configure(yscrollcommand=self.v_scrollbar.set)
+            
+            # Horizontal scrollbar (hidden initially)
+            self.h_scrollbar = ttk.Scrollbar(chat_frame, orient=tk.HORIZONTAL, command=self.chat_text.xview)
+            self.h_scrollbar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
+            self.h_scrollbar.grid_remove()
+            self.chat_text.configure(xscrollcommand=self.h_scrollbar.set)
         
-        self.chat_text = tk.Text(
-            chat_frame, wrap=tk.WORD, font=("Segoe UI", 11),
-            bg=self.theme.text_bg, fg=self.theme.fg,
-            insertbackground=self.theme.fg, relief=tk.FLAT,
-            highlightthickness=0, padx=12, pady=12, borderwidth=0
-        )
-        self.chat_text.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
-        
-        scrollbar_colors = get_ctk_scrollbar_colors(self.theme)
-        self.v_scrollbar = ctk.CTkScrollbar(
-            chat_frame, command=self.chat_text.yview,
-            corner_radius=4, width=14, **scrollbar_colors
-        )
-        self.v_scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 4), pady=8)
-        self.chat_text.configure(yscrollcommand=self.v_scrollbar.set)
-        
-        self.h_scrollbar = ctk.CTkScrollbar(
-            chat_frame, orientation="horizontal", command=self.chat_text.xview,
-            corner_radius=4, height=14, **scrollbar_colors
-        )
-        self.h_scrollbar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
-        self.h_scrollbar.grid_remove()
-        self.chat_text.configure(xscrollcommand=self.h_scrollbar.set)
-        
+        # Setup text tags for markdown (works with tk.Text in both modes)
         setup_text_tags(self.chat_text, self.colors)
         self.chat_text.tag_bind("thinking_header", "<Button-1>", self._on_thinking_click)
     
     def _create_input_area(self):
         """Create input area."""
-        ctk.CTkLabel(
-            self.root, text="Your message:",
-            font=get_ctk_font(size=12, weight="bold"),
-            text_color=self.theme.accent
-        ).grid(row=3, column=0, sticky="w", padx=15, pady=(10, 5))
-        
-        input_frame = ctk.CTkFrame(self.root, fg_color="transparent")
-        input_frame.grid(row=4, column=0, sticky="ew", padx=15, pady=5)
-        input_frame.columnconfigure(0, weight=1)
-        
-        # Use textbox colors (no placeholder_text_color - not supported by CTkTextbox)
-        textbox_colors = get_ctk_textbox_colors(self.theme)
-        self.input_text = ctk.CTkTextbox(
-            input_frame, height=75, font=get_ctk_font(size=12),
-            corner_radius=8, border_width=1, wrap="word", **textbox_colors
-        )
-        self.input_text.grid(row=0, column=0, sticky="ew")
-        
-        # Placeholder - updated hint text
+        # Placeholder text
         placeholder = "Type your follow-up message here... (Enter to send, Shift+Enter for newline)"
-        self._placeholder = placeholder  # Store for reference
-        self.input_text.insert("0.0", placeholder)
-        self.input_text.configure(text_color=self.theme.overlay0)
+        self._placeholder = placeholder
         self._has_placeholder = True
         
-        def on_focus_in(event):
-            content = self.input_text.get("0.0", "end-1c")
-            if content == placeholder:
-                self.input_text.delete("0.0", "end")
-                self.input_text.configure(text_color=self.theme.fg)
-                self._has_placeholder = False
-        
-        def on_focus_out(event):
-            content = self.input_text.get("0.0", "end-1c").strip()
-            if not content:
-                self.input_text.insert("0.0", placeholder)
-                self.input_text.configure(text_color=self.theme.overlay0)
-                self._has_placeholder = True
-        
-        def on_key_return(event):
-            """Handle Enter key - send message unless Shift is pressed."""
-            # Check if Shift is held (state bit 0x1)
-            if event.state & 0x1:
-                # Shift+Enter: insert newline (let default behavior happen)
-                return None
-            else:
-                # Enter without Shift: send message
-                self._send()
-                return "break"  # Prevent default newline insertion
-        
-        def on_ctrl_backspace(event):
-            """Handle Ctrl+Backspace - delete word before cursor."""
-            try:
-                import re
-                # Get cursor position
-                cursor_pos = self.input_text.index(tk.INSERT)
-                line, col = map(int, cursor_pos.split('.'))
-                
-                if col == 0:
-                    # At start of line, just delete previous char (newline)
+        if HAVE_CTK:
+            ctk.CTkLabel(
+                self.root, text="Your message:",
+                font=get_ctk_font(size=12, weight="bold"),
+                text_color=self.theme.accent
+            ).grid(row=3, column=0, sticky="w", padx=15, pady=(10, 5))
+            
+            input_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+            input_frame.grid(row=4, column=0, sticky="ew", padx=15, pady=5)
+            input_frame.columnconfigure(0, weight=1)
+            
+            textbox_colors = get_ctk_textbox_colors(self.theme)
+            self.input_text = ctk.CTkTextbox(
+                input_frame, height=75, font=get_ctk_font(size=12),
+                corner_radius=8, border_width=1, wrap="word", **textbox_colors
+            )
+            self.input_text.grid(row=0, column=0, sticky="ew")
+            
+            self.input_text.insert("0.0", placeholder)
+            self.input_text.configure(text_color=self.theme.overlay0)
+            
+            def on_focus_in(event):
+                content = self.input_text.get("0.0", "end-1c")
+                if content == placeholder:
+                    self.input_text.delete("0.0", "end")
+                    self.input_text.configure(text_color=self.theme.fg)
+                    self._has_placeholder = False
+            
+            def on_focus_out(event):
+                content = self.input_text.get("0.0", "end-1c").strip()
+                if not content:
+                    self.input_text.insert("0.0", placeholder)
+                    self.input_text.configure(text_color=self.theme.overlay0)
+                    self._has_placeholder = True
+            
+            def on_key_return(event):
+                if event.state & 0x1:
                     return None
-                
-                # Get text from start of line to cursor
-                line_start = f"{line}.0"
-                text_before = self.input_text.get(line_start, cursor_pos)
-                
-                # Find word boundary
-                # Match trailing whitespace + non-whitespace (the word)
-                match = re.search(r'(\s*\S+\s*)$', text_before)
-                if match:
-                    delete_start = f"{line}.{col - len(match.group(0))}"
-                    self.input_text.delete(delete_start, cursor_pos)
-                return "break"
-            except Exception:
-                return None
-        
-        self.input_text.bind('<FocusIn>', on_focus_in)
-        self.input_text.bind('<FocusOut>', on_focus_out)
-        self.input_text.bind('<Return>', on_key_return)
-        self.input_text.bind('<Control-BackSpace>', on_ctrl_backspace)
+                else:
+                    self._send()
+                    return "break"
+            
+            def on_ctrl_backspace(event):
+                try:
+                    import re
+                    cursor_pos = self.input_text.index(tk.INSERT)
+                    line, col = map(int, cursor_pos.split('.'))
+                    if col == 0:
+                        return None
+                    line_start = f"{line}.0"
+                    text_before = self.input_text.get(line_start, cursor_pos)
+                    match = re.search(r'(\s*\S+\s*)$', text_before)
+                    if match:
+                        delete_start = f"{line}.{col - len(match.group(0))}"
+                        self.input_text.delete(delete_start, cursor_pos)
+                    return "break"
+                except Exception:
+                    return None
+            
+            self.input_text.bind('<FocusIn>', on_focus_in)
+            self.input_text.bind('<FocusOut>', on_focus_out)
+            self.input_text.bind('<Return>', on_key_return)
+            self.input_text.bind('<Control-BackSpace>', on_ctrl_backspace)
+        else:
+            # Fallback to tk
+            tk.Label(
+                self.root, text="Your message:", font=("Segoe UI", 10, "bold"),
+                bg=self.colors["bg"], fg=self.colors["accent"]
+            ).grid(row=3, column=0, sticky=tk.W, padx=15, pady=(10, 5))
+            
+            input_frame = tk.Frame(self.root, bg=self.colors["bg"])
+            input_frame.grid(row=4, column=0, sticky=tk.EW, padx=15, pady=5)
+            input_frame.columnconfigure(0, weight=1)
+            
+            self.input_text = tk.Text(
+                input_frame,
+                height=4,
+                font=("Segoe UI", 11),
+                bg=self.colors["input_bg"],
+                fg=self.colors["fg"],
+                insertbackground=self.colors["fg"],
+                relief=tk.FLAT,
+                highlightbackground=self.colors["border"],
+                highlightthickness=1,
+                padx=8,
+                pady=8,
+                wrap=tk.WORD
+            )
+            self.input_text.grid(row=0, column=0, sticky="ew")
+            
+            self.input_text.insert("1.0", placeholder)
+            self.input_text.configure(fg=self.colors["blockquote"])
+            
+            def on_focus_in(event):
+                content = self.input_text.get("1.0", "end-1c")
+                if content == placeholder:
+                    self.input_text.delete("1.0", tk.END)
+                    self.input_text.configure(fg=self.colors["fg"])
+                    self._has_placeholder = False
+            
+            def on_focus_out(event):
+                content = self.input_text.get("1.0", "end-1c").strip()
+                if not content:
+                    self.input_text.insert("1.0", placeholder)
+                    self.input_text.configure(fg=self.colors["blockquote"])
+                    self._has_placeholder = True
+            
+            def on_key_return(event):
+                if event.state & 0x1:
+                    return None
+                else:
+                    self._send()
+                    return "break"
+            
+            self.input_text.bind('<FocusIn>', on_focus_in)
+            self.input_text.bind('<FocusOut>', on_focus_out)
+            self.input_text.bind('<Return>', on_key_return)
     
     def _create_action_buttons(self):
         """Create action buttons."""
-        btn_row = ctk.CTkFrame(self.root, fg_color="transparent")
-        btn_row.grid(row=5, column=0, sticky="ew", padx=15, pady=(5, 15))
-        
-        send_colors = get_ctk_button_colors(self.theme, "success")
-        self.send_btn = ctk.CTkButton(
-            btn_row, text="Send", font=get_ctk_font(size=12, weight="bold"),
-            width=80, height=32, corner_radius=8,
-            command=self._send, **send_colors
-        )
-        self.send_btn.pack(side="left", padx=2)
-        
-        sec_colors = get_ctk_button_colors(self.theme, "secondary")
-        for text, cmd, width in [
-            ("Copy All", self._copy_all, 85),
-            ("Copy Last", self._copy_last, 85),
-            ("Close", self._close, 70)
-        ]:
-            ctk.CTkButton(
-                btn_row, text=text, font=get_ctk_font(size=12),
-                width=width, height=32, corner_radius=8,
-                command=cmd, **sec_colors
-            ).pack(side="left", padx=2)
-        
-        self.status_label = ctk.CTkLabel(
-            btn_row, text="", font=get_ctk_font(size=11),
-            text_color=self.theme.accent_green
-        )
-        self.status_label.pack(side="left", padx=15)
+        if HAVE_CTK:
+            btn_row = ctk.CTkFrame(self.root, fg_color="transparent")
+            btn_row.grid(row=5, column=0, sticky="ew", padx=15, pady=(5, 15))
+            
+            send_colors = get_ctk_button_colors(self.theme, "success")
+            self.send_btn = ctk.CTkButton(
+                btn_row, text="Send", font=get_ctk_font(size=12, weight="bold"),
+                width=80, height=32, corner_radius=8,
+                command=self._send, **send_colors
+            )
+            self.send_btn.pack(side="left", padx=2)
+            
+            sec_colors = get_ctk_button_colors(self.theme, "secondary")
+            for text, cmd, width in [
+                ("Copy All", self._copy_all, 85),
+                ("Copy Last", self._copy_last, 85),
+                ("Close", self._close, 70)
+            ]:
+                ctk.CTkButton(
+                    btn_row, text=text, font=get_ctk_font(size=12),
+                    width=width, height=32, corner_radius=8,
+                    command=cmd, **sec_colors
+                ).pack(side="left", padx=2)
+            
+            self.status_label = ctk.CTkLabel(
+                btn_row, text="", font=get_ctk_font(size=11),
+                text_color=self.theme.accent_green
+            )
+            self.status_label.pack(side="left", padx=15)
+        else:
+            # Fallback to tk
+            btn_row = tk.Frame(self.root, bg=self.colors["bg"])
+            btn_row.grid(row=5, column=0, sticky=tk.EW, padx=15, pady=(5, 15))
+            
+            self.send_btn = tk.Button(
+                btn_row, text="Send", font=("Segoe UI", 10, "bold"),
+                bg=self.colors["accent"], fg="#ffffff",
+                relief=tk.FLAT, padx=12, pady=6,
+                command=self._send, cursor="hand2"
+            )
+            self.send_btn.pack(side=tk.LEFT, padx=2)
+            
+            for text, cmd in [("Copy All", self._copy_all), ("Copy Last", self._copy_last), ("Close", self._close)]:
+                btn = tk.Button(
+                    btn_row, text=text, font=("Segoe UI", 10),
+                    bg=self.colors["button_bg"], fg=self.colors["fg"],
+                    relief=tk.FLAT, padx=10, pady=6,
+                    command=cmd, cursor="hand2"
+                )
+                btn.pack(side=tk.LEFT, padx=2)
+            
+            self.status_label = tk.Label(
+                btn_row, text="", font=("Segoe UI", 9),
+                bg=self.colors["bg"], fg=self.colors["accent"]
+            )
+            self.status_label.pack(side=tk.LEFT, padx=15)
     
     def _run_on_gui_thread(self, func):
         """Run callback on GUI thread."""
@@ -2074,9 +2481,14 @@ class AttachedChatWindow:
         """Update status label (with null check)."""
         if not self.status_label:
             return
-        self.status_label.configure(text=text)
-        if color:
-            self.status_label.configure(text_color=color)
+        if HAVE_CTK:
+            self.status_label.configure(text=text)
+            if color:
+                self.status_label.configure(text_color=color)
+        else:
+            self.status_label.configure(text=text)
+            if color:
+                self.status_label.configure(fg=color)
     
     def _load_models(self):
         """Load models."""
@@ -2129,7 +2541,10 @@ class AttachedChatWindow:
         if self.is_loading or self._destroyed:
             return
         
-        user_input = self.input_text.get("0.0", "end-1c").strip()
+        if HAVE_CTK:
+            user_input = self.input_text.get("0.0", "end-1c").strip()
+        else:
+            user_input = self.input_text.get("1.0", tk.END).strip()
         placeholder = getattr(self, '_placeholder', "Type your follow-up message here...")
         
         if not user_input or user_input == placeholder:
@@ -2137,8 +2552,12 @@ class AttachedChatWindow:
             return
         
         self.is_loading = True
-        self.send_btn.configure(state="disabled")
-        self.input_text.configure(state="disabled")
+        if HAVE_CTK:
+            self.send_btn.configure(state="disabled")
+            self.input_text.configure(state="disabled")
+        else:
+            self.send_btn.configure(state=tk.DISABLED)
+            self.input_text.configure(state=tk.DISABLED)
         self._update_status("Sending...")
         
         self.streaming_text = ""
@@ -2154,8 +2573,12 @@ class AttachedChatWindow:
             
             def update_ui():
                 self._update_chat_display(scroll_to_bottom=True)
-                self.input_text.configure(state="normal")
-                self.input_text.delete("0.0", "end")
+                if HAVE_CTK:
+                    self.input_text.configure(state="normal")
+                    self.input_text.delete("0.0", "end")
+                else:
+                    self.input_text.configure(state=tk.NORMAL)
+                    self.input_text.delete("1.0", tk.END)
             self._safe_after(0, update_ui)
             
             streaming_enabled = web_server.CONFIG.get("streaming_enabled", True)
@@ -2249,8 +2672,12 @@ class AttachedChatWindow:
                     add_session(self.session, web_server.CONFIG.get("max_sessions", 50))
                 
                 self.is_loading = False
-                self.send_btn.configure(state="normal")
-                self.input_text.configure(state="normal")
+                if HAVE_CTK:
+                    self.send_btn.configure(state="normal")
+                    self.input_text.configure(state="normal")
+                else:
+                    self.send_btn.configure(state=tk.NORMAL)
+                    self.input_text.configure(state=tk.NORMAL)
                 self.streaming_text = ""
                 self.streaming_thinking = ""
             
@@ -2436,9 +2863,70 @@ class AttachedBrowserWindow:
             )
             self.session_list.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
             self.session_list.columnconfigure(0, weight=1)
+        else:
+            # Fallback to tk
+            tk.Label(
+                self.root, text="📋 Saved Chat Sessions",
+                font=("Segoe UI", 14, "bold"),
+                bg=self.colors["bg"], fg=self.colors["accent"]
+            ).grid(row=0, column=0, sticky=tk.W, padx=15, pady=(15, 10))
             
-            # Action buttons
-            self._create_action_buttons()
+            # List container with canvas-based scrolling
+            list_container = tk.Frame(
+                self.root, bg=self.colors["text_bg"],
+                highlightbackground=self.colors["border"],
+                highlightthickness=1
+            )
+            list_container.grid(row=1, column=0, sticky=tk.NSEW, padx=15, pady=5)
+            list_container.columnconfigure(0, weight=1)
+            list_container.rowconfigure(1, weight=1)
+            
+            # Header
+            self.list_header = SessionListHeader(
+                list_container,
+                self.theme,
+                on_sort=self._sort_by_column,
+                current_sort=self.sort_column,
+                descending=self.sort_descending
+            )
+            self.list_header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+            
+            # Scrollable canvas for session list
+            canvas_frame = tk.Frame(list_container, bg=self.colors["text_bg"])
+            canvas_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=8, pady=(0, 8))
+            canvas_frame.columnconfigure(0, weight=1)
+            canvas_frame.rowconfigure(0, weight=1)
+            
+            self._list_canvas = tk.Canvas(
+                canvas_frame, bg=self.colors["text_bg"],
+                highlightthickness=0, bd=0
+            )
+            self._list_canvas.grid(row=0, column=0, sticky=tk.NSEW)
+            
+            from tkinter import ttk
+            scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self._list_canvas.yview)
+            scrollbar.grid(row=0, column=1, sticky=tk.NS)
+            self._list_canvas.configure(yscrollcommand=scrollbar.set)
+            
+            self.session_list = tk.Frame(self._list_canvas, bg=self.colors["text_bg"])
+            self._canvas_window = self._list_canvas.create_window((0, 0), window=self.session_list, anchor=tk.NW)
+            
+            def on_frame_configure(event):
+                self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+            
+            def on_canvas_configure(event):
+                self._list_canvas.itemconfig(self._canvas_window, width=event.width)
+            
+            self.session_list.bind('<Configure>', on_frame_configure)
+            self._list_canvas.bind('<Configure>', on_canvas_configure)
+            
+            # Mouse wheel scrolling
+            def on_mousewheel(event):
+                self._list_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            self._list_canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        # Action buttons (works in both modes)
+        self._create_action_buttons()
         
         register_window(self.window_tag)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
@@ -2459,34 +2947,61 @@ class AttachedBrowserWindow:
     
     def _create_action_buttons(self):
         """Create action buttons."""
-        btn_frame = ctk.CTkFrame(self.root, fg_color="transparent")
-        btn_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(10, 15))
-        
-        create_emoji_button(
-            btn_frame, "New Session", "➕", self.theme, "success", 120, 32, self._new_session
-        ).pack(side="left", padx=2)
-        
-        create_emoji_button(
-            btn_frame, "Open Chat", "💬", self.theme, "primary", 110, 32, self._open_session
-        ).pack(side="left", padx=2)
-        
-        create_emoji_button(
-            btn_frame, "Delete", "🗑️", self.theme, "danger", 90, 32, self._delete_session
-        ).pack(side="left", padx=2)
-        
-        create_emoji_button(
-            btn_frame, "Refresh", "🔄", self.theme, "secondary", 90, 32, self._refresh
-        ).pack(side="left", padx=2)
-        
-        create_emoji_button(
-            btn_frame, "Close", "", self.theme, "secondary", 70, 32, self._close
-        ).pack(side="left", padx=2)
-        
-        self.status_label = ctk.CTkLabel(
-            btn_frame, text="Click on a session to select it",
-            font=get_ctk_font(size=11), text_color=self.theme.overlay0
-        )
-        self.status_label.pack(side="left", padx=15)
+        if HAVE_CTK:
+            btn_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+            btn_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(10, 15))
+            
+            create_emoji_button(
+                btn_frame, "New Session", "➕", self.theme, "success", 120, 32, self._new_session
+            ).pack(side="left", padx=2)
+            
+            create_emoji_button(
+                btn_frame, "Open Chat", "💬", self.theme, "primary", 110, 32, self._open_session
+            ).pack(side="left", padx=2)
+            
+            create_emoji_button(
+                btn_frame, "Delete", "🗑️", self.theme, "danger", 90, 32, self._delete_session
+            ).pack(side="left", padx=2)
+            
+            create_emoji_button(
+                btn_frame, "Refresh", "🔄", self.theme, "secondary", 90, 32, self._refresh
+            ).pack(side="left", padx=2)
+            
+            create_emoji_button(
+                btn_frame, "Close", "", self.theme, "secondary", 70, 32, self._close
+            ).pack(side="left", padx=2)
+            
+            self.status_label = ctk.CTkLabel(
+                btn_frame, text="Click on a session to select it",
+                font=get_ctk_font(size=11), text_color=self.theme.overlay0
+            )
+            self.status_label.pack(side="left", padx=15)
+        else:
+            # Fallback to tk
+            btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
+            btn_frame.grid(row=2, column=0, sticky=tk.EW, padx=15, pady=(10, 15))
+            
+            for text, cmd, bg_color in [
+                ("➕ New Session", self._new_session, self.colors["accent"]),
+                ("💬 Open Chat", self._open_session, self.colors["button_bg"]),
+                ("🗑️ Delete", self._delete_session, self.colors["button_bg"]),
+                ("🔄 Refresh", self._refresh, self.colors["button_bg"]),
+                ("Close", self._close, self.colors["button_bg"])
+            ]:
+                btn = tk.Button(
+                    btn_frame, text=text, font=("Segoe UI", 9),
+                    bg=bg_color, fg="#ffffff" if bg_color == self.colors["accent"] else self.colors["fg"],
+                    relief=tk.FLAT, padx=10, pady=6,
+                    command=cmd, cursor="hand2"
+                )
+                btn.pack(side=tk.LEFT, padx=2)
+            
+            self.status_label = tk.Label(
+                btn_frame, text="Click on a session to select it",
+                font=("Segoe UI", 9),
+                bg=self.colors["bg"], fg=self.colors["blockquote"]
+            )
+            self.status_label.pack(side=tk.LEFT, padx=15)
     
     def _sort_by_column(self, column: str):
         if self.sort_column == column:
@@ -2495,8 +3010,8 @@ class AttachedBrowserWindow:
             self.sort_column = column
             self.sort_descending = True
         
-        if HAVE_CTK:
-            self.list_header.update_sort_indicators(self.sort_column, self.sort_descending)
+        # SessionListHeader is pure tk, works in both modes
+        self.list_header.update_sort_indicators(self.sort_column, self.sort_descending)
         self._refresh()
     
     def _refresh(self):
@@ -2523,15 +3038,15 @@ class AttachedBrowserWindow:
         elif self.sort_column == "Updated":
             sessions.sort(key=lambda s: s['updated'] or '', reverse=reverse)
         
+        # SessionListItem is pure tk, works in both modes
         for session in sessions:
-            if HAVE_CTK:
-                item = SessionListItem(
-                    self.session_list, session, self.theme,
-                    on_click=self._on_select,
-                    on_double_click=self._on_double_click
-                )
-                item.pack(fill="x", pady=1)
-                self.session_items.append(item)
+            item = SessionListItem(
+                self.session_list, session, self.theme,
+                on_click=self._on_select,
+                on_double_click=self._on_double_click
+            )
+            item.pack(fill="x", pady=1)
+            self.session_items.append(item)
         
         self._update_status(f"{len(sessions)} session(s) found")
     
@@ -2553,7 +3068,7 @@ class AttachedBrowserWindow:
         self._open_session()
     
     def _update_status(self, text: str):
-        if HAVE_CTK:
+        if hasattr(self, 'status_label') and self.status_label:
             self.status_label.configure(text=text)
     
     def _new_session(self):

@@ -659,6 +659,7 @@ class ThemeRegistry:
             "fg": colors.fg,
             "text_bg": colors.text_bg,
             "input_bg": colors.input_bg,
+            "button_bg": colors.surface0,
             "border": colors.border,
             "accent": colors.accent,
             "accent_green": colors.accent_green,
