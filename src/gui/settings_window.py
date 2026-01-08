@@ -928,7 +928,7 @@ class SettingsWindow:
             )
             keys_tabview.pack(fill="both", expand=True)
             
-            for provider in ["custom", "openrouter", "google"]:
+            for provider in ["google", "openrouter", "custom"]:
                 keys_tabview.add(provider.capitalize())
                 self._create_keys_section(keys_tabview.tab(provider.capitalize()), provider)
         else:
@@ -936,7 +936,7 @@ class SettingsWindow:
             keys_tabview = ttk.Notebook(container)
             keys_tabview.pack(fill="both", expand=True)
             
-            for provider in ["custom", "openrouter", "google"]:
+            for provider in ["google", "openrouter", "custom"]:
                 frame_tab = tk.Frame(keys_tabview, bg=self.colors.bg)
                 keys_tabview.add(frame_tab, text=provider.capitalize())
                 self._create_keys_section(frame_tab, provider)

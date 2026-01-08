@@ -233,7 +233,8 @@ def signal_handler(signum, frame):
     else:
         print("\n\nShutdown signal received...")
     cleanup()
-    sys.exit(0)
+    # Force exit to prevent SystemExit issues with daemon threads
+    os._exit(0)
 
 
 def parse_args():
