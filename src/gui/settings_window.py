@@ -547,6 +547,9 @@ class SettingsWindow:
                     break
         except Exception:
             pass
+        finally:
+            # Ensure proper cleanup when loop exits
+            self._safe_destroy()
     
     def _create_title_bar(self, parent):
         """Create the title bar."""
@@ -1532,16 +1535,50 @@ class SettingsWindow:
             else:
                 self.status_label.configure(text="❌ Failed to save", fg=self.colors.accent_red)
     
+    def _safe_destroy(self):
+        """Safely destroy the window and cleanup."""
+        try:
+            if self.root:
+                # Suppress stderr to catch Tcl "invalid command name" errors
+                # which are benign during shutdown but annoying in console.
+                # Do NOT try to cancel after events as this can cause freezes.
+                try:
+                    import sys
+                    import contextlib
+                    
+                    @contextlib.contextmanager
+                    def start_suppress_stderr():
+                        old_stderr = sys.stderr
+                        sys.stderr = open(os.devnull, "w")
+                        try:
+                            yield
+                        finally:
+                            sys.stderr.close()
+                            sys.stderr = old_stderr
+                            
+                    with start_suppress_stderr():
+                        if self.root.winfo_exists():
+                            self.root.destroy()
+                except Exception:
+                    # Fallback if redirect fails
+                    try:
+                        self.root.destroy()
+                    except:
+                        pass
+        except Exception:
+            pass
+        self.root = None
+        unregister_window(self.window_tag)
+
     def _close(self):
         """Close the settings window."""
         self._destroyed = True
-        unregister_window(self.window_tag)
-        try:
-            if self.root:
-                self.root.destroy()
-        except tk.TclError:
-            pass
-        self.root = None
+        
+        # If we have a master, we rely on the master's loop, so we must destroy now.
+        # If we are standalone (no master), the manual event loop will see
+        # self._destroyed and call _safe_destroy()
+        if self.master:
+            self._safe_destroy()
 
 
 class AttachedSettingsWindow:
