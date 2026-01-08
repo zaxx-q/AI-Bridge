@@ -264,6 +264,11 @@ Examples:
         action='store_true',
         help='Skip Windows Terminal auto-detection (stay in current console)'
     )
+    parser.add_argument(
+        '--dummy',
+        action='store_true',
+        help='Dummy argument (does nothing)'
+    )
     return parser.parse_args()
 
 
