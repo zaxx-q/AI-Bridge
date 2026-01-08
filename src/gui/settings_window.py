@@ -515,10 +515,25 @@ class SettingsWindow:
         self.root.lift()
         self.root.focus_force()
         
+        # Handle protocol for errors
+        if self.root:
+             self.root.report_callback_exception = self._handle_callback_error
+
         # Event loop (only if standalone)
         if not self.master:
             self._run_event_loop()
     
+    def _handle_callback_error(self, exc, val, tb):
+        """Handle exceptions in callbacks to suppress noise on exit."""
+        import traceback
+        err_msg = "".join(traceback.format_exception_only(exc, val))
+        if "invalid command name" in err_msg:
+            # Benign error during shutdown
+            return
+        # Print real errors
+        print(f"Exception in Tkinter callback:\n{err_msg}")
+        traceback.print_tb(tb)
+
     def _run_event_loop(self):
         """Run event loop without blocking other Tk instances."""
         try:
