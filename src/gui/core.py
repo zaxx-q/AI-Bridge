@@ -27,12 +27,7 @@ import tkinter as tk
 from typing import Optional, Callable, Any
 
 # Import CustomTkinter with fallback
-try:
-    import customtkinter as ctk
-    HAVE_CTK = True
-except ImportError:
-    HAVE_CTK = False
-    ctk = None
+from .platform import HAVE_CTK, ctk
 
 # GUI is available if either tk or ctk works
 HAVE_GUI = True

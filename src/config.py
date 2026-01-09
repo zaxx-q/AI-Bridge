@@ -58,6 +58,9 @@ DEFAULT_CONFIG = {
     "ui_theme": "dracula",
     # Theme mode: auto (follows system), dark, light
     "ui_theme_mode": "auto",
+    # UI Framework settings
+    # Force use of standard Tkinter even if CustomTkinter is available (fallback mode)
+    "ui_force_standard_tk": False,
 }
 
 # Default endpoint definitions
@@ -353,6 +356,11 @@ ui_theme = dracula
 
 # Theme mode: auto (follows system dark/light), dark, light
 ui_theme_mode = auto
+
+# UI Framework settings
+# Force use of standard Tkinter even if CustomTkinter is available (fallback mode)
+# Useful for debugging or low-resource environments
+ui_force_standard_tk = false
 
 
 # ============================================================

@@ -29,27 +29,12 @@ import pyperclip
 
 import threading
 
-# Import CustomTkinter with fallback
-try:
-    import customtkinter as ctk
-    _CTK_AVAILABLE = True
-    HAVE_CTK = True
-except ImportError:
-    _CTK_AVAILABLE = False
-    HAVE_CTK = False
-    ctk = None
+from .platform import HAVE_CTK, ctk
 
 
-def _can_use_ctk() -> bool:
-    """
-    Check if CustomTkinter can be safely used.
-    """
-    return _CTK_AVAILABLE
-
-
-# Note: For class definitions that inherit from ctk or tk, we use _CTK_AVAILABLE
+# Note: For class definitions that inherit from ctk or tk, we use HAVE_CTK
 # since inheritance is determined at import time. For runtime widget creation,
-# call _can_use_ctk() to check both availability AND main thread.
+# call HAVE_CTK to check both availability AND main thread.
 
 from .themes import (
     ThemeRegistry, ThemeColors, get_colors, sync_ctk_appearance,
@@ -129,14 +114,14 @@ COMMON_EMOJIS = [
 ]
 
 
-class EmojiPicker(ctk.CTkToplevel if _CTK_AVAILABLE else tk.Toplevel):
+class EmojiPicker(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
     """Simple emoji picker popup - CTk version."""
     
     def __init__(self, parent, callback: Callable[[str], None], colors: ThemeColors):
         super().__init__(parent)
         self.callback = callback
         self.colors = colors
-        self.use_ctk = _can_use_ctk()
+        self.use_ctk = HAVE_CTK
         
         self.title("Pick Icon")
         self.geometry("450x340")
@@ -248,14 +233,14 @@ class EmojiPicker(ctk.CTkToplevel if _CTK_AVAILABLE else tk.Toplevel):
 # Themed Input Dialog (CTk version)
 # =============================================================================
 
-class ThemedInputDialog(ctk.CTkToplevel if _CTK_AVAILABLE else tk.Toplevel):
+class ThemedInputDialog(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
     """Themed dialog for getting text input from user."""
     
     def __init__(self, parent, title: str, prompt: str, colors: ThemeColors):
         super().__init__(parent)
         self.colors = colors
         self.result = None
-        self.use_ctk = _can_use_ctk()
+        self.use_ctk = HAVE_CTK
         
         self.title(title)
         self.geometry("400x180")
@@ -358,7 +343,7 @@ def ask_themed_string(parent, title: str, prompt: str, colors: ThemeColors) -> O
 # Test Result Dialog (Streaming)
 # =============================================================================
 
-class TestResultDialog(ctk.CTkToplevel if _CTK_AVAILABLE else tk.Toplevel):
+class TestResultDialog(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
     """
     Streaming test result dialog.
     Supports real-time updates for text and thinking content.
@@ -367,7 +352,7 @@ class TestResultDialog(ctk.CTkToplevel if _CTK_AVAILABLE else tk.Toplevel):
     def __init__(self, parent, colors):
         super().__init__(parent)
         self.colors = colors
-        self.use_ctk = _can_use_ctk()
+        self.use_ctk = HAVE_CTK
         self.queue = queue.Queue()
         
         self.title("API Test Result")
@@ -519,7 +504,7 @@ class PromptEditorWindow:
         self.editor_widgets: Dict[str, Any] = {}
         
         # Determine if we can use CTk (must be in main thread)
-        self.use_ctk = _can_use_ctk()
+        self.use_ctk = HAVE_CTK
     
     def show(self):
         """Create and show the prompt editor window."""

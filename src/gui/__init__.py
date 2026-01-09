@@ -2,11 +2,7 @@
 # Uses CustomTkinter for modern UI with fallback to standard Tkinter
 
 # Check for CustomTkinter availability
-try:
-    import customtkinter as ctk
-    HAVE_CTK = True
-except ImportError:
-    HAVE_CTK = False
+from .platform import HAVE_CTK, ctk
 
 from .text_edit_tool import TextEditToolApp
 from .core import (

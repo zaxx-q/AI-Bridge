@@ -41,14 +41,7 @@ try:
 except ImportError:
     HAVE_PIL = False
 
-# Try to import CustomTkinter for CTkImage support
-try:
-    import customtkinter as ctk
-    from customtkinter import CTkImage
-    HAVE_CTK = True
-except ImportError:
-    HAVE_CTK = False
-    CTkImage = None
+from .platform import HAVE_CTK, ctk, CTkImage
 
 
 def get_assets_path() -> Tuple[Path, bool]:

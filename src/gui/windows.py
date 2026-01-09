@@ -25,12 +25,7 @@ import tkinter as tk
 from typing import Optional, Dict, List
 
 # Import CustomTkinter with fallback
-try:
-    import customtkinter as ctk
-    HAVE_CTK = True
-except ImportError:
-    HAVE_CTK = False
-    ctk = None
+from .platform import HAVE_CTK, ctk
 
 from ..utils import strip_markdown
 from ..session_manager import add_session, get_session, list_sessions, delete_session, save_sessions, ChatSession
@@ -379,6 +374,7 @@ class StandaloneChatWindow:
             self.root = ctk.CTk()
         else:
             self.root = tk.Tk()
+            self.root.configure(bg=self.colors["bg"])
         
         # Hide window while building UI (prevents flashing)
         self.root.withdraw()
@@ -1435,6 +1431,7 @@ class StandaloneSessionBrowserWindow:
             self.root = ctk.CTk()
         else:
             self.root = tk.Tk()
+            self.root.configure(bg=self.colors["bg"])
         
         # Hide window while building UI (prevents elements appearing one by one)
         self.root.withdraw()
@@ -1591,7 +1588,27 @@ class StandaloneSessionBrowserWindow:
             
             # Mouse wheel scrolling
             def on_mousewheel(event):
-                self._list_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                if not self.root or not self.root.winfo_exists():
+                    return
+                # Only scroll if mouse is over the canvas or its children
+                try:
+                    x, y = self.root.winfo_pointerxy()
+                    widget = self.root.winfo_containing(x, y)
+                    # Check if widget is the canvas or descendant
+                    if widget and (str(widget) == str(self._list_canvas) or str(widget).startswith(str(self._list_canvas) + ".")):
+                        self._list_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                except Exception:
+                    pass
+
+            def _bind_mousewheel(event):
+                self._list_canvas.bind_all("<MouseWheel>", on_mousewheel)
+            
+            # Re-bind on Enter to ensure active window controls scrolling
+            self.root.bind("<Enter>", _bind_mousewheel, add="+")
+            self.list_header.bind("<Enter>", _bind_mousewheel, add="+")
+            self._list_canvas.bind("<Enter>", _bind_mousewheel, add="+")
+            
+            # Initial bind
             self._list_canvas.bind_all("<MouseWheel>", on_mousewheel)
     
     def _create_action_buttons(self):
@@ -1873,6 +1890,7 @@ class AttachedChatWindow:
             self.root = ctk.CTkToplevel(self.parent_root)
         else:
             self.root = tk.Toplevel(self.parent_root)
+            self.root.configure(bg=self.colors["bg"])
         
         # Hide window while building UI
         self.root.withdraw()
@@ -2805,6 +2823,7 @@ class AttachedBrowserWindow:
             self.root = ctk.CTkToplevel(self.parent_root)
         else:
             self.root = tk.Toplevel(self.parent_root)
+            self.root.configure(bg=self.colors["bg"])
         
         # Hide window while building UI
         self.root.withdraw()
@@ -2922,7 +2941,26 @@ class AttachedBrowserWindow:
             
             # Mouse wheel scrolling
             def on_mousewheel(event):
-                self._list_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                if not self.root or not self.root.winfo_exists():
+                    return
+                # Only scroll if mouse is over the canvas or its children
+                try:
+                    x, y = self.root.winfo_pointerxy()
+                    widget = self.root.winfo_containing(x, y)
+                    if widget and (str(widget) == str(self._list_canvas) or str(widget).startswith(str(self._list_canvas) + ".")):
+                        self._list_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                except Exception:
+                    pass
+
+            def _bind_mousewheel(event):
+                self._list_canvas.bind_all("<MouseWheel>", on_mousewheel)
+            
+            # Re-bind on Enter
+            self.root.bind("<Enter>", _bind_mousewheel, add="+")
+            self.list_header.bind("<Enter>", _bind_mousewheel, add="+")
+            self._list_canvas.bind("<Enter>", _bind_mousewheel, add="+")
+            
+            # Initial bind
             self._list_canvas.bind_all("<MouseWheel>", on_mousewheel)
         
         # Action buttons (works in both modes)

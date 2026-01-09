@@ -34,12 +34,7 @@ else:
     HAVE_WIN32 = False
 
 # Import CustomTkinter with fallback
-try:
-    import customtkinter as ctk
-    HAVE_CTK = True
-except ImportError:
-    HAVE_CTK = False
-    ctk = None
+from .platform import HAVE_CTK, ctk
 
 # Import theme system
 from .themes import (

@@ -7,23 +7,18 @@ Includes ScrollableButtonList for replacing tk.Listbox with rich buttons.
 import tkinter as tk
 from typing import Callable, Optional, Any, Dict, List
 
-try:
-    import customtkinter as ctk
-    _CTK_AVAILABLE = True
-except ImportError:
-    _CTK_AVAILABLE = False
-    ctk = None
+from .platform import HAVE_CTK, ctk
 
 from .themes import ThemeColors, get_ctk_button_colors, get_ctk_font
 
 try:
     from .emoji_renderer import get_emoji_renderer, HAVE_PIL
-    HAVE_EMOJI = HAVE_PIL and _CTK_AVAILABLE
+    HAVE_EMOJI = HAVE_PIL and HAVE_CTK
 except ImportError:
     HAVE_EMOJI = False
     get_emoji_renderer = None
 
-class ScrollableButtonList(ctk.CTkScrollableFrame if _CTK_AVAILABLE else tk.Frame):
+class ScrollableButtonList(ctk.CTkScrollableFrame if HAVE_CTK else tk.Frame):
     """
     A scrollable list of buttons acting as a selector.
     Replaces tk.Listbox to allow images/emojis and modern styling.
@@ -67,7 +62,7 @@ class ScrollableButtonList(ctk.CTkScrollableFrame if _CTK_AVAILABLE else tk.Fram
         variant = "primary" if is_selected else "secondary"
         color_kwargs = get_ctk_button_colors(self.colors, variant)
         
-        if _CTK_AVAILABLE:
+        if HAVE_CTK:
             btn_kwargs = {
                 "text": display_text,
                 "anchor": "w",
@@ -127,7 +122,7 @@ class ScrollableButtonList(ctk.CTkScrollableFrame if _CTK_AVAILABLE else tk.Fram
         is_selected = (item_id == self.selected_id)
         variant = "primary" if is_selected else "secondary"
         
-        if _CTK_AVAILABLE:
+        if HAVE_CTK:
             # Configure colors - exclude border_width as it causes flicker sometimes
             colors = get_ctk_button_colors(self.colors, variant)
             btn.configure(
@@ -196,7 +191,7 @@ def upgrade_tabview_with_icons(tabview, icon_size: int = 24, font_size: int = 14
     Upgrade CTkTabview tabs with larger font and emoji images.
     Uses internal hacks to access the segmented button.
     """
-    if not _CTK_AVAILABLE or not isinstance(tabview, ctk.CTkTabview):
+    if not HAVE_CTK or not isinstance(tabview, ctk.CTkTabview):
         return
 
     try:
@@ -229,7 +224,7 @@ def create_section_header(parent, text: str, colors: ThemeColors, emoji: str = N
     Create a section header with optional emoji support.
     Handles both explicit emoji arg or parsing emoji from start of text.
     """
-    if _CTK_AVAILABLE:
+    if HAVE_CTK:
         # Check for emoji at start if not explicitly provided
         label_text = text
         emoji_char = emoji
@@ -275,7 +270,7 @@ def create_emoji_button(parent, text: str, icon: str, colors: ThemeColors,
     Create a styled button with optional emoji icon.
     Handles rendering emoji as image (CTk) or text fallback.
     """
-    if _CTK_AVAILABLE:
+    if HAVE_CTK:
         img = None
         display_text = text
         

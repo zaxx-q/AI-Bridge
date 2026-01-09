@@ -26,14 +26,8 @@ from pathlib import Path
 import threading
 
 # Import CustomTkinter with fallback
-try:
-    import customtkinter as ctk
-    _CTK_AVAILABLE = True
-    HAVE_CTK = True
-except ImportError:
-    _CTK_AVAILABLE = False
-    HAVE_CTK = False
-    ctk = None
+from .platform import HAVE_CTK, ctk
+_CTK_AVAILABLE = HAVE_CTK
 
 
 def _can_use_ctk() -> bool:
@@ -739,30 +733,37 @@ class SettingsWindow:
             )
         self.widgets["default_provider"].pack(side="left", padx=(10, 0))
         
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Primary provider for general requests", font=get_ctk_font(11),
+                        **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
+        else:
+             tk.Label(row, text="Provider for requests (can be overriden by endpoint parameters)", font=("Segoe UI", 9),
+                     bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
+        
         # Custom provider settings
         create_section_header(scroll_frame, "🛠️ Custom Provider", self.colors, top_padding=20)
         
         self._add_entry_field(scroll_frame, "custom_url", "URL:",
                              self.config_data.config.get("custom_url", "") or "",
-                             width=400)
+                             width=400, hint="OpenAI-compatible endpoint URL")
         
         self._add_entry_field(scroll_frame, "custom_model", "Model:",
                              self.config_data.config.get("custom_model", "") or "",
-                             width=300)
+                             width=300, hint="Model ID to use")
         
         # OpenRouter settings
         create_section_header(scroll_frame, "🚀 OpenRouter", self.colors, top_padding=20)
         
         self._add_entry_field(scroll_frame, "openrouter_model", "Model:",
                              self.config_data.config.get("openrouter_model", ""),
-                             width=300)
+                             width=300, hint="e.g. openai/gpt-oss-120b:free")
         
         # Google settings
         create_section_header(scroll_frame, "💎 Google Gemini", self.colors, top_padding=20)
         
         self._add_entry_field(scroll_frame, "google_model", "Model:",
                              self.config_data.config.get("google_model", ""),
-                             width=300)
+                             width=300, hint="e.g. gemini-2.5-flash-lite")
     
     def _create_streaming_tab(self, frame):
         """Create the Streaming/Thinking settings tab."""
@@ -777,14 +778,16 @@ class SettingsWindow:
         
         self._add_toggle_field(scroll_frame, "streaming_enabled",
                               "Enable streaming responses",
-                              self.config_data.config.get("streaming_enabled", True))
+                              self.config_data.config.get("streaming_enabled", True),
+                              hint="Type answer word-by-word instead of waiting for full response and then pasting")
         
         # Thinking section
         create_section_header(scroll_frame, "💭 Thinking / Reasoning", self.colors, top_padding=20)
         
         self._add_toggle_field(scroll_frame, "thinking_enabled",
                               "Enable thinking mode",
-                              self.config_data.config.get("thinking_enabled", False))
+                              self.config_data.config.get("thinking_enabled", False),
+                              hint="Enable sending thinking parameters")
         
         # Thinking output dropdown
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
@@ -812,6 +815,15 @@ class SettingsWindow:
                 state="readonly", width=20
             )
         self.widgets["thinking_output"].pack(side="left", padx=(10, 0))
+        
+        # Explanation for thinking output modes
+        explanation = "filter: Hide thinking content | raw: Include thinking in main response | reasoning_content: Separate field (collapsible)"
+        if self.use_ctk:
+             ctk.CTkLabel(row, text=explanation, font=get_ctk_font(11),
+                         **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
+        else:
+             tk.Label(row, text=explanation, font=("Segoe UI", 9),
+                     bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
         
         # Thinking config section
         create_section_header(scroll_frame, "Thinking Configuration", self.colors, top_padding=20)
@@ -842,11 +854,17 @@ class SettingsWindow:
                 state="readonly", width=12
             )
         self.widgets["reasoning_effort"].pack(side="left", padx=(10, 0))
+        if self.use_ctk:
+             ctk.CTkLabel(row, text="Set how much the model will think for reasoning/thinking models", font=get_ctk_font(11),
+                         **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
+        else:
+             tk.Label(row, text="Set how much the model will think for reasoning/thinking models", font=("Segoe UI", 9),
+                     bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
         
         # Thinking budget (Gemini 2.5)
-        self._add_spinbox_field(scroll_frame, "thinking_budget", "Thinking budget (Gemini 2.5):",
+        self._add_spinbox_field(scroll_frame, "thinking_budget", "Thinking budget:",
                                self.config_data.config.get("thinking_budget", -1),
-                               -1, 100000)
+                               -1, 100000, hint="For Gemini 2.5 models. -1 = auto.")
         
         # Thinking level (Gemini 3.x)
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
@@ -866,7 +884,7 @@ class SettingsWindow:
             )
         else:
             from tkinter import ttk
-            tk.Label(row, text="Thinking level (Gemini 3.x):", font=("Segoe UI", 10), width=22, anchor="w",
+            tk.Label(row, text="Thinking level:", font=("Segoe UI", 10), width=22, anchor="w",
                     bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
             self.widgets["thinking_level"] = ttk.Combobox(
                 row, textvariable=self.vars["thinking_level"],
@@ -874,6 +892,12 @@ class SettingsWindow:
                 state="readonly", width=12
             )
         self.widgets["thinking_level"].pack(side="left", padx=(10, 0))
+        if self.use_ctk:
+             ctk.CTkLabel(row, text="For Gemini 3 models", font=get_ctk_font(11),
+                         **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
+        else:
+             tk.Label(row, text="For Gemini 3 models", font=("Segoe UI", 9),
+                     bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
     
     def _create_textedit_tab(self, frame):
         """Create the TextEditTool settings tab."""
@@ -1209,6 +1233,14 @@ class SettingsWindow:
             )
             self.widgets["ui_theme_mode"].bind('<<ComboboxSelected>>', lambda e: self._update_theme_preview())
         self.widgets["ui_theme_mode"].pack(side="left", padx=(10, 0))
+        
+        # Framework section
+        create_section_header(scroll_frame, "🔧 Framework", self.colors, top_padding=20)
+        
+        self._add_toggle_field(scroll_frame, "ui_force_standard_tk",
+                              "Force Standard Tkinter (Disable Modern UI)",
+                              self.config_data.config.get("ui_force_standard_tk", False),
+                              hint="⚠️ Restart required. Use if CustomTkinter causes performance issues.")
         
         # Preview section
         create_section_header(scroll_frame, "Preview", self.colors, top_padding=20)
