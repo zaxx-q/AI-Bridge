@@ -137,7 +137,7 @@ executables = [
 
 setup(
     name="AIPromptBridge",
-    version="2.5.3",
+    version="2.5.4",
     description="Multi-modal AI Assistant Server with TextEditTool and Color Emoji Support",
     author="AIPromptBridge",
     options={"build_exe": build_exe_options},

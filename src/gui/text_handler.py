@@ -3,6 +3,7 @@
 Text selection and clipboard handler
 """
 
+import ctypes
 import logging
 import time
 from typing import Optional
@@ -23,7 +24,7 @@ class TextHandler:
     def get_selected_text(self, sleep_duration: float = 0.01, max_wait: float = 0.4) -> str:
         """
         Get the currently selected text from any application using polling.
-        Uses a sentinel value to robustly detect clipboard updates vs existing content.
+        Uses Windows clipboard sequence number to detect changes without modifying clipboard history.
         
         Args:
             sleep_duration: Short delay before Ctrl+C for stability (default: 0.01s)
@@ -32,23 +33,20 @@ class TextHandler:
         Returns:
             The selected text, or empty string if none
         """
-        # Backup the clipboard
+        # Backup the clipboard in case we need to restore it
+        # We only restore if we actually successfully copied new text (overwriting the user's clipboard)
         try:
             clipboard_backup = pyperclip.paste()
         except Exception:
             clipboard_backup = ""
-        
-        # Use a unique sentinel to detect changes (better than clearing to empty string)
-        # identifying random tokens helps avoid false matches
-        sentinel = f"__AI_PROMPT_BRIDGE_SENTINEL_{time.time()}__"
-        
+            
+        # Get current sequence number to detect changes
         try:
-            pyperclip.copy(sentinel)
+            user32 = ctypes.windll.user32
+            start_sequence = user32.GetClipboardSequenceNumber()
         except Exception as e:
-            logging.error(f"Failed to set clipboard sentinel: {e}")
-            # Try clearing as fallback
-            self.clear_clipboard()
-            sentinel = ""
+            logging.error(f"Failed to get clipboard sequence: {e}")
+            return ""
         
         # Short stability delay before pressing keys
         time.sleep(sleep_duration)
@@ -61,36 +59,35 @@ class TextHandler:
             self.keyboard.release(pykeyboard.Key.ctrl)
         except Exception as e:
             logging.error(f'Failed to simulate Ctrl+C: {e}')
-            # Restore clipboard
-            try:
-                pyperclip.copy(clipboard_backup)
-            except Exception:
-                pass
             return ""
         
         # Poll for clipboard update
         # We check frequently (every 10ms) to return as fast as possible
         start_time = time.time()
         selected_text = ""
+        clipboard_changed = False
         
         while (time.time() - start_time) < max_wait:
             try:
-                content = pyperclip.paste()
-                # Check if content changed from sentinel
-                if content != sentinel:
-                    selected_text = content
+                current_sequence = user32.GetClipboardSequenceNumber()
+                if current_sequence != start_sequence:
+                    selected_text = pyperclip.paste()
+                    clipboard_changed = True
                     break
             except Exception:
                 pass
             time.sleep(0.01)  # 10ms poll interval
             
-        # logging.debug(f'Clipboard poll took {time.time() - start_time:.3f}s. Found text: {len(selected_text) > 0}')
-        
-        # Restore the clipboard
-        try:
-            pyperclip.copy(clipboard_backup)
-        except Exception as e:
-            logging.error(f'Failed to restore clipboard: {e}')
+        # If we successfully captured text, it means we overwrote the user's clipboard.
+        # We should restore the original content to be transparent.
+        if clipboard_changed:
+            try:
+                # Add a tiny delay to ensure the system is ready for another clipboard op
+                # (prevent "OpenClipboard Failed" errors)
+                time.sleep(0.05)
+                pyperclip.copy(clipboard_backup)
+            except Exception as e:
+                logging.error(f'Failed to restore clipboard: {e}')
         
         return selected_text
     
