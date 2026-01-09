@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Theme System for AI Bridge GUI
+Theme System for AIPromptBridge GUI
 
 Provides a centralized theme registry with multiple color schemes.
 Each theme has dark and light variants.

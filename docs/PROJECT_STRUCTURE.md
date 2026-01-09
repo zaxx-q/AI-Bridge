@@ -1,9 +1,9 @@
 # Project Structure
 
-AI Bridge follows a modular architecture separating the web server, GUI, system tray, and AI providers.
+AIPromptBridge follows a modular architecture separating the web server, GUI, system tray, and AI providers.
 
 ```
-AI-Bridge/
+AIPromptBridge/
 ├── main.py                     # Main entry point (--no-tray, --show-console flags)
 ├── setup.py                    # cx_Freeze build configuration for Windows executable
 ├── requirements.txt            # Python dependencies

@@ -67,7 +67,7 @@ def get_icon_path():
 
 def set_window_icon(window, delay_ms: int = 100):
     """
-    Set the window icon to the AI-Bridge icon.
+    Set the window icon to the AIPromptBridge icon.
     
     For CustomTkinter windows, the icon must be set AFTER the window
     is fully initialized, because CTk overrides the icon during setup.

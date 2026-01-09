@@ -248,7 +248,7 @@ def save_config_value(key: str, value, filepath=CONFIG_FILE):
 def generate_example_config():
     """Generate example configuration file content"""
     return '''# ============================================================
-# AI Bridge - Multi-modal AI Assistant Server Configuration
+# AIPromptBridge - Multi-modal AI Assistant Server Configuration
 # ============================================================
 
 [config]

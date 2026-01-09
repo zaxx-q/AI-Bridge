@@ -1,6 +1,6 @@
 # ShareX Integration Guide
 
-This guide explains how to set up ShareX to work with AI Bridge for image processing tasks like OCR, translation, and description.
+This guide explains how to set up ShareX to work with AIPromptBridge for image processing tasks like OCR, translation, and description.
 
 ## Demo
 
@@ -9,8 +9,8 @@ https://github.com/user-attachments/assets/f9fcbea2-e403-4ea5-86d5-50edb79454f6
 ## Prerequisites
 
 - Latest version of [ShareX](https://getsharex.com/) installed
-- AI Bridge running:
-  - **Recommended**: Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases) - just extract, run, and enter your API key in the Settings window that appears
+- AIPromptBridge running:
+  - **Recommended**: Download `AIPromptBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AIPromptBridge/releases) - just extract, run, and enter your API key in the Settings window that appears
   - **Alternative**: `python main.py` (requires Python environment)
 
 ## Step 1: Create Custom Uploader
@@ -25,7 +25,7 @@ Fill in the following settings:
 
 | Setting | Value |
 |---------|-------|
-| **Name** | `AI Bridge - OCR` (or any name) |
+| **Name** | `AIPromptBridge - OCR` (or any name) |
 | **Destination type** | `Image uploader` |
 | **Method** | `POST` |
 | **Request URL** | `http://127.0.0.1:5000/ocr` |
@@ -37,7 +37,7 @@ Fill in the following settings:
 
 ## Available Endpoints
 
-AI Bridge comes with these default endpoints:
+AIPromptBridge comes with these default endpoints:
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -103,7 +103,7 @@ Add these to the URL for additional behavior:
    - Check **Image uploader**
    - Select **Custom image uploader**
 3. Configure **Override default custom uploader**:
-   - Check and select your `AI Bridge - OCR` uploader
+   - Check and select your `AIPromptBridge - OCR` uploader
 
 ![Task settings](images/sharex-task-settings.jpg)
 
@@ -111,7 +111,7 @@ Add these to the URL for additional behavior:
 
 1. Press your configured hotkey
 2. Select a region on screen (or capture window/fullscreen)
-3. Wait for AI Bridge to process the image
+3. Wait for AIPromptBridge to process the image
 4. The extracted text is now in your clipboard - paste anywhere!
 
 ### Quick Access via Tray
@@ -125,13 +125,13 @@ You can also access workflows by:
 
 ### "Connection refused" Error
 
-- Make sure AI Bridge is running (check system tray for the icon)
+- Make sure AIPromptBridge is running (check system tray for the icon)
 - Check the port matches your config (default: 5000)
 - Try opening `http://127.0.0.1:5000/` in your browser
 
 ### Empty Response
 
-- Check AI Bridge console for errors (right-click tray → Show Console)
+- Check AIPromptBridge console for errors (right-click tray → Show Console)
 - Verify your API keys are configured in `config.ini`
 - Make sure to use models that supports vision
 

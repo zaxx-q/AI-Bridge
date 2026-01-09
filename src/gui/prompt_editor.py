@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Prompt Editor Window for AI Bridge
+Prompt Editor Window for AIPromptBridge
 
 Provides a GUI for editing text_edit_tool_options.json without opening the file directly.
 Features:
@@ -532,7 +532,7 @@ class PromptEditorWindow:
                 self.root = tk.Tk()
                 self.root.configure(bg=self.colors.bg)
         
-        self.root.title("AI Bridge Prompt Editor")
+        self.root.title("AIPromptBridge Prompt Editor")
         self.root.geometry("1200x850")
         self.root.minsize(1000, 650)
         

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI Bridge - Multi-modal AI Assistant Server
+AIPromptBridge - Multi-modal AI Assistant Server
 Main entry point
 
 Usage:
@@ -71,14 +71,14 @@ def initialize():
     if HAVE_RICH:
         console.print()
         print_panel(
-            "[bold cyan]🌉 AI Bridge[/bold cyan]\n[dim]Multi-modal AI Assistant Server[/dim]",
+            "[bold cyan]🌉 AIPromptBridge[/bold cyan]\n[dim]Multi-modal AI Assistant Server[/dim]",
             border_style="cyan"
         )
         console.print()
     else:
         print()
         print("┌" + "─" * 62 + "┐")
-        print("│  🌉 AI Bridge                                                 │")
+        print("│  🌉 AIPromptBridge                                            │")
         print("│  Multi-modal AI Assistant Server                              │")
         print("└" + "─" * 62 + "┘")
         print()
@@ -240,7 +240,7 @@ def signal_handler(signum, frame):
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
-        description="AI Bridge - Multi-modal AI Assistant Server",
+        description="AIPromptBridge - Multi-modal AI Assistant Server",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -298,7 +298,7 @@ def ensure_windows_terminal() -> bool:
         return False
     
     # Prevent infinite relaunch loops
-    if os.environ.get("AI_BRIDGE_WT_LAUNCHED"):
+    if os.environ.get("AI_PROMPT_BRIDGE_WT_LAUNCHED"):
         return False
     
     print("🔄 Relaunching in Windows Terminal for full emoji support...")
@@ -309,7 +309,7 @@ def ensure_windows_terminal() -> bool:
     
     # Set environment variable to prevent loops
     env = os.environ.copy()
-    env["AI_BRIDGE_WT_LAUNCHED"] = "1"
+    env["AI_PROMPT_BRIDGE_WT_LAUNCHED"] = "1"
     
     try:
         # Use Windows Terminal to open a new tab with the current script
@@ -438,7 +438,7 @@ def main():
             console.print()
             print_error(f"Port {port} is already in use!")
             console.print()
-            print_warning("Another instance of AI Bridge may already be running.")
+            print_warning("Another instance of AIPromptBridge may already be running.")
             console.print(f"[dim]Check if port {port} is in use: netstat -an | findstr {port}[/dim]")
             console.print()
             console.print("[dim]Press Enter to exit...[/dim]")
@@ -446,7 +446,7 @@ def main():
             print()
             print(f"❌ ERROR: Port {port} is already in use!")
             print()
-            print("Another instance of AI Bridge may already be running.")
+            print("Another instance of AIPromptBridge may already be running.")
             print(f"Check if port {port} is in use: netstat -an | findstr {port}")
             print()
             print("Press Enter to exit...")

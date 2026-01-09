@@ -160,7 +160,7 @@ def index():
     """Root endpoint with service information"""
     available_providers = [p for p, km in KEY_MANAGERS.items() if km.has_keys()]
     return jsonify({
-        "service": "AI Bridge",
+        "service": "AIPromptBridge",
         "status": "running",
         "gui_available": HAVE_GUI,
         "gui_running": get_gui_status()["running"],

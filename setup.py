@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cx_Freeze setup script for AI Bridge
+cx_Freeze setup script for AIPromptBridge
 Creates a standalone Windows executable with console window (can be hidden/shown via tray)
 
 Build commands:
@@ -124,11 +124,11 @@ executables = [
     Executable(
         script="main.py",
         base=base,
-        target_name="AIBridge.exe",
+        target_name="AIPromptBridge.exe",
         icon="icon.ico",
-        copyright="AI Bridge",
+        copyright="AIPromptBridge",
         # Windows-specific options
-        shortcut_name="AI Bridge",
+        shortcut_name="AIPromptBridge",
         shortcut_dir="DesktopFolder",
     )
 ]
@@ -136,10 +136,10 @@ executables = [
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
 setup(
-    name="AI Bridge",
+    name="AIPromptBridge",
     version="2.5.3",
     description="Multi-modal AI Assistant Server with TextEditTool and Color Emoji Support",
-    author="AI Bridge",
+    author="AIPromptBridge",
     options={"build_exe": build_exe_options},
     executables=executables,
     cmdclass={"build_exe": CustomBuildExe},

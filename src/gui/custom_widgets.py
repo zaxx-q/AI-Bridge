@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Custom widgets for AI Bridge GUI.
+Custom widgets for AIPromptBridge GUI.
 Includes ScrollableButtonList for replacing tk.Listbox with rich buttons.
 """
 

@@ -185,7 +185,7 @@ class EmojiRenderer:
     def _get_temp_icon_dir(self) -> str:
         """Get or create the temporary directory for icon files."""
         if self._temp_icon_dir is None:
-            self._temp_icon_dir = tempfile.mkdtemp(prefix="ai_bridge_icons_")
+            self._temp_icon_dir = tempfile.mkdtemp(prefix="aipromptbridge_icons_")
             
             # Register cleanup on exit
             def cleanup():

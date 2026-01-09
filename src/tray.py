@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-System Tray implementation for AI Bridge
+System Tray implementation for AIPromptBridge
 Uses infi.systray for Windows with native .ico support (no Pillow needed)
 """
 
@@ -125,7 +125,7 @@ def enable_console_close_button():
 # ─── Tray Application ─────────────────────────────────────────────────────────
 
 class TrayApp:
-    """System tray application for AI Bridge"""
+    """System tray application for AIPromptBridge"""
     
     def __init__(self, icon_path=None, on_exit_callback=None):
         """
@@ -181,7 +181,7 @@ class TrayApp:
     
     def _on_restart(self, systray):
         """Restart the application"""
-        print("\n🔄 Restarting AI Bridge...")
+        print("\n🔄 Restarting AIPromptBridge...")
         
         # Get the current script path
         script = os.path.abspath(sys.argv[0])
@@ -204,7 +204,7 @@ class TrayApp:
                     # Launch in Windows Terminal
                     print("🔄 Restarting via Windows Terminal...")
                     env = os.environ.copy()
-                    env["AI_BRIDGE_WT_LAUNCHED"] = "1"  # Prevent loop
+                    env["AI_PROMPT_BRIDGE_WT_LAUNCHED"] = "1"  # Prevent loop
                     
                     cmd = [wt_path, "-w", "0", "-d", os.getcwd()]
                     if script.endswith('.py'):
@@ -315,7 +315,7 @@ class TrayApp:
     
     def _on_exit(self, systray):
         """Exit the application"""
-        print("\n👋 Exiting AI Bridge...")
+        print("\n👋 Exiting AIPromptBridge...")
         
         # Show console before exit so user sees the message
         show_console()
@@ -393,7 +393,7 @@ class TrayApp:
             # We removed "Quit" from raw_options to ensure only one button appears
             self.systray = SysTrayIcon(
                 self.icon_path,
-                "AI Bridge",
+                "AIPromptBridge",
                 tuple(menu_options),
                 on_quit=self._on_exit,
                 default_menu_index=0  # "Show Console" is default action on double-click

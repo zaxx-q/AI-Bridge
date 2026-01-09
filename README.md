@@ -1,10 +1,10 @@
-# AI Bridge
+# AIPromptBridge
 
 <p align="center">
   <strong>• Windows Desktop AI Assistant •</strong>
 </p>
 
-**AI Bridge** is a Windows desktop application that brings AI assistance to your fingertips. Use global hotkeys to edit text in any application, process screenshots with OCR, and chat with AI models—all from a lightweight system tray app.
+**AIPromptBridge** is a Windows desktop application that brings AI assistance to your fingertips. Use global hotkeys to edit text in any application, process screenshots with OCR, and chat with AI models—all from a lightweight system tray app.
 
 ## 📽️ Demo
 
@@ -56,7 +56,7 @@ Customizable appearance with:
 
 ### Download (Recommended)
 
-1. Download `AIBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AI-Bridge/releases)
+1. Download `AIPromptBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AIPromptBridge/releases)
 2. Run it - on first launch, it creates `config.ini` and automatically opens the Settings window
 3. Enter your API keys in the **API Keys** tab and click **Save**
 4. The app starts minimized to system tray
@@ -64,8 +64,8 @@ Customizable appearance with:
 ### From Source (Alternative)
 
 ```bash
-git clone https://github.com/zaxx-q/AI-Bridge.git
-cd AI-Bridge
+git clone https://github.com/zaxx-q/AIPromptBridge.git
+cd AIPromptBridge
 pip install -r requirements.txt
 python main.py
 ```
@@ -261,13 +261,13 @@ Available themes: `catppuccin`, `dracula`, `nord`, `gruvbox`, `onedark`, `minima
 ## 🔧 Command Line Options
 
 ```bash
-AIBridge.exe                    # Normal start (tray mode, console hidden)
-AIBridge.exe --no-tray          # No tray icon, console stays visible
-AIBridge.exe --show-console     # Tray mode but keep console visible
-AIBridge.exe --no-wt            # Skip Windows Terminal detection
+AIPromptBridge.exe                    # Normal start (tray mode, console hidden)
+AIPromptBridge.exe --no-tray          # No tray icon, console stays visible
+AIPromptBridge.exe --show-console     # Tray mode but keep console visible
+AIPromptBridge.exe --no-wt            # Skip Windows Terminal detection
 ```
 
-> 💡 **Console View**: For the best console experience (including full color emoji support), it is highly recommended to use [Windows Terminal](https://apps.microsoft.com/store/detail/windows-terminal/9N0DX20HK701). AI Bridge will attempt to automatically relaunch in Windows Terminal if detected.
+> 💡 **Console View**: For the best console experience (including full color emoji support), it is highly recommended to use [Windows Terminal](https://apps.microsoft.com/store/detail/windows-terminal/9N0DX20HK701). AIPromptBridge will attempt to automatically relaunch in Windows Terminal if detected.
 
 ## 📖 Documentation
 

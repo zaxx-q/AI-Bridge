@@ -7,10 +7,10 @@ pynput
 pyperclip
 darkdetect
 
-# Modern GUI toolkit (replaces tkinter for modern look)
+# Modern GUI toolkit (optional for modern look)
 customtkinter>=5.2.0
 
-# Image handling for GUI (thumbnails, clipboard images)
+# Image handling for GUI (emojis, thumbnails, clipboard images)
 Pillow
 
 # Rich console output (colors, tables, etc.)

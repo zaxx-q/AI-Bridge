@@ -40,7 +40,7 @@ class TextHandler:
         
         # Use a unique sentinel to detect changes (better than clearing to empty string)
         # identifying random tokens helps avoid false matches
-        sentinel = f"__AI_BRIDGE_SENTINEL_{time.time()}__"
+        sentinel = f"__AI_PROMPT_BRIDGE_SENTINEL_{time.time()}__"
         
         try:
             pyperclip.copy(sentinel)

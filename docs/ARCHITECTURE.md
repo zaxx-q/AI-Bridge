@@ -1,10 +1,10 @@
 # Architecture
 
-This document describes the technical architecture of AI Bridge.
+This document describes the technical architecture of AIPromptBridge.
 
 ## Overview
 
-AI Bridge is a Windows application consisting of:
+AIPromptBridge is a Windows application consisting of:
 
 1. **Flask Web Server** - REST API endpoints for image/text processing
 2. **System Tray Application** - Background process management with `infi.systray`
@@ -131,7 +131,7 @@ flowchart LR
 
 ## GUI Framework Fallback
 
-To ensure robustness across different environments, AI Bridge includes a centralized UI toolkit authority in `src/gui/platform.py`:
+To ensure robustness across different environments, AIPromptBridge includes a centralized UI toolkit authority in `src/gui/platform.py`:
 
 1.  **Toolkit Authority**: `HAVE_CTK`, `ctk`, and `CTkImage` are imported from `platform.py` by all GUI modules.
 2.  **Fallback Mechanism**: If `customtkinter` is missing or the `ui_force_standard_tk` setting is enabled, the system automatically falls back to standard `tkinter` with optimized layouts and widgets.
@@ -341,7 +341,7 @@ The `ThemeColors` dataclass provides standardized color names with legacy proper
 
 ## Emoji Support (Twemoji)
 
-AI Bridge implements color emoji support for Windows using the Twemoji asset set. This is necessary because Windows Tkinter typically only renders monochrome outlines for emojis in Text widgets.
+AIPromptBridge implements color emoji support for Windows using the Twemoji asset set. This is necessary because Windows Tkinter typically only renders monochrome outlines for emojis in Text widgets.
 
 ### EmojiRenderer (`src/gui/emoji_renderer.py`)
 

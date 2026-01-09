@@ -17,7 +17,7 @@ try:
     from rich.box import ROUNDED, HEAVY, DOUBLE
     from rich.style import Style
     
-    # Custom AI Bridge Theme
+    # Custom AIPromptBridge Theme
     custom_theme = Theme({
         "info": "cyan",
         "warning": "yellow",

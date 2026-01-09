@@ -335,7 +335,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -422,7 +422,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -509,7 +509,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -596,7 +596,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -683,7 +683,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -770,7 +770,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -857,7 +857,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -944,7 +944,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1031,7 +1031,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1118,7 +1118,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1205,7 +1205,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1292,7 +1292,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1379,7 +1379,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1466,7 +1466,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1553,7 +1553,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1640,7 +1640,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1727,7 +1727,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1814,7 +1814,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1901,7 +1901,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -1988,7 +1988,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -2075,7 +2075,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -2162,7 +2162,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -2249,7 +2249,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -2336,7 +2336,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -2423,7 +2423,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -2510,7 +2510,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -2597,7 +2597,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",
@@ -2684,7 +2684,7 @@
           {
             "IsActive": true,
             "Name": "server",
-            "Path": "Z:\\Tools\\Workshop\\AI-Bridge\\run_py.bat",
+            "Path": "Z:\\Tools\\Workshop\\AIPromptBridge\\run_py.bat",
             "Args": "\"$input\"",
             "OutputExtension": "",
             "Extensions": "",

@@ -1,1 +1,1 @@
-# AI Bridge - Modular Package
+# AIPromptBridge - Modular Package

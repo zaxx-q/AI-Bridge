@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Settings Window for AI Bridge
+Settings Window for AIPromptBridge
 
 Provides a GUI for editing config.ini without opening the file directly.
 Features:
@@ -435,7 +435,7 @@ class SettingsWindow:
                 self.root = tk.Tk()
                 self.root.configure(bg=self.colors.bg)
         
-        self.root.title("AI Bridge Settings")
+        self.root.title("AIPromptBridge Settings")
         self.root.geometry("1100x800")
         self.root.minsize(1000, 700)
         
