@@ -39,6 +39,7 @@ AI-Bridge/
     │   ├── emoji_renderer.py   # Twemoji-based color emoji support for Windows
     │   ├── hotkey.py           # Global hotkey listener (pynput)
     │   ├── options.py          # Default options and settings constants
+    │   ├── platform.py         # UI toolkit authority (HAVE_CTK and fallback logic)
     │   ├── popups.py           # Modern themed popups with scrollable ModifierBar
     │   ├── prompt_editor.py    # GUI editor for text_edit_tool_options.json
     │   ├── settings_window.py  # GUI editor for config.ini
@@ -78,6 +79,7 @@ AI-Bridge/
 | `emoji_renderer.py` | EmojiRenderer for Windows color emoji support (Twemoji) |
 | `custom_widgets.py` | Custom scrollable lists and emoji-aware buttons/headers |
 | `text_edit_tool.py` | Global hotkey TextEditTool application |
+| `platform.py` | Central authority for UI toolkit availability and toolkit fallback |
 | `windows.py` | Chat window and session browser implementations |
 | `popups.py` | Themed popup dialogs with dual inputs (Edit/Ask) and scrollable ModifierBar |
 | `hotkey.py` | pynput-based global hotkey listener |

@@ -14,10 +14,10 @@ https://github.com/user-attachments/assets/a104765a-eb48-4bf7-bbe4-2f9a53d97aa5
 
 ### 🎯 TextEditTool
 Press **Ctrl+Space** anywhere to invoke AI on selected text:
-- **Proofread** - Fix grammar and spelling
-- **Rewrite** - Improve clarity and style  
-- **Translate** - Convert to another language
-- **Custom prompts** - Define your own actions
+- **Understand** - **Explain**, **Generate Summaries**, or **Keypoints**
+- **Edit** - **Proofread** (✏️), **Rewrite** (📝), or make it **Casual** (😎)
+- **Q&A** - Use the second input box in the popup to ask any question about the text
+- **Custom prompts** - Define and group your own actions in the Prompt Editor
 
 Works in any application: browsers, IDEs, Notepad, Word, everywhere.
 
@@ -237,6 +237,8 @@ ui_theme_mode = auto  # auto, dark, light
 ```
 
 Available themes: `catppuccin`, `dracula`, `nord`, `gruvbox`, `onedark`, `minimal`, `highcontrast`
+
+> 💡 **Performance Tip**: If you experience lag or UI issues with the modern interface, you can disable it by enabling **"Force Standard Tkinter"** in the **Theme** tab of Settings. This switches the app to a high-performance fallback mode using standard Windows widgets.
 
 ## 💡 Tips
 

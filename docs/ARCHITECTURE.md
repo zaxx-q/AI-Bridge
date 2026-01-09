@@ -10,7 +10,7 @@ AI Bridge is a Windows application consisting of:
 2. **System Tray Application** - Background process management with `infi.systray`
 3. **CustomTkinter GUI** - Modern chat windows, session browser, and popups with multi-theme support
 4. **Rich Console Interface** - Modernized terminal UI with structured logging and panels
-5. **TextEditTool** - Global hotkey integration with `pynput` and interactive popups
+5. **TextEditTool** - Global hotkey assistance with two-tier "Edit" and "General" prompt architecture
 6. **AI Provider System** - Unified abstraction for multiple AI backends
 7. **Theme System** - Multi-theme support with dark/light modes and system detection
 8. **Settings Infrastructure** - GUI editors for config.ini and prompt options with hot-reload
@@ -129,6 +129,14 @@ flowchart LR
 3. **CTkToplevel for Windows** - All application windows are children of the single root.
 4. **Update Loop** - Standalone windows use an update-based loop to coexist with other threads.
 
+## GUI Framework Fallback
+
+To ensure robustness across different environments, AI Bridge includes a centralized UI toolkit authority in `src/gui/platform.py`:
+
+1.  **Toolkit Authority**: `HAVE_CTK`, `ctk`, and `CTkImage` are imported from `platform.py` by all GUI modules.
+2.  **Fallback Mechanism**: If `customtkinter` is missing or the `ui_force_standard_tk` setting is enabled, the system automatically falls back to standard `tkinter` with optimized layouts and widgets.
+3.  **User Configuration**: Users can toggle `ui_force_standard_tk` in the **Theme** tab of the **Settings** window to resolve performance or compatibility issues.
+
 ### Window Types
 
 | Window | Purpose |
@@ -184,8 +192,20 @@ Sessions are stored in `chat_sessions.json` with sequential IDs.
 
 ### Context Injection
 
-When a session is initiated from the TextEditTool (e.g., asking a question about selected text), the first message includes a context marker:
+When a session is initiated from the TextEditTool (e.g., asking a question about selected text), the first message includes a context marker to ensure the AI has follow-up context:
 `[Task: Explain this text]`
+
+### Prompt Architecture (Two-Tier)
+
+The TextEditTool utilizes a `prompt_type` system to distinguish between strict editing and general conversation:
+- **Edit Mode** (`"edit"`): Encourages direct task completion with zero conversational overhead. Used for rewrites and proofreading.
+- **General Mode** (`"general"`): Uses more permissive rules allowing explanations, markdown, and a conversational tone. Used for "Explain", "ELI5", and "Ask".
+
+### Context Injection
+
+Successive chat interactions from the TextEditTool utilize specific system instructions to maintain flow:
+- `chat_system_instruction`: Used for the initial one-shot prompt or direct chat.
+- `chat_window_system_instruction`: Injected when continuing a conversation within the chat window to indicate follow-up status.
 
 This allows the AI to understand the context of the request even if the user asks "What did you just do?".
 
