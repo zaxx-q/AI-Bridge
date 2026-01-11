@@ -105,7 +105,7 @@ def print_commands_box():
         print("  [L] 📋 Sessions      [P] 🔄 Provider     [T] 💭 Thinking")
         print("  [O] 🖥️ Browser       [M] 🤖 Models       [R] 🌊 Streaming")
         print("  [E] 📡 Endpoints     [S] 📊 Status       [H] ❓ Help")
-        print("  [G] ⚙️ Settings      [W] ✏️ Prompts")
+        print("  [G] 🔨 Settings      [W] 📝 Prompts")
         print("─" * 64)
         print()
 
@@ -550,7 +550,7 @@ def terminal_session_manager(endpoints=None):
                 print("❓ HELP")
                 print(f"{'─'*64}")
                 print("   [L] 📋 Sessions      List recent saved sessions")
-                print("   [O] 🖥️ Browser       Open session browser GUI")
+                print("   [O] 🌐 Browser       Open session browser GUI")
                 print("   [V] 👁️ View          View a session by ID")
                 print("   [D] 🗑️ Delete        Delete a session by ID")
                 print("   [C] 🧹 Clear         Clear all sessions")
@@ -560,8 +560,8 @@ def terminal_session_manager(endpoints=None):
                 print("   [S] 📊 Status        Show current configuration")
                 print("   [T] 💭 Thinking      Toggle thinking mode")
                 print("   [R] 🌊 Streaming     Toggle streaming")
-                print("   [G] ⚙️ Settings      Open settings window")
-                print("   [W] ✏️ Prompts       Open prompt editor")
+                print("   [G] 🔨 Settings      Open settings window")
+                print("   [W] 📝 Prompts       Open prompt editor")
                 print("   [H] ❓ Help          Show this help")
                 print(f"{'─'*64}\n")
             

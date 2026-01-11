@@ -151,8 +151,12 @@ class TrayApp:
                 icon_path = project_root / "icon.ico"
             
             if not icon_path.exists():
-                # Fallback: try current directory
-                icon_path = Path("icon.ico")
+                # Fallback: try current directory/assets (for fallback)
+                cwd = Path.cwd()
+                if (cwd / "icon.ico").exists():
+                    icon_path = cwd / "icon.ico"
+                else:
+                    icon_path = Path("icon.ico")
         
         self.icon_path = str(icon_path) if Path(icon_path).exists() else None
         
@@ -286,6 +290,12 @@ class TrayApp:
         else:
             config_path = Path(__file__).parent.parent / "config.ini"
             
+        # Try CWD fallback if standard paths fail
+        if not config_path.exists():
+            cwd_path = Path.cwd() / "config.ini"
+            if cwd_path.exists():
+                config_path = cwd_path
+            
         if config_path.exists():
             self._open_file(config_path)
         else:
@@ -297,7 +307,13 @@ class TrayApp:
             options_path = Path(sys.executable).parent / "text_edit_tool_options.json"
         else:
             options_path = Path(__file__).parent.parent / "text_edit_tool_options.json"
-            
+        
+        # Try CWD fallback if standard paths fail
+        if not options_path.exists():
+            cwd_path = Path.cwd() / "text_edit_tool_options.json"
+            if cwd_path.exists():
+                options_path = cwd_path
+                
         if options_path.exists():
             self._open_file(options_path)
         else:

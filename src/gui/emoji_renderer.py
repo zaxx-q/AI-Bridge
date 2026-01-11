@@ -67,10 +67,13 @@ def get_assets_path() -> Tuple[Path, bool]:
         paths.append(assets_base / "emojis.zip")
         paths.append(assets_base / "emojis" / "72x72")
     
-    # 3. Current working directory
-    cwd_base = Path.cwd() / "assets"
-    paths.append(cwd_base / "emojis.zip")
-    paths.append(cwd_base / "emojis" / "72x72")
+    # 3. Current working directory (if different from above)
+    # This is important when launching from search/Run dialog where CWD might be arbitrary
+    cwd = Path.cwd()
+    if cwd != module_dir and (not getattr(sys, 'frozen', False) or cwd != Path(sys.executable).parent):
+        cwd_base = cwd / "assets"
+        paths.append(cwd_base / "emojis.zip")
+        paths.append(cwd_base / "emojis" / "72x72")
     
     for path in paths:
         if path.exists():

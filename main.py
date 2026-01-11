@@ -304,7 +304,12 @@ def ensure_windows_terminal() -> bool:
     print("🔄 Relaunching in Windows Terminal for full emoji support...")
     
     # Build the command to relaunch
-    script_path = os.path.abspath(sys.argv[0])
+    # Determine script/executable path safely
+    if getattr(sys, 'frozen', False):
+        script_path = sys.executable
+    else:
+        script_path = os.path.abspath(__file__)
+    
     args = sys.argv[1:]
     
     # Set environment variable to prevent loops
@@ -347,6 +352,35 @@ def check_port_available(host: str, port: int) -> bool:
         return False
 
 
+def setup_working_directory():
+    """
+    Ensure the working directory is set to the application's directory.
+    This fixes issues when launching from Windows Search or other contexts
+    where the CWD might be System32 or elsewhere.
+    """
+    try:
+        if getattr(sys, 'frozen', False):
+            # If frozen (PyInstaller, cx_Freeze, etc.)
+            application_path = os.path.dirname(sys.executable)
+        else:
+            # If running as a script
+            application_path = os.path.dirname(os.path.abspath(__file__))
+
+        current_cwd = os.getcwd()
+        
+        # Log directory diagnosis for debugging
+        print(f"[Debug] Launch CWD: {current_cwd}")
+        print(f"[Debug] App Path:   {application_path}")
+        
+        if os.path.normpath(current_cwd).lower() != os.path.normpath(application_path).lower():
+            print(f"[Debug] CWD mismatch detected. Switching to App Path...")
+            os.chdir(application_path)
+            print(f"[Debug] New CWD:    {os.getcwd()}")
+            
+    except Exception as e:
+        print(f"Warning: Failed to set working directory: {e}")
+
+
 def run_server(config, ai_params, endpoints):
     """Run the Flask server (used by both tray and terminal modes)"""
     host = web_server.CONFIG.get('host', '127.0.0.1')
@@ -361,6 +395,9 @@ def run_server(config, ai_params, endpoints):
 
 def main():
     """Main entry point"""
+    # Ensure correct working directory before doing anything else
+    setup_working_directory()
+
     # Parse command line arguments
     args = parse_args()
     
