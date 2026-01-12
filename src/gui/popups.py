@@ -2918,3 +2918,388 @@ def dismiss_typing_indicator():
     if _current_typing_indicator:
         _current_typing_indicator.dismiss()
         _current_typing_indicator = None
+
+
+# =============================================================================
+# Error Popup - Display API errors to user
+# =============================================================================
+
+class ErrorPopup:
+    """
+    Error dialog popup for displaying API failures.
+    Matches the theme and style of other popups.
+    """
+    
+    def __init__(
+        self,
+        parent_root,
+        title: str,
+        message: str,
+        details: Optional[str] = None,
+        on_close: Optional[Callable[[], None]] = None
+    ):
+        self.parent_root = parent_root
+        self.title = title
+        self.message = message
+        self.details = details
+        self.on_close_callback = on_close
+        
+        self.colors = get_colors()
+        self.root = None
+        
+        self._create_window()
+    
+    def _create_window(self):
+        """Create the error popup window."""
+        if HAVE_CTK:
+            self.root = ctk.CTkToplevel(self.parent_root)
+        else:
+            self.root = tk.Toplevel(self.parent_root)
+        
+        self.root.withdraw()
+        self.root.title("Error")
+        self.root.overrideredirect(True)
+        self.root.attributes('-topmost', True)
+        
+        setup_transparent_popup(self.root, self.colors)
+        hide_from_taskbar(self.root)
+        
+        if HAVE_CTK:
+            main_frame = ctk.CTkFrame(
+                self.root,
+                corner_radius=10,
+                fg_color=self.colors.base,
+                border_color=self.colors.red,
+                border_width=2
+            )
+            main_frame.pack(fill="both", expand=True, padx=1, pady=1)
+            
+            content_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+            content_frame.pack(fill="both", expand=True, padx=12, pady=12)
+            
+            # Header with error icon
+            header_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+            header_frame.pack(fill="x", pady=(0, 8))
+            
+            # Try to use emoji image
+            error_icon_text = "❌ Error"
+            header_label_created = False
+            
+            if HAVE_EMOJI:
+                try:
+                    renderer = get_emoji_renderer()
+                    error_img = renderer.get_ctk_image("❌", size=20)
+                    if error_img:
+                        ctk.CTkLabel(
+                            header_frame,
+                            text=" Error",
+                            image=error_img,
+                            compound="left",
+                            font=get_ctk_font(size=14, weight="bold"),
+                            text_color=self.colors.red
+                        ).pack(side="left")
+                        header_label_created = True
+                except Exception:
+                    pass
+            
+            if not header_label_created:
+                ctk.CTkLabel(
+                    header_frame,
+                    text=error_icon_text,
+                    font=get_ctk_font(size=14, weight="bold"),
+                    text_color=self.colors.red
+                ).pack(side="left")
+            
+            # Close button
+            close_btn = ctk.CTkButton(
+                header_frame,
+                text="×",
+                width=24,
+                height=24,
+                corner_radius=6,
+                fg_color="transparent",
+                hover_color=self.colors.red,
+                text_color=self.colors.overlay0,
+                font=get_ctk_font(size=14, weight="bold"),
+                command=self._close
+            )
+            close_btn.pack(side="right")
+            
+            # Title
+            if self.title:
+                ctk.CTkLabel(
+                    content_frame,
+                    text=self.title,
+                    font=get_ctk_font(size=13, weight="bold"),
+                    text_color=self.colors.text,
+                    wraplength=350
+                ).pack(anchor="w", pady=(0, 4))
+            
+            # Message
+            ctk.CTkLabel(
+                content_frame,
+                text=self.message,
+                font=get_ctk_font(size=12),
+                text_color=self.colors.text,
+                wraplength=350,
+                justify="left"
+            ).pack(anchor="w", pady=(0, 8))
+            
+            # Details (scrollable)
+            if self.details:
+                details_frame = ctk.CTkFrame(
+                    content_frame,
+                    fg_color=self.colors.surface0,
+                    corner_radius=6
+                )
+                details_frame.pack(fill="x", pady=(0, 8))
+                
+                details_text = ctk.CTkTextbox(
+                    details_frame,
+                    height=100,
+                    font=get_ctk_font(size=10),
+                    fg_color=self.colors.surface0,
+                    text_color=self.colors.overlay0,
+                    wrap="word"
+                )
+                details_text.pack(fill="x", padx=8, pady=8)
+                details_text.insert("0.0", self.details)
+                details_text.configure(state="disabled")
+            
+            # Buttons
+            btn_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+            btn_frame.pack(fill="x")
+            
+            # Copy to clipboard button (if details)
+            if self.details:
+                copy_btn = ctk.CTkButton(
+                    btn_frame,
+                    text="📋 Copy",
+                    width=80,
+                    height=32,
+                    corner_radius=6,
+                    fg_color=self.colors.surface0,
+                    hover_color=self.colors.surface1,
+                    text_color=self.colors.text,
+                    font=get_ctk_font(size=11),
+                    command=self._copy_to_clipboard
+                )
+                copy_btn.pack(side="left", padx=(0, 8))
+            
+            # OK button
+            ok_btn = ctk.CTkButton(
+                btn_frame,
+                text="OK",
+                width=80,
+                height=32,
+                corner_radius=6,
+                fg_color=self.colors.blue,
+                hover_color=self.colors.lavender,
+                text_color="#ffffff",
+                font=get_ctk_font(size=11),
+                command=self._close
+            )
+            ok_btn.pack(side="right")
+        
+        else:
+            # Fallback tk implementation
+            self.root.configure(bg=self.colors.base)
+            
+            main_frame = tk.Frame(
+                self.root,
+                bg=self.colors.base,
+                highlightbackground=self.colors.red,
+                highlightthickness=2
+            )
+            main_frame.pack(fill=tk.BOTH, expand=True)
+            
+            content_frame = tk.Frame(main_frame, bg=self.colors.base)
+            content_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+            
+            # Header
+            header_frame = tk.Frame(content_frame, bg=self.colors.base)
+            header_frame.pack(fill=tk.X, pady=(0, 8))
+            
+            tk.Label(
+                header_frame,
+                text="❌ Error",
+                font=("Arial", 12, "bold"),
+                bg=self.colors.base,
+                fg=self.colors.red
+            ).pack(side=tk.LEFT)
+            
+            close_btn = tk.Label(
+                header_frame,
+                text="×",
+                font=("Arial", 14, "bold"),
+                bg=self.colors.base,
+                fg=self.colors.overlay0,
+                cursor="hand2"
+            )
+            close_btn.pack(side=tk.RIGHT)
+            close_btn.bind('<Button-1>', lambda e: self._close())
+            
+            # Title
+            if self.title:
+                tk.Label(
+                    content_frame,
+                    text=self.title,
+                    font=("Arial", 11, "bold"),
+                    bg=self.colors.base,
+                    fg=self.colors.text,
+                    wraplength=350,
+                    anchor="w",
+                    justify=tk.LEFT
+                ).pack(anchor="w", pady=(0, 4))
+            
+            # Message
+            tk.Label(
+                content_frame,
+                text=self.message,
+                font=("Arial", 10),
+                bg=self.colors.base,
+                fg=self.colors.text,
+                wraplength=350,
+                anchor="w",
+                justify=tk.LEFT
+            ).pack(anchor="w", pady=(0, 8))
+            
+            # Details
+            if self.details:
+                details_frame = tk.Frame(
+                    content_frame,
+                    bg=self.colors.surface0,
+                    highlightbackground=self.colors.surface2,
+                    highlightthickness=1
+                )
+                details_frame.pack(fill=tk.X, pady=(0, 8))
+                
+                details_text = tk.Text(
+                    details_frame,
+                    height=5,
+                    font=("Arial", 9),
+                    bg=self.colors.surface0,
+                    fg=self.colors.overlay0,
+                    wrap=tk.WORD,
+                    relief=tk.FLAT,
+                    bd=0
+                )
+                details_text.pack(fill=tk.X, padx=8, pady=8)
+                details_text.insert("1.0", self.details)
+                details_text.configure(state=tk.DISABLED)
+            
+            # Buttons
+            btn_frame = tk.Frame(content_frame, bg=self.colors.base)
+            btn_frame.pack(fill=tk.X)
+            
+            if self.details:
+                copy_btn = tk.Label(
+                    btn_frame,
+                    text="📋 Copy",
+                    font=("Arial", 10),
+                    bg=self.colors.surface0,
+                    fg=self.colors.text,
+                    padx=12,
+                    pady=6,
+                    cursor="hand2"
+                )
+                copy_btn.pack(side=tk.LEFT, padx=(0, 8))
+                copy_btn.bind('<Button-1>', lambda e: self._copy_to_clipboard())
+            
+            ok_btn = tk.Label(
+                btn_frame,
+                text="OK",
+                font=("Arial", 10),
+                bg=self.colors.blue,
+                fg="#ffffff",
+                padx=16,
+                pady=6,
+                cursor="hand2"
+            )
+            ok_btn.pack(side=tk.RIGHT)
+            ok_btn.bind('<Button-1>', lambda e: self._close())
+        
+        self._position_window()
+        self.root.update_idletasks()
+        self.root.after(10, self._show_and_focus)
+    
+    def _show_and_focus(self):
+        if not self.root:
+            return
+        try:
+            self.root.deiconify()
+            self.root.bind('<Escape>', lambda e: self._close())
+            self.root.bind('<Return>', lambda e: self._close())
+            self.root.lift()
+            self.root.focus_force()
+        except tk.TclError:
+            pass
+    
+    def _position_window(self):
+        """Position window at center of screen."""
+        self.root.update_idletasks()
+        
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        window_width = max(400, self.root.winfo_reqwidth())
+        window_height = self.root.winfo_reqheight()
+        
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+    
+    def _copy_to_clipboard(self):
+        """Copy error details to clipboard."""
+        import pyperclip
+        text = f"{self.title}\n\n{self.message}"
+        if self.details:
+            text += f"\n\nDetails:\n{self.details}"
+        try:
+            pyperclip.copy(text)
+        except Exception:
+            pass
+    
+    def _close(self):
+        if self.root:
+            try:
+                self.root.destroy()
+            except tk.TclError:
+                pass
+            self.root = None
+        if self.on_close_callback:
+            self.on_close_callback()
+
+
+def create_error_popup(
+    parent_root,
+    title: str,
+    message: str,
+    details: Optional[str] = None,
+    on_close: Optional[Callable[[], None]] = None
+):
+    """Create and show an error popup."""
+    ErrorPopup(parent_root, title, message, details, on_close)
+
+
+def show_error_popup(title: str, message: str, details: Optional[str] = None):
+    """
+    Show an error popup via GUICoordinator - thread-safe.
+    
+    This can be called from any thread and will show the error popup
+    on the main GUI thread.
+    
+    Args:
+        title: Error title (e.g., "API Request Failed")
+        message: User-friendly message describing the error
+        details: Optional detailed error information (technical details)
+    """
+    from .core import GUICoordinator
+    coordinator = GUICoordinator.get_instance()
+    coordinator.ensure_running()
+    coordinator._request_queue.put({
+        'type': 'error_popup',
+        'title': title,
+        'message': message,
+        'details': details
+    })

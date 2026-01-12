@@ -570,6 +570,15 @@ class TextEditToolApp:
                 if error:
                     logging.error(f'Direct chat failed: {error}')
                     print(f"  [Error] {error}")
+                    
+                    # Show error popup to user
+                    from .popups import show_error_popup
+                    show_error_popup(
+                        title="API Request Failed",
+                        message="Failed to get response from AI provider.",
+                        details=error
+                    )
+                    
                     self.is_processing = False
                     return
                 
@@ -641,6 +650,15 @@ class TextEditToolApp:
                 if error:
                     logging.error(f'Direct chat failed: {error}')
                     print(f"  [Error] {error}")
+                    
+                    # Show error popup to user
+                    from .popups import show_error_popup
+                    show_error_popup(
+                        title="API Request Failed",
+                        message="Failed to get response from AI provider.",
+                        details=error
+                    )
+                    
                     self.is_processing = False
                     return
                 
@@ -780,6 +798,15 @@ class TextEditToolApp:
                 if error:
                     logging.error(f'Option processing failed: {error}')
                     print(f"  [Error] {error}")
+                    
+                    # Show error popup to user
+                    from .popups import show_error_popup
+                    show_error_popup(
+                        title=f"'{option_key}' Failed",
+                        message="Failed to process your request.",
+                        details=error
+                    )
+                    
                     self.is_processing = False
                     return
                 
@@ -853,6 +880,15 @@ class TextEditToolApp:
                 if error:
                     logging.error(f'Option processing failed: {error}')
                     print(f"  [Error] {error}")
+                    
+                    # Show error popup to user
+                    from .popups import show_error_popup
+                    show_error_popup(
+                        title=f"'{option_key}' Failed",
+                        message="Failed to process your request.",
+                        details=error
+                    )
+                    
                     self.is_processing = False
                     return
                 

@@ -24,11 +24,156 @@ except ImportError:
 
 # ─── Console Window Control (Windows) ─────────────────────────────────────────
 
-def get_console_window():
-    """Get the console window handle"""
-    if sys.platform == 'win32':
-        return ctypes.windll.kernel32.GetConsoleWindow()
-    return None
+from ctypes import wintypes
+
+# Define structures for Toolhelp32
+TH32CS_SNAPPROCESS = 0x00000002
+
+# Cache for Windows Terminal window handle
+_cached_wt_hwnd = None
+_cached_wt_pid = None
+
+class PROCESSENTRY32(ctypes.Structure):
+    _fields_ = [("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_void_p),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", ctypes.c_char * 260)]
+
+def get_process_map():
+    """Returns a dictionary {pid: (ppid, name)}"""
+    try:
+        kernel32 = ctypes.windll.kernel32
+        hSnapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        
+        pe32 = PROCESSENTRY32()
+        pe32.dwSize = ctypes.sizeof(PROCESSENTRY32)
+        
+        proc_map = {}
+        
+        if kernel32.Process32First(hSnapshot, ctypes.byref(pe32)):
+            while True:
+                pid = pe32.th32ProcessID
+                ppid = pe32.th32ParentProcessID
+                name = pe32.szExeFile.decode('utf-8', 'ignore')
+                proc_map[pid] = (ppid, name)
+                
+                if not kernel32.Process32Next(hSnapshot, ctypes.byref(pe32)):
+                    break
+                    
+        kernel32.CloseHandle(hSnapshot)
+        return proc_map
+    except Exception:
+        return {}
+
+def get_console_window(use_cache=True):
+    """
+    Get the console window handle.
+    Handles standard console and Windows Terminal (which hides the real window).
+    
+    Args:
+        use_cache: If True, use cached WT window handle if available
+    """
+    global _cached_wt_hwnd, _cached_wt_pid
+    
+    if sys.platform != 'win32':
+        return None
+    
+    user32 = ctypes.windll.user32
+        
+    # 1. Check if we have a cached WT window handle that's still valid
+    if use_cache and _cached_wt_hwnd:
+        # Verify the cached window still exists and belongs to the right process
+        if user32.IsWindow(_cached_wt_hwnd):
+            return _cached_wt_hwnd
+        else:
+            # Window no longer exists, clear cache
+            _cached_wt_hwnd = None
+            _cached_wt_pid = None
+    
+    # 2. Try standard method first
+    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    
+    # If the window is visible, it's likely the real one (standard console)
+    if hwnd and user32.IsWindowVisible(hwnd):
+        return hwnd
+        
+    # 3. If standard window is hidden or missing, we might be in Windows Terminal
+    # We need to walk up the process tree to find WindowsTerminal.exe
+    try:
+        my_pid = os.getpid()
+        proc_map = get_process_map()
+        
+        curr = my_pid
+        wt_pid = None
+        
+        # Traverse up for a limited depth
+        for _ in range(10):
+            if curr not in proc_map:
+                break
+            ppid, name = proc_map[curr]
+            
+            # Check for Windows Terminal
+            if 'WindowsTerminal.exe' in name:
+                wt_pid = curr
+                break
+                
+            if ppid == 0 or ppid == curr:
+                break
+            curr = ppid
+            
+        if wt_pid:
+            # We found Windows Terminal process. Now find its window.
+            # We prioritize CASCADIA_HOSTING_WINDOW_CLASS
+            # Note: We search for ANY window (not just visible) so we can find hidden ones too
+            found_hwnd = None
+            fallback_hwnd = None
+            
+            def enum_handler(h, ctx):
+                nonlocal found_hwnd, fallback_hwnd
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+                if pid.value == wt_pid:
+                    # Check class name
+                    class_buff = ctypes.create_unicode_buffer(256)
+                    user32.GetClassNameW(h, class_buff, 256)
+                    class_name = class_buff.value
+                    
+                    if class_name == 'CASCADIA_HOSTING_WINDOW_CLASS':
+                        found_hwnd = h
+                        return False # Stop enumeration, found the best match
+                    
+                    # Only use as fallback if it's a top-level window with a title
+                    if fallback_hwnd is None:
+                        length = user32.GetWindowTextLengthW(h)
+                        if length > 0:
+                            fallback_hwnd = h
+                            
+                return True
+
+            CMPFUNC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            user32.EnumWindows(CMPFUNC(enum_handler), 0)
+            
+            if found_hwnd:
+                # Cache this for future use
+                _cached_wt_hwnd = found_hwnd
+                _cached_wt_pid = wt_pid
+                return found_hwnd
+            if fallback_hwnd:
+                _cached_wt_hwnd = fallback_hwnd
+                _cached_wt_pid = wt_pid
+                return fallback_hwnd
+                
+    except Exception as e:
+        print(f"[Warning] Failed to resolve Windows Terminal window: {e}")
+        
+    # Fallback to standard handle even if hidden, or None
+    return hwnd
 
 
 def show_console():
@@ -36,7 +181,8 @@ def show_console():
     if sys.platform == 'win32':
         hwnd = get_console_window()
         if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, 5)  # SW_SHOW
+            # Use SW_RESTORE (9) instead of SW_SHOW (5) to handle minimized windows
+            ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
             ctypes.windll.user32.SetForegroundWindow(hwnd)
             return True
     return False
@@ -47,18 +193,52 @@ def hide_console():
     if sys.platform == 'win32':
         hwnd = get_console_window()
         if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+            user32 = ctypes.windll.user32
+            
+            # Try ShowWindow first
+            user32.ShowWindow(hwnd, 0)  # SW_HIDE
+            
+            # If ShowWindow didn't fully hide it, use SetWindowPos as backup
+            # This is more forceful and works better with some window types
+            if user32.IsWindowVisible(hwnd):
+                # SetWindowPos with SWP_HIDEWINDOW
+                SWP_HIDEWINDOW = 0x0080
+                SWP_NOSIZE = 0x0001
+                SWP_NOMOVE = 0x0002
+                SWP_NOZORDER = 0x0004
+                SWP_NOACTIVATE = 0x0010
+                
+                user32.SetWindowPos(
+                    hwnd,
+                    None,  # hWndInsertAfter (not used with these flags)
+                    0, 0, 0, 0,  # x, y, cx, cy (ignored with NOSIZE|NOMOVE)
+                    SWP_HIDEWINDOW | SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE
+                )
+            
             return True
     return False
 
 
 def is_console_visible():
-    """Check if console window is currently visible"""
+    """
+    Check if console window is currently visible (not hidden).
+    Note: A minimized window is still considered "visible" by Windows.
+    """
     if sys.platform == 'win32':
         hwnd = get_console_window()
         if hwnd:
             return ctypes.windll.user32.IsWindowVisible(hwnd)
     return True
+
+
+def is_console_minimized():
+    """Check if console window is minimized (iconic)"""
+    if sys.platform == 'win32':
+        hwnd = get_console_window()
+        if hwnd:
+            # IsIconic returns non-zero if the window is minimized
+            return ctypes.windll.user32.IsIconic(hwnd) != 0
+    return False
 
 
 def disable_console_close_button():
@@ -165,8 +345,12 @@ class TrayApp:
             print("         Install with: pip install infi.systray")
     
     def _on_toggle_console(self, systray):
-        """Toggle console visibility"""
-        if self.console_visible:
+        """Toggle console visibility based on actual window state"""
+        visible = is_console_visible()
+        minimized = is_console_minimized()
+        
+        # A minimized window is "visible" but not shown - we should restore it
+        if visible and not minimized:
             hide_console()
             self.console_visible = False
         else:
@@ -417,8 +601,20 @@ class TrayApp:
             
             # Hide console if requested
             if hide_console_on_start:
-                hide_console()
-                self.console_visible = False
+                # Use a short delay and retry to ensure WT window is ready
+                import time
+                for attempt in range(3):
+                    if hide_console():
+                        # Verify it actually hid
+                        time.sleep(0.1)
+                        if not is_console_visible():
+                            self.console_visible = False
+                            break
+                    time.sleep(0.3)  # Wait before retry
+                else:
+                    # Final attempt
+                    hide_console()
+                    self.console_visible = not is_console_visible()
             
             # Start the tray (this blocks until shutdown is called)
             self.systray.start()

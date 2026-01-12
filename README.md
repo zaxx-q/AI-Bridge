@@ -298,9 +298,3 @@ AIPromptBridge.exe --no-wt            # Skip Windows Terminal detection
 ### Attribution & Third-Party Licenses
 
 This project uses [Twemoji](https://github.com/jdecked/twemoji) graphics, licensed under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-
----
-
-<p align="center">
-  Made with ❤️ for productivity
-</p>
