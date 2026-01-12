@@ -25,6 +25,7 @@ import threading
 import time
 import tkinter as tk
 from typing import Optional, Callable, Any
+from dataclasses import dataclass, field
 
 # Import CustomTkinter with fallback
 from .platform import HAVE_CTK, ctk
@@ -37,6 +38,53 @@ OPEN_WINDOWS = set()
 OPEN_WINDOWS_LOCK = threading.Lock()
 WINDOW_COUNTER = 0
 WINDOW_COUNTER_LOCK = threading.Lock()
+
+
+@dataclass
+class StreamingChatCallbacks:
+    """
+    Container for streaming chat window callbacks.
+    
+    Used to pass callbacks from GUI thread back to caller thread
+    for real-time streaming updates to chat window.
+    """
+    on_text: Optional[Callable[[str], None]] = None
+    on_thinking: Optional[Callable[[str], None]] = None
+    on_done: Optional[Callable[[], None]] = None
+    window: Any = None  # Reference to the AttachedChatWindow
+    ready: threading.Event = field(default_factory=threading.Event)
+    
+    def finalize(self, response_text: str, thinking_text: str = ""):
+        """
+        Finalize streaming and add the complete message to session.
+        Call this when streaming is complete to persist the message.
+        """
+        if self.window and not self.window._destroyed:
+            def do_finalize():
+                if self.window._destroyed:
+                    return
+                # Stop streaming mode
+                self.window.is_streaming = False
+                
+                # Add assistant message to session
+                self.window.session.add_message("assistant", response_text)
+                if thinking_text and len(self.window.session.messages) > 0:
+                    self.window.session.messages[-1]["thinking"] = thinking_text
+                
+                # Update last response for copy functionality
+                self.window.last_response = response_text
+                
+                # Refresh display with final content
+                self.window._update_chat_display(scroll_to_bottom=True)
+                
+                # Update status
+                self.window._update_status("✅ Response received", self.window.theme.accent_green)
+                
+                # Reset streaming state
+                self.window.streaming_text = ""
+                self.window.streaming_thinking = ""
+            
+            self.window._safe_after(0, do_finalize)
 
 
 def get_next_window_id():
@@ -180,6 +228,10 @@ class GUICoordinator:
                     self._create_settings_window(request)
                 elif request_type == 'prompt_editor':
                     self._create_prompt_editor_window(request)
+                elif request_type == 'error_popup':
+                    self._create_error_popup(request)
+                elif request_type == 'streaming_chat':
+                    self._create_streaming_chat_window(request)
                 elif request_type == 'callback':
                     # Generic callback execution on GUI thread
                     callback = request.get('callback')
@@ -249,6 +301,69 @@ class GUICoordinator:
         from .prompt_editor import create_attached_prompt_editor_window
         create_attached_prompt_editor_window(self._root)
     
+    def _create_error_popup(self, request):
+        """Create an error popup on the GUI thread"""
+        from .popups import create_error_popup
+        title = request.get('title', 'Error')
+        message = request.get('message', 'An error occurred')
+        details = request.get('details')
+        create_error_popup(self._root, title, message, details)
+    
+    def _create_streaming_chat_window(self, request):
+        """Create a chat window in streaming mode on the GUI thread"""
+        from .windows import AttachedChatWindow
+        
+        session = request.get('session')
+        callbacks = request.get('callbacks')
+        
+        if not session or not callbacks:
+            if callbacks:
+                callbacks.ready.set()
+            return
+        
+        try:
+            # Create window with no initial response
+            window = AttachedChatWindow(self._root, session, initial_response=None)
+            
+            # Put window in streaming mode
+            window.is_streaming = True
+            window.streaming_text = ""
+            window.streaming_thinking = ""
+            
+            # Show initial streaming indicator
+            window._update_streaming_display()
+            
+            # Create callbacks for streaming updates
+            def on_text(content):
+                if window._destroyed:
+                    return
+                window.streaming_text += content
+                window._safe_after(0, window._update_streaming_display)
+            
+            def on_thinking(content):
+                if window._destroyed:
+                    return
+                window.streaming_thinking += content
+                window._safe_after(0, window._update_streaming_display)
+            
+            def on_done():
+                if window._destroyed:
+                    return
+                # Just update display, finalize() will be called separately
+                window._safe_after(0, window._update_streaming_display)
+            
+            # Populate callbacks container
+            callbacks.on_text = on_text
+            callbacks.on_thinking = on_thinking
+            callbacks.on_done = on_done
+            callbacks.window = window
+            
+        except Exception as e:
+            print(f"[GUICoordinator] Error creating streaming chat window: {e}")
+        finally:
+            # Signal that window is ready
+            callbacks.ready.set()
+    
     def request_chat_window(self, session, initial_response=None):
         """Request creation of a chat window (thread-safe)"""
         self.ensure_running()
@@ -257,6 +372,35 @@ class GUICoordinator:
             'session': session,
             'initial_response': initial_response
         })
+    
+    def request_streaming_chat_window(self, session, timeout: float = 5.0) -> StreamingChatCallbacks:
+        """
+        Request creation of a streaming chat window (thread-safe).
+        
+        Opens the chat window immediately and returns callbacks for
+        streaming content into it.
+        
+        Args:
+            session: ChatSession to display (should have user message already)
+            timeout: Max time to wait for window creation
+            
+        Returns:
+            StreamingChatCallbacks with on_text, on_thinking callbacks
+        """
+        self.ensure_running()
+        
+        callbacks = StreamingChatCallbacks()
+        
+        self._request_queue.put({
+            'type': 'streaming_chat',
+            'session': session,
+            'callbacks': callbacks
+        })
+        
+        # Wait for window to be created on GUI thread
+        callbacks.ready.wait(timeout=timeout)
+        
+        return callbacks
     
     def request_browser_window(self):
         """Request creation of a session browser window (thread-safe)"""

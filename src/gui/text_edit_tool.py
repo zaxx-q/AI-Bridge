@@ -332,7 +332,8 @@ class TextEditToolApp:
     def _start_abort_listener(self):
         """
         Start listening for abort hotkey (e.g., Escape).
-        When pressed, sets streaming_aborted flag.
+        When pressed, sets streaming_aborted flag and provides immediate feedback.
+        Also unlocks the hotkey so new triggers can work immediately.
         """
         from pynput import keyboard as pykeyboard
         
@@ -344,7 +345,18 @@ class TextEditToolApp:
         def on_press(key):
             if self._key_matches(key, abort_key):
                 self.streaming_aborted = True
+                self.cancel_requested = True
                 logging.debug("Abort hotkey pressed - stopping stream")
+                
+                # Immediately unlock hotkey so new triggers work right away
+                # The background API call will continue but we don't need to wait for it
+                self.is_processing = False
+                
+                # Provide immediate visual feedback
+                from .core import dismiss_typing_indicator
+                dismiss_typing_indicator()
+                print(f"\n⚠️ Streaming aborted by user")
+                
                 return False  # Stop listener
         
         self._abort_listener = pykeyboard.Listener(on_press=on_press)
@@ -560,31 +572,49 @@ class TextEditToolApp:
                     show_gui = str(show_setting).lower() in ("yes", "true", "1")
             
             if show_gui:
-                # For GUI mode, stream to console then show window
+                # Stream directly into chat window for real-time display
+                streaming_enabled = self.config.get("streaming_enabled", True)
+                
                 print(f"\n{'─'*60}")
-                print(f"[AI Response]...")
+                print(f"[AI Response] Opening chat window{'...' if streaming_enabled else ' (non-streaming)...'}")
                 
                 from ..request_pipeline import RequestOrigin
-                response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_INPUT)
                 
-                if error:
-                    logging.error(f'Direct chat failed: {error}')
-                    print(f"  [Error] {error}")
-                    
-                    # Show error popup to user
-                    from .popups import show_error_popup
-                    show_error_popup(
-                        title="API Request Failed",
-                        message="Failed to get response from AI provider.",
-                        details=error
+                if streaming_enabled:
+                    # Streaming mode: open window immediately and stream content into it
+                    # For direct chat (no text selected), use chat_system_instruction for BOTH
+                    # initial request AND follow-up messages
+                    self._stream_to_chat_window(
+                        messages=messages,
+                        window_title="AI Chat",
+                        original_text=user_input,
+                        task_context=None,
+                        origin=RequestOrigin.POPUP_INPUT,
+                        followup_system_instruction=chat_system_instruction  # Same as initial
                     )
+                else:
+                    # Non-streaming: wait for response, then show window
+                    response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_INPUT)
                     
-                    self.is_processing = False
-                    return
+                    if error:
+                        logging.error(f'Direct chat failed: {error}')
+                        print(f"  [Error] {error}")
+                        
+                        from .popups import show_error_popup
+                        show_error_popup(
+                            title="API Request Failed",
+                            message="Failed to get response from AI provider.",
+                            details=error
+                        )
+                        
+                        self.is_processing = False
+                        return
+                    
+                    if response:
+                        # For direct chat, use chat_system_instruction for follow-ups too
+                        self._show_chat_window("AI Chat", response, user_input, task_context=None,
+                                             followup_system_instruction=chat_system_instruction)
                 
-                if response:
-                    # For direct chat, no task context needed
-                    self._show_chat_window("AI Chat", response, user_input, task_context=None)
                 print(f"{'─'*60}\n")
             else:
                 # Replace mode: type response to active field
@@ -635,8 +665,8 @@ class TextEditToolApp:
                         self._stop_abort_listener()
                         dismiss_typing_indicator()
                     
-                    if self.streaming_aborted or typing_aborted:
-                        print(f"\n⚠️ Streaming aborted by user")
+                    # Note: Abort message is now shown immediately in _start_abort_listener
+                    # so we don't need to show it again here
                 else:
                     # Non-streaming: get full response then paste instantly
                     from ..request_pipeline import RequestOrigin
@@ -789,34 +819,60 @@ class TextEditToolApp:
             from ..request_pipeline import RequestOrigin
             
             if show_in_chat_window:
-                # For GUI mode, stream to console then show window
+                # Stream directly into chat window for real-time display
+                streaming_enabled = self.config.get("streaming_enabled", True)
+                
                 print(f"\n{'─'*60}")
-                print(f"[AI Response]...")
+                print(f"[AI Response] Opening chat window{'...' if streaming_enabled else ' (non-streaming)...'}")
                 
-                response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
-                
-                if error:
-                    logging.error(f'Option processing failed: {error}')
-                    print(f"  [Error] {error}")
-                    
-                    # Show error popup to user
-                    from .popups import show_error_popup
-                    show_error_popup(
-                        title=f"'{option_key}' Failed",
-                        message="Failed to process your request.",
-                        details=error
+                if streaming_enabled:
+                    # Streaming mode: open window immediately and stream content into it
+                    # For popup buttons (ELI5, etc.), the initial request uses the button's
+                    # system_prompt, but follow-ups use chat_window_system_instruction
+                    chat_window_system_instruction = self._get_setting(
+                        "chat_window_system_instruction",
+                        "You are a helpful AI assistant continuing a conversation."
                     )
+                    self._stream_to_chat_window(
+                        messages=messages,
+                        window_title=f"{option_key} Result",
+                        original_text=selected_text,
+                        task_context=task,
+                        origin=RequestOrigin.POPUP_PROMPT,
+                        followup_system_instruction=chat_window_system_instruction
+                    )
+                else:
+                    # Non-streaming: wait for response, then show window
+                    response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
                     
-                    self.is_processing = False
-                    return
+                    if error:
+                        logging.error(f'Option processing failed: {error}')
+                        print(f"  [Error] {error}")
+                        
+                        from .popups import show_error_popup
+                        show_error_popup(
+                            title=f"'{option_key}' Failed",
+                            message="Failed to process your request.",
+                            details=error
+                        )
+                        
+                        self.is_processing = False
+                        return
+                    
+                    if not response:
+                        logging.error('No response from AI')
+                        self.is_processing = False
+                        return
+                    
+                    # Pass task context for better follow-up context
+                    # For popup buttons, use chat_window_system_instruction for follow-ups
+                    chat_window_system_instruction = self._get_setting(
+                        "chat_window_system_instruction",
+                        "You are a helpful AI assistant continuing a conversation."
+                    )
+                    self._show_chat_window(f"{option_key} Result", response, selected_text, task_context=task,
+                                         followup_system_instruction=chat_window_system_instruction)
                 
-                if not response:
-                    logging.error('No response from AI')
-                    self.is_processing = False
-                    return
-                
-                # Pass task context for better follow-up context
-                self._show_chat_window(f"{option_key} Result", response, selected_text, task_context=task)
                 print(f"{'─'*60}\n")
             else:
                 # Replace mode: type response to active field (same as direct chat)
@@ -866,8 +922,8 @@ class TextEditToolApp:
                         self._stop_abort_listener()
                         dismiss_typing_indicator()
                     
-                    if self.streaming_aborted or typing_aborted:
-                        print(f"\n⚠️ Streaming aborted by user")
+                    # Note: Abort message is now shown immediately in _start_abort_listener
+                    # so we don't need to show it again here
                 else:
                     # Non-streaming: get full response then paste instantly
                     response, error = self._call_api(messages, origin_override=RequestOrigin.POPUP_PROMPT)
@@ -944,6 +1000,131 @@ class TextEditToolApp:
                     return True
         return False
     
+    def _stream_to_chat_window(self, messages: list, window_title: str, original_text: str,
+                                task_context: Optional[str], origin,
+                                followup_system_instruction: Optional[str] = None):
+        """
+        Open a chat window immediately and stream API response into it.
+        
+        Args:
+            messages: API messages to send (with the correct system prompt for initial request)
+            window_title: Title for the chat window
+            original_text: Original selected text or user input
+            task_context: Optional task description for context
+            origin: RequestOrigin for logging
+            followup_system_instruction: System instruction to use for follow-up messages.
+                For popup buttons (ELI5, etc.): use chat_window_system_instruction
+                For direct chat: use chat_system_instruction (same as initial)
+        """
+        from .core import GUICoordinator
+        from ..session_manager import ChatSession
+        from ..request_pipeline import RequestPipeline, RequestContext, StreamCallback
+        
+        # Create session with user message already added
+        session = ChatSession(endpoint="textedit")
+        session.title = window_title
+        
+        # Build the first user message with task context if available
+        if original_text:
+            text_delimiter = self._get_setting("text_delimiter", "\n\n<text_to_process>\n")
+            text_delimiter_close = self._get_setting("text_delimiter_close", "\n</text_to_process>")
+            
+            if task_context:
+                first_message = f"[Task: {task_context}]{text_delimiter}{original_text}{text_delimiter_close}"
+            else:
+                first_message = original_text
+            
+            session.add_message("user", first_message)
+        
+        # NOTE: Don't set session.system_instruction yet - it would be prepended to
+        # the initial request, overriding the button's system prompt.
+        # We'll set it AFTER the streaming completes for follow-up messages.
+        
+        # Request streaming chat window (opens immediately)
+        callbacks = GUICoordinator.get_instance().request_streaming_chat_window(session)
+        
+        if not callbacks.on_text:
+            logging.error("Failed to create streaming chat window")
+            print("  [Error] Failed to create chat window")
+            return
+        
+        # Accumulated response for finalization
+        full_response = []
+        full_thinking = []
+        
+        provider = self.config.get("default_provider", "google")
+        
+        # Setup context
+        ctx = RequestContext(
+            origin=origin,
+            provider=provider,
+            model=self.config.get(f"{provider}_model"),
+            streaming=True,
+            thinking_enabled=self.config.get("thinking_enabled", False)
+        )
+        
+        # Stream callbacks
+        def on_text(content):
+            full_response.append(content)
+            if callbacks.on_text:
+                callbacks.on_text(content)
+        
+        def on_thinking(content):
+            full_thinking.append(content)
+            if callbacks.on_thinking:
+                callbacks.on_thinking(content)
+        
+        def on_done():
+            if callbacks.on_done:
+                callbacks.on_done()
+        
+        stream_callbacks = StreamCallback(
+            on_text=on_text,
+            on_thinking=on_thinking,
+            on_done=on_done
+        )
+        
+        # Execute streaming request using execute_unified_stream
+        # This takes messages directly (with correct system prompt), not from session
+        ctx = RequestPipeline.execute_unified_stream(
+            ctx,
+            messages,  # Use the original messages with correct system prompt
+            self.config,
+            self.ai_params,
+            self.key_managers,
+            stream_callbacks
+        )
+        
+        if ctx.error:
+            logging.error(f'Streaming to chat window failed: {ctx.error}')
+            print(f"  [Error] {ctx.error}")
+            
+            from .popups import show_error_popup
+            show_error_popup(
+                title="Request Failed",
+                message="Failed to get response from AI provider.",
+                details=ctx.error
+            )
+            return
+        
+        # NOW set the system instruction for follow-up messages (after initial request completed)
+        if followup_system_instruction:
+            session.system_instruction = followup_system_instruction
+        else:
+            # Fallback to chat_window_system_instruction
+            session.system_instruction = self._get_setting(
+                "chat_window_system_instruction",
+                "You are a helpful AI assistant continuing a conversation."
+            )
+        
+        # Finalize: add the complete message to session
+        response_text = ''.join(full_response) or ctx.response_text or ""
+        thinking_text = ''.join(full_thinking) or ctx.reasoning_text or ""
+        
+        callbacks.finalize(response_text, thinking_text)
+        
+        print(f"  ✅ Response streamed to chat window ({len(response_text)} chars)")
+    
     def _replace_text(self, new_text: str):
         """Replace the selected text with new text."""
         success = self.text_handler.replace_selected_text(new_text)
@@ -952,7 +1133,8 @@ class TextEditToolApp:
         else:
             logging.error('Failed to replace text')
     
-    def _show_chat_window(self, title: str, response: str, original_text: str, task_context: Optional[str] = None):
+    def _show_chat_window(self, title: str, response: str, original_text: str, task_context: Optional[str] = None,
+                          followup_system_instruction: Optional[str] = None):
         """
         Show the response in a chat window.
         
@@ -961,6 +1143,9 @@ class TextEditToolApp:
             response: AI response text
             original_text: Original selected text
             task_context: Optional task description for context (e.g., "Explain the following text...")
+            followup_system_instruction: System instruction to use for follow-up messages.
+                For popup buttons (ELI5, etc.): use chat_window_system_instruction
+                For direct chat: use chat_system_instruction (same as initial)
         """
         logging.debug('Showing chat window')
         
@@ -991,13 +1176,16 @@ class TextEditToolApp:
         
         session.add_message("assistant", response)
         
-        # Store chat_window_system_instruction for follow-up messages
+        # Store system instruction for follow-up messages
         # This will be used by the chat window when sending follow-ups
-        chat_window_system_instruction = self._get_setting(
-            "chat_window_system_instruction",
-            "You are a helpful AI assistant continuing a conversation."
-        )
-        session.system_instruction = chat_window_system_instruction
+        if followup_system_instruction:
+            session.system_instruction = followup_system_instruction
+        else:
+            # Fallback to chat_window_system_instruction
+            session.system_instruction = self._get_setting(
+                "chat_window_system_instruction",
+                "You are a helpful AI assistant continuing a conversation."
+            )
         
         # Show the chat window
         show_chat_gui(session, initial_response=response)
