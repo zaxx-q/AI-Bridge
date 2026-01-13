@@ -379,6 +379,14 @@ class TrayApp:
         show_console()
         enable_console_close_button()  # Re-enable close button before restart
         
+        # Clean up emoji resources before restart
+        try:
+            from .gui.emoji_renderer import get_emoji_renderer
+            if get_emoji_renderer():
+                get_emoji_renderer().cleanup()
+        except Exception:
+            pass
+            
         # Start the new process FIRST, before doing anything that might fail
         if sys.platform == 'win32':
             try:
@@ -524,6 +532,14 @@ class TrayApp:
         # Call the exit callback if provided
         if self.on_exit_callback:
             self.on_exit_callback()
+            
+        # Clean up emoji resources
+        try:
+            from .gui.emoji_renderer import get_emoji_renderer
+            if get_emoji_renderer():
+                get_emoji_renderer().cleanup()
+        except Exception:
+            pass
         
         # Force exit
         os._exit(0)

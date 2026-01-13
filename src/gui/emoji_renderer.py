@@ -25,6 +25,7 @@ import io
 import tempfile
 import atexit
 import shutil
+import threading
 try:
     import emoji
     HAVE_EMOJI_LIB = True
@@ -153,6 +154,15 @@ class EmojiRenderer:
         self.assets_path, self.is_zip = get_assets_path()
         self.size = size or self.DEFAULT_SIZE
         
+        # Temp dir for generated icons - Eager initialization
+        # We create this immediately so we can exclude it from background cleanup logic
+        self._temp_icon_dir = tempfile.mkdtemp(prefix="aipromptbridge_icons_")
+        atexit.register(self.cleanup)
+        
+        # Clean up stale directories in background to avoid startup delay
+        # This is safe because we've already created (and know the path of) our current dir
+        threading.Thread(target=self._clean_stale_dirs, daemon=True).start()
+        
         # ZIP file handling
         self.zip_file: Optional[zipfile.ZipFile] = None
         self.zip_data: Optional[bytes] = None
@@ -178,29 +188,50 @@ class EmojiRenderer:
         # Track missing files to avoid repeated lookups
         self._missing_cache: set = set()
         
-        # Temp dir for generated icons
-        self._temp_icon_dir: Optional[str] = None
-        
         # Check if PIL is available
         if not HAVE_PIL:
             print("[Warning] PIL not available - emoji rendering disabled")
     
     def _get_temp_icon_dir(self) -> str:
-        """Get or create the temporary directory for icon files."""
-        if self._temp_icon_dir is None:
+        """Get the temporary directory for icon files."""
+        # Already initialized in __init__
+        if self._temp_icon_dir is None or not os.path.exists(self._temp_icon_dir):
+            # Re-create if missing (e.g. if user deleted it manually while app running)
             self._temp_icon_dir = tempfile.mkdtemp(prefix="aipromptbridge_icons_")
-            
-            # Register cleanup on exit
-            def cleanup():
-                if self._temp_icon_dir and os.path.exists(self._temp_icon_dir):
-                    try:
-                        shutil.rmtree(self._temp_icon_dir)
-                    except Exception:
-                        pass
-            
-            atexit.register(cleanup)
+            # atexit registration is idempotent or harmless if duplicated
             
         return self._temp_icon_dir
+    
+    def cleanup(self):
+        """Clean up the temporary icon directory."""
+        if self._temp_icon_dir and os.path.exists(self._temp_icon_dir):
+            try:
+                shutil.rmtree(self._temp_icon_dir, ignore_errors=True)
+                self._temp_icon_dir = None
+            except Exception:
+                pass
+
+    def _clean_stale_dirs(self):
+        """Clean up old temporary directories from previous runs."""
+        try:
+            temp_base = tempfile.gettempdir()
+            prefix = "aipromptbridge_icons_"
+            
+            for item in os.listdir(temp_base):
+                if item.startswith(prefix):
+                    full_path = os.path.join(temp_base, item)
+                    # Don't delete the current one if it exists (though it shouldn't yet)
+                    if full_path == self._temp_icon_dir:
+                        continue
+                        
+                    if os.path.isdir(full_path):
+                        try:
+                            # Attempt to remove - will fail silently if in use/locked
+                            shutil.rmtree(full_path, ignore_errors=True)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     def get_emoji_icon_path(self, emoji_char: str, size: int = 16) -> Optional[str]:
         """
