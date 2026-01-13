@@ -721,7 +721,19 @@ class OpenAICompatibleProvider(BaseProvider):
             )
     
     def fetch_models(self) -> tuple[List[Dict], Optional[str]]:
-        """Fetch available models from the API"""
+        """
+        Fetch available models from the API with metadata.
+        
+        Returns models with fields:
+        - id: Model ID
+        - name: Display name
+        - context_length: Context window size (if available)
+        - owned_by: Model owner/provider
+        - _raw: Original API response for future-proofing
+        
+        OpenRouter provides additional fields like:
+        - description, pricing, context_length, etc.
+        """
         if not self.key_manager or not self.key_manager.has_keys():
             return None, f"No API keys configured for {self.name}"
         
@@ -745,11 +757,36 @@ class OpenAICompatibleProvider(BaseProvider):
                 models = []
                 for model in data["data"]:
                     model_id = model.get("id", str(model))
-                    models.append({
+                    
+                    model_info = {
                         "id": model_id,
-                        "name": model_id,
-                        "owned_by": model.get("owned_by", "unknown")
-                    })
+                        "name": model.get("name", model_id),
+                        "owned_by": model.get("owned_by", "unknown"),
+                        # Context length may be in different fields
+                        "context_length": (
+                            model.get("context_length") or  # OpenRouter
+                            model.get("context_window") or  # Some APIs
+                            model.get("max_context_length")  # Others
+                        ),
+                        # OpenRouter specific fields
+                        "description": model.get("description", ""),
+                        # Pricing info (OpenRouter)
+                        "pricing": model.get("pricing"),
+                        # Architecture info (OpenRouter)
+                        "architecture": model.get("architecture"),
+                        # Top provider (OpenRouter)
+                        "top_provider": model.get("top_provider"),
+                        # Store raw for future-proofing
+                        "_raw": model
+                    }
+                    
+                    # Try to detect thinking support from model ID/name
+                    model_id_lower = model_id.lower()
+                    model_info["thinking"] = any(kw in model_id_lower for kw in [
+                        "thinking", "reason", "o1", "o3", "deepseek-r1"
+                    ])
+                    
+                    models.append(model_info)
                 return models, None
             
             # Some APIs return array directly
@@ -757,10 +794,19 @@ class OpenAICompatibleProvider(BaseProvider):
                 models = []
                 for model in data:
                     if isinstance(model, str):
-                        models.append({"id": model, "name": model})
+                        models.append({
+                            "id": model,
+                            "name": model,
+                            "_raw": {"id": model}
+                        })
                     else:
                         model_id = model.get("id", str(model))
-                        models.append({"id": model_id, "name": model_id})
+                        models.append({
+                            "id": model_id,
+                            "name": model.get("name", model_id),
+                            "context_length": model.get("context_length"),
+                            "_raw": model
+                        })
                 return models, None
             
             return None, "Unknown models response format"

@@ -735,7 +735,24 @@ class GeminiNativeProvider(BaseProvider):
             )
     
     def fetch_models(self) -> tuple[List[Dict], Optional[str]]:
-        """Fetch available models from Gemini API"""
+        """
+        Fetch available models from Gemini API with full metadata.
+        
+        Returns models with fields:
+        - id: Model ID (e.g., "gemini-2.5-flash")
+        - name: Display name (e.g., "Gemini 2.5 Flash")
+        - context_length: Input token limit (for terminal compatibility)
+        - output_token_limit: Max output tokens
+        - thinking: Whether model supports thinking mode
+        - description: Model description
+        - version: Model version
+        - supported_methods: List of supported generation methods
+        - temperature: Default temperature
+        - top_p: Default top_p
+        - top_k: Default top_k
+        - max_temperature: Maximum allowed temperature
+        - _raw: Original API response for future-proofing
+        """
         if not self.key_manager or not self.key_manager.has_keys():
             return None, "No API keys configured for Gemini"
         
@@ -743,7 +760,8 @@ class GeminiNativeProvider(BaseProvider):
         if not current_key:
             return None, "No API key available"
         
-        url = f"{GEMINI_BASE_URL}/models?key={current_key}"
+        # Request more models per page (default is 50)
+        url = f"{GEMINI_BASE_URL}/models?key={current_key}&pageSize=1000"
         
         try:
             response = requests.get(url, timeout=30)
@@ -765,11 +783,26 @@ class GeminiNativeProvider(BaseProvider):
                     supported_methods = model.get("supportedGenerationMethods", [])
                     if "generateContent" in supported_methods:
                         models.append({
+                            # Core fields
                             "id": model_id,
                             "name": display_name,
-                            "thinking": model.get("thinking", False),
+                            # Token limits - use context_length for terminal compatibility
+                            "context_length": model.get("inputTokenLimit"),
                             "input_token_limit": model.get("inputTokenLimit"),
-                            "output_token_limit": model.get("outputTokenLimit")
+                            "output_token_limit": model.get("outputTokenLimit"),
+                            # Features
+                            "thinking": model.get("thinking", False),
+                            # Metadata
+                            "description": model.get("description", ""),
+                            "version": model.get("version", ""),
+                            "supported_methods": supported_methods,
+                            # Generation defaults
+                            "temperature": model.get("temperature"),
+                            "top_p": model.get("topP"),
+                            "top_k": model.get("topK"),
+                            "max_temperature": model.get("maxTemperature"),
+                            # Store raw response for future-proofing
+                            "_raw": model
                         })
                 
                 return models, None
