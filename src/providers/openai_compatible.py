@@ -758,6 +758,10 @@ class OpenAICompatibleProvider(BaseProvider):
                 for model in data["data"]:
                     model_id = model.get("id", str(model))
                     
+                    # OpenRouter specific detection
+                    supported_params = model.get("supported_parameters", [])
+                    has_thinking_param = any(p in supported_params for p in ("include_reasoning", "reasoning"))
+                    
                     model_info = {
                         "id": model_id,
                         "name": model.get("name", model_id),
@@ -768,23 +772,23 @@ class OpenAICompatibleProvider(BaseProvider):
                             model.get("context_window") or  # Some APIs
                             model.get("max_context_length")  # Others
                         ),
-                        # OpenRouter specific fields
+                        # Metadata
                         "description": model.get("description", ""),
-                        # Pricing info (OpenRouter)
                         "pricing": model.get("pricing"),
-                        # Architecture info (OpenRouter)
                         "architecture": model.get("architecture"),
-                        # Top provider (OpenRouter)
                         "top_provider": model.get("top_provider"),
-                        # Store raw for future-proofing
                         "_raw": model
                     }
                     
-                    # Try to detect thinking support from model ID/name
-                    model_id_lower = model_id.lower()
-                    model_info["thinking"] = any(kw in model_id_lower for kw in [
-                        "thinking", "reason", "o1", "o3", "deepseek-r1"
-                    ])
+                    # Detect thinking support - prefer explicit parameter if found
+                    if has_thinking_param:
+                        model_info["thinking"] = True
+                    else:
+                        # Fallback to ID-based detection
+                        model_id_lower = model_id.lower()
+                        model_info["thinking"] = any(kw in model_id_lower for kw in [
+                            "thinking", "reason", "o1", "o3", "deepseek-r1"
+                        ])
                     
                     models.append(model_info)
                 return models, None

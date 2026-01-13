@@ -244,30 +244,69 @@ def terminal_session_manager(endpoints=None):
                             return f"{ctx // 1000}k"
                         return str(ctx)
                     
+                    # Helper function to format pricing
+                    def format_price_list(m):
+                        pricing = m.get('pricing')
+                        if not pricing:
+                            return ""
+                        try:
+                            prompt = float(pricing.get('prompt', 0))
+                            completion = float(pricing.get('completion', 0))
+                            
+                            if prompt < 0: return "[dim]Router[/dim]"
+                            if prompt == 0 and completion == 0: return "[bold green]Free[/bold green]"
+                            
+                            # Format as price per 1M tokens
+                            p_val = prompt * 1000000
+                            c_val = completion * 1000000
+                            
+                            def fmt(v):
+                                if v == 0: return "0"
+                                if v < 0.01: return "<.01"
+                                return f"{v:.2f}"
+                                
+                            return f"${fmt(p_val)}/${fmt(c_val)}"
+                        except:
+                            return ""
+
                     if HAVE_RICH:
                         table = Table(show_header=True, box=None)
                         table.add_column("#", style="dim", justify="right", width=4)
                         table.add_column("Model ID", style="bold", min_width=30)
                         table.add_column("Context", style="cyan", justify="right", width=8)
+                        table.add_column("1M (In/Out)", style="yellow", justify="right", width=14)
                         table.add_column("🧠", justify="center", width=3)
                         
                         for i, m in enumerate(models):
                             marker = " [bold green]◄[/bold green]" if m['id'] == current_model else ""
                             ctx = format_context(m.get('context_length'))
                             thinking = "[green]✓[/green]" if m.get('thinking') else ""
-                            table.add_row(str(i+1), f"{m['id']}{marker}", ctx, thinking)
+                            price = format_price_list(m)
+                            table.add_row(str(i+1), f"{m['id']}{marker}", ctx, price, thinking)
                         
                         console.print(table)
                         console.print("\n   [dim]Enter number, model name, or ?N for details (q = cancel):[/dim] ", end="")
                     else:
                         print(f"\n   Available ({len(models)}):")
-                        print(f"   {'#':>3}  {'Model ID':<35} {'Context':>8} 🧠")
-                        print(f"   {'-'*3}  {'-'*35} {'-'*8} --")
+                        print(f"   {'#':>3}  {'Model ID':<35} {'Context':>8} {'1M (In/Out)':>14} 🧠")
+                        print(f"   {'-'*3}  {'-'*35} {'-'*8} {'-'*14} --")
                         for i, m in enumerate(models):
                             marker = " ◄" if m['id'] == current_model else ""
                             ctx = format_context(m.get('context_length'))
                             thinking = "✓" if m.get('thinking') else ""
-                            print(f"   {i+1:>3}  {m['id']:<35}{marker} {ctx:>8} {thinking}")
+                            # Simple pricing for fallback
+                            pricing = m.get('pricing')
+                            price_str = ""
+                            if pricing:
+                                try:
+                                    p = float(pricing.get('prompt', 0))
+                                    c = float(pricing.get('completion', 0))
+                                    if p == 0 and c == 0:
+                                        price_str = "Free"
+                                    else:
+                                        price_str = f"${p*1000000:.1f}/${c*1000000:.1f}"
+                                except: pass
+                            print(f"   {i+1:>3}  {m['id']:<35}{marker} {ctx:>8} {price_str:>14} {thinking}")
                         
                         print("\n   Enter number, model name, or ?N for details (q = cancel): ", end='', flush=True)
                     
@@ -611,26 +650,28 @@ def terminal_session_manager(endpoints=None):
 
 def _show_model_details(model: dict):
     """
-    Display detailed information about a model.
+    Display detailed information about a model (Tier 2).
     Shows all available metadata including unknown/future fields.
-    
-    Args:
-        model: Model dictionary from fetch_models()
     """
-    # Helper to format numbers with commas
-    def format_number(n):
-        if n is None:
-            return "N/A"
-        return f"{n:,}"
-    
-    # Known fields to display in order
-    known_fields = {
-        'id', 'name', 'context_length', 'input_token_limit',
-        'output_token_limit', 'thinking', 'description', 'version',
-        'supported_methods', 'temperature', 'top_p', 'top_k',
-        'max_temperature', '_raw'
-    }
-    
+    # Helper to format numbers/money with optional rich tags
+    def fmt_num(n, rich=True):
+        if n is None or n == "" or n == "N/A":
+            return "[dim]Unknown[/dim]" if rich else "Unknown"
+        try:
+            return f"{int(n):,}"
+        except: return str(n)
+            
+    def fmt_money(val, rich=True):
+        if val is None or val == "": return "[dim]N/A[/dim]" if rich else "N/A"
+        try:
+            fval = float(val)
+            if fval < 0: return "[dim]Variable[/dim]" if rich else "Variable"
+            if fval == 0: return "[bold green]Free[/bold green]" if rich else "Free"
+            # Show price per 1M tokens
+            per_million = fval * 1000000
+            return (f"${per_million:,.2f}" + (" [dim]per 1M[/dim]" if rich else " per 1M"))
+        except: return str(val)
+
     if HAVE_RICH:
         console.print(f"\n{'─'*64}")
         console.print("[bold]📋 MODEL DETAILS[/bold]")
@@ -639,164 +680,119 @@ def _show_model_details(model: dict):
         # Core info
         console.print(f"   [bold]Name:[/bold]        {model.get('name', model.get('id', 'Unknown'))}")
         console.print(f"   [bold]ID:[/bold]          [cyan]{model.get('id', 'Unknown')}[/cyan]")
-        
+        if model.get('owned_by'):
+             console.print(f"   [bold]Provider:[/bold]    [yellow]{model.get('owned_by')}[/yellow]")
         if model.get('version'):
             console.print(f"   [bold]Version:[/bold]     {model.get('version')}")
         
         if model.get('description'):
             desc = model.get('description', '')
-            # Wrap long descriptions
             if len(desc) > 60:
                 console.print(f"   [bold]Description:[/bold]")
-                # Word wrap at ~55 chars
                 words = desc.split()
                 line = "                "
                 for word in words:
                     if len(line) + len(word) + 1 > 70:
                         console.print(f"   [dim]{line}[/dim]")
                         line = "                " + word
-                    else:
-                        line += " " + word if line.strip() else word
-                if line.strip():
-                    console.print(f"   [dim]{line}[/dim]")
-            else:
-                console.print(f"   [bold]Description:[/bold] [dim]{desc}[/dim]")
+                    else: line += " " + word if line.strip() else word
+                if line.strip(): console.print(f"   [dim]{line}[/dim]")
+            else: console.print(f"   [bold]Description:[/bold] [dim]{desc}[/dim]")
         
         console.print()
         
-        # Token limits
+        # Performance & Limits
         ctx = model.get('context_length') or model.get('input_token_limit')
         out_limit = model.get('output_token_limit')
-        console.print(f"   [bold]Context:[/bold]     {format_number(ctx)} tokens (input)")
-        console.print(f"   [bold]Max Output:[/bold]  {format_number(out_limit)} tokens")
+        console.print(f"   [bold]Context:[/bold]     {fmt_num(ctx)} tokens (input)")
+        console.print(f"   [bold]Max Output:[/bold]  {fmt_num(out_limit)} tokens")
         
-        # Thinking support
         thinking = model.get('thinking', False)
-        thinking_str = "[green]✅ Supported[/green]" if thinking else "[dim]Not supported[/dim]"
-        console.print(f"   [bold]Thinking:[/bold]    {thinking_str}")
+        think_str = "[green]✅ Supported[/green]" if thinking else "[dim]Not supported[/dim]"
+        console.print(f"   [bold]Thinking:[/bold]    {think_str}")
         
+        # Pricing
+        pricing = model.get('pricing')
+        if pricing:
+            console.print("\n   [bold]Pricing:[/bold]")
+            console.print(f"      Prompt:     {fmt_money(pricing.get('prompt'))}")
+            console.print(f"      Completion: {fmt_money(pricing.get('completion'))}")
+
+        # Architecture
+        arch = model.get('architecture')
+        if arch:
+            console.print("\n   [bold]Architecture:[/bold]")
+            
+            # Use specific modality lists for better accuracy (shows audio/video/etc)
+            inputs = arch.get('input_modalities')
+            outputs = arch.get('output_modalities')
+            
+            if inputs:
+                console.print(f"      Input Mod.: [dim]{', '.join(inputs)}[/dim]")
+            if outputs:
+                console.print(f"      Output Mod.:[dim]{', '.join(outputs)}[/dim]")
+            
+            # Fallback to summary string if lists are missing
+            if not inputs and arch.get('modality'):
+                console.print(f"      Modality:   [dim]{arch.get('modality')}[/dim]")
+                
+            if arch.get('tokenizer'):
+                console.print(f"      Tokenizer:  [dim]{arch.get('tokenizer')}[/dim]")
+
         console.print()
         
         # Generation defaults
         if any(model.get(k) is not None for k in ['temperature', 'top_p', 'top_k', 'max_temperature']):
             console.print("   [bold]Defaults:[/bold]")
-            if model.get('temperature') is not None:
-                console.print(f"      Temperature: {model.get('temperature')}")
-            if model.get('max_temperature') is not None:
-                console.print(f"      Max Temp:    {model.get('max_temperature')}")
-            if model.get('top_p') is not None:
-                console.print(f"      Top P:       {model.get('top_p')}")
-            if model.get('top_k') is not None:
-                console.print(f"      Top K:       {model.get('top_k')}")
+            if model.get('temperature') is not None: console.print(f"      Temp:      {model.get('temperature')}")
+            if model.get('max_temperature') is not None: console.print(f"      Max Temp:  {model.get('max_temperature')}")
+            if model.get('top_p') is not None: console.print(f"      Top P:     {model.get('top_p')}")
+            if model.get('top_k') is not None: console.print(f"      Top K:     {model.get('top_k')}")
             console.print()
         
-        # Supported methods
         methods = model.get('supported_methods', [])
-        if methods:
-            console.print(f"   [bold]Methods:[/bold]     {', '.join(methods)}")
+        if methods: console.print(f"   [bold]Methods:[/bold]     {', '.join(methods)}")
         
-        # Show any unknown/future fields from _raw that we haven't already displayed
+        # Show any unknown/future fields from _raw
         raw = model.get('_raw', {})
         if raw:
-            extra_fields = {}
-            for key, value in raw.items():
-                # Skip fields we've already shown or internal fields
-                if key in ['name', 'displayName', 'description', 'version',
-                          'inputTokenLimit', 'outputTokenLimit', 'thinking',
-                          'supportedGenerationMethods', 'temperature', 'topP',
-                          'topK', 'maxTemperature']:
-                    continue
-                # Skip None values
-                if value is None:
-                    continue
-                extra_fields[key] = value
+            excluded = {
+                'name', 'displayName', 'description', 'version', 'id', 'owned_by',
+                'inputTokenLimit', 'outputTokenLimit', 'thinking', 'pricing', 'architecture',
+                'supportedGenerationMethods', 'temperature', 'topP', 'topK', 'maxTemperature',
+                'context_length', 'input_token_limit', 'output_token_limit', 'supported_methods',
+                'supported_parameters', 'input_modalities', 'output_modalities'
+            }
+            extra_fields = {k: v for k, v in raw.items() if k not in excluded and v is not None}
             
             if extra_fields:
-                console.print()
-                console.print("   [bold]Additional Fields:[/bold]")
+                console.print("\n   [bold]Additional Information:[/bold]")
                 for key, value in extra_fields.items():
-                    # Format the value
-                    if isinstance(value, bool):
-                        val_str = "[green]true[/green]" if value else "[red]false[/red]"
-                    elif isinstance(value, (list, dict)):
-                        val_str = str(value)[:50]
-                        if len(str(value)) > 50:
-                            val_str += "..."
-                    else:
-                        val_str = str(value)
-                    console.print(f"      {key}: {val_str}")
+                    val_str = str(value)[:50] + ("..." if len(str(value)) > 50 else "")
+                    console.print(f"      {key}: [dim]{val_str}[/dim]")
         
         console.print(f"{'─'*64}\n")
     else:
         # Plain text fallback
-        print(f"\n{'─'*64}")
-        print("📋 MODEL DETAILS")
-        print(f"{'─'*64}")
-        print(f"   Name:        {model.get('name', model.get('id', 'Unknown'))}")
+        print(f"\n{'─'*64}\n📋 MODEL DETAILS\n{'─'*64}")
+        print(f"   Name:        {model.get('name', 'Unknown')}")
         print(f"   ID:          {model.get('id', 'Unknown')}")
+        print(f"   Context:     {fmt_num(model.get('context_length'), False)} tokens")
         
-        if model.get('version'):
-            print(f"   Version:     {model.get('version')}")
-        
+        pricing = model.get('pricing')
+        if pricing:
+            print(f"   Pricing:     {fmt_money(pricing.get('prompt'), False)} (Prompt)")
+            
         if model.get('description'):
             desc = model.get('description', '')
-            if len(desc) > 50:
-                print(f"   Description: {desc[:50]}...")
-            else:
-                print(f"   Description: {desc}")
-        
-        print()
-        
-        ctx = model.get('context_length') or model.get('input_token_limit')
-        out_limit = model.get('output_token_limit')
-        print(f"   Context:     {format_number(ctx)} tokens (input)")
-        print(f"   Max Output:  {format_number(out_limit)} tokens")
-        
-        thinking = model.get('thinking', False)
-        thinking_str = "✅ Supported" if thinking else "Not supported"
-        print(f"   Thinking:    {thinking_str}")
-        
-        print()
-        
-        if any(model.get(k) is not None for k in ['temperature', 'top_p', 'top_k', 'max_temperature']):
-            print("   Defaults:")
-            if model.get('temperature') is not None:
-                print(f"      Temperature: {model.get('temperature')}")
-            if model.get('max_temperature') is not None:
-                print(f"      Max Temp:    {model.get('max_temperature')}")
-            if model.get('top_p') is not None:
-                print(f"      Top P:       {model.get('top_p')}")
-            if model.get('top_k') is not None:
-                print(f"      Top K:       {model.get('top_k')}")
-            print()
-        
-        methods = model.get('supported_methods', [])
-        if methods:
-            print(f"   Methods:     {', '.join(methods)}")
-        
-        # Show extra fields
+            print(f"   Description: {desc[:60]}...")
+            
         raw = model.get('_raw', {})
         if raw:
-            extra_fields = {}
-            for key, value in raw.items():
-                if key in ['name', 'displayName', 'description', 'version',
-                          'inputTokenLimit', 'outputTokenLimit', 'thinking',
-                          'supportedGenerationMethods', 'temperature', 'topP',
-                          'topK', 'maxTemperature']:
-                    continue
-                if value is None:
-                    continue
-                extra_fields[key] = value
-            
-            if extra_fields:
-                print()
-                print("   Additional Fields:")
-                for key, value in extra_fields.items():
-                    val_str = str(value)[:50]
-                    if len(str(value)) > 50:
-                        val_str += "..."
-                    print(f"      {key}: {val_str}")
-        
+            print("\n   Additional Fields:")
+            for k, v in raw.items():
+                if k not in ['id', 'name', 'description', 'pricing']:
+                    print(f"      {k}: {str(v)[:50]}")
         print(f"{'─'*64}\n")
 
 
