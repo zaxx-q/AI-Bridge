@@ -31,7 +31,7 @@ from ..utils import strip_markdown
 from ..session_manager import add_session, get_session, list_sessions, delete_session, save_sessions, ChatSession
 from .core import get_next_window_id, register_window, unregister_window
 from .utils import copy_to_clipboard, render_markdown, get_color_scheme, setup_text_tags
-from .custom_widgets import create_emoji_button
+from .custom_widgets import create_emoji_button, ScrollableComboBox
 from .themes import (
     ThemeColors, get_colors, get_ctk_font,
     get_ctk_button_colors, get_ctk_frame_colors,
@@ -515,15 +515,14 @@ class StandaloneChatWindow:
                 text_color=self.theme.fg
             ).pack(side="left", padx=(15, 5))
             
-            combo_colors = get_ctk_combobox_colors(self.theme)
-            self.model_dropdown = ctk.CTkComboBox(
+            # Use ScrollableComboBox for handling many models
+            self.model_dropdown = ScrollableComboBox(
                 btn_frame,
+                colors=self.theme,
                 values=["(loading...)"],
                 width=220,
                 height=28,
-                corner_radius=6,
-                command=self._on_model_select,
-                **combo_colors
+                command=self._on_model_select
             )
             self.model_dropdown.pack(side="left", padx=5)
             self.model_dropdown.set(self.selected_model or "(default)")
@@ -2006,10 +2005,14 @@ class AttachedChatWindow:
                 text_color=self.theme.fg
             ).pack(side="left", padx=(15, 5))
             
-            combo_colors = get_ctk_combobox_colors(self.theme)
-            self.model_dropdown = ctk.CTkComboBox(
-                btn_frame, values=["(loading...)"], width=220, height=28,
-                corner_radius=6, command=self._on_model_select, **combo_colors
+            # Use ScrollableComboBox for handling many models
+            self.model_dropdown = ScrollableComboBox(
+                btn_frame,
+                colors=self.theme,
+                values=["(loading...)"],
+                width=220,
+                height=28,
+                command=self._on_model_select
             )
             self.model_dropdown.pack(side="left", padx=5)
             self.model_dropdown.set(self.selected_model or "(default)")

@@ -42,7 +42,7 @@ from .themes import (
     get_ctk_font
 )
 from .core import get_next_window_id, register_window, unregister_window
-from .custom_widgets import ScrollableButtonList, upgrade_tabview_with_icons, create_section_header, create_emoji_button
+from .custom_widgets import ScrollableButtonList, ScrollableComboBox, upgrade_tabview_with_icons, create_section_header, create_emoji_button
 
 # Import emoji renderer for CTkImage support (Windows color emoji fix)
 try:
@@ -811,7 +811,7 @@ class SettingsWindow:
         self.widgets["default_provider"].pack(side="left", padx=(10, 0))
         
         if self.use_ctk:
-            ctk.CTkLabel(row, text="Primary provider for general requests", font=get_ctk_font(11),
+            ctk.CTkLabel(row, text="Provider for requests (can be overriden by endpoint parameters)", font=get_ctk_font(11),
                         **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
         else:
              tk.Label(row, text="Provider for requests (can be overriden by endpoint parameters)", font=("Segoe UI", 9),
@@ -1439,12 +1439,11 @@ class SettingsWindow:
             ctk.CTkLabel(row, text=label, font=get_ctk_font(13), width=180, anchor="w",
                         **get_ctk_label_colors(self.colors)).pack(side="left")
             
-            # Create editable combobox (not readonly - user can type custom values)
-            dropdown = ctk.CTkComboBox(
-                row, variable=self.vars[key],
+            # Create scrollable combobox for handling many models
+            dropdown = ScrollableComboBox(
+                row, colors=self.colors, variable=self.vars[key],
                 values=[value] if value else [],
-                width=width, height=34, font=get_ctk_font(13),
-                **get_ctk_combobox_colors(self.colors)
+                width=width, height=34, font_size=13
             )
             dropdown.pack(side="left", padx=(12, 0))
             self.widgets[key] = dropdown
