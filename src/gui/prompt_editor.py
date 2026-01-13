@@ -727,7 +727,7 @@ class PromptEditorWindow:
         selected = self.action_listbox.get_selected()
         self.action_listbox.clear()
         
-        for name in sorted(self.options_data.keys()):
+        for name in self.options_data.keys():
             if name == "_settings":
                 continue
             icon = self.options_data[name].get("icon", "")
@@ -770,9 +770,11 @@ class PromptEditorWindow:
         btn_frame.pack(fill="x", pady=(12, 0))
         
         # Buttons using shared helper
-        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 80, 34, self._add_action).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 70, 34, self._add_action).pack(side="left", padx=3)
         create_emoji_button(btn_frame, "", "📋", self.colors, "secondary", 40, 34, self._duplicate_action).pack(side="left", padx=3)
         create_emoji_button(btn_frame, "", "🗑️", self.colors, "danger", 40, 34, self._delete_action).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "⬆", "", self.colors, "secondary", 40, 34, self._move_action_up).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "⬇", "", self.colors, "secondary", 40, 34, self._move_action_down).pack(side="left", padx=3)
         
         # Right panel: action editor
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
@@ -1105,8 +1107,10 @@ class PromptEditorWindow:
         btn_frame = ctk.CTkFrame(left_panel, fg_color="transparent") if self.use_ctk else tk.Frame(left_panel, bg=self.colors.bg)
         btn_frame.pack(fill="x", pady=(12, 0))
         
-        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 80, 34, self._add_modifier).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 70, 34, self._add_modifier).pack(side="left", padx=3)
         create_emoji_button(btn_frame, "", "🗑️", self.colors, "danger", 40, 34, self._delete_modifier).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "⬆", "", self.colors, "secondary", 40, 34, self._move_modifier_up).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "⬇", "", self.colors, "secondary", 40, 34, self._move_modifier_down).pack(side="left", padx=3)
         
         # Right panel: modifier editor
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
@@ -1219,8 +1223,10 @@ class PromptEditorWindow:
         btn_frame = ctk.CTkFrame(left_panel, fg_color="transparent") if self.use_ctk else tk.Frame(left_panel, bg=self.colors.bg)
         btn_frame.pack(fill="x", pady=(12, 0))
         
-        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 80, 34, self._add_group).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "Add", "➕", self.colors, "success", 70, 34, self._add_group).pack(side="left", padx=3)
         create_emoji_button(btn_frame, "", "🗑️", self.colors, "danger", 40, 34, self._delete_group).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "⬆", "", self.colors, "secondary", 40, 34, self._move_group_up).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "⬇", "", self.colors, "secondary", 40, 34, self._move_group_down).pack(side="left", padx=3)
         
         # Right panel: group editor
         right_panel = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
@@ -2406,6 +2412,59 @@ class PromptEditorWindow:
             else:
                 self.editor_widgets["name"].configure(text="(select an action)")
     
+    def _move_action_up(self):
+        """Move selected action up."""
+        if not self.current_action:
+            return
+            
+        display_keys = [k for k in self.options_data.keys() if k != "_settings"]
+        if self.current_action not in display_keys:
+            return
+            
+        idx = display_keys.index(self.current_action)
+        if idx > 0:
+            # Swap
+            display_keys[idx], display_keys[idx-1] = display_keys[idx-1], display_keys[idx]
+            
+            # Reconstruct dictionary
+            new_data = {}
+            for k in display_keys:
+                new_data[k] = self.options_data[k]
+                
+            # append _settings if exists
+            if "_settings" in self.options_data:
+                new_data["_settings"] = self.options_data["_settings"]
+                
+            self.options_data = new_data
+            self._refresh_action_list()
+            self.action_listbox.select(self.current_action)
+
+    def _move_action_down(self):
+        """Move selected action down."""
+        if not self.current_action:
+            return
+            
+        display_keys = [k for k in self.options_data.keys() if k != "_settings"]
+        if self.current_action not in display_keys:
+            return
+            
+        idx = display_keys.index(self.current_action)
+        if idx < len(display_keys) - 1:
+            # Swap
+            display_keys[idx], display_keys[idx+1] = display_keys[idx+1], display_keys[idx]
+            
+            # Reconstruct dictionary
+            new_data = {}
+            for k in display_keys:
+                new_data[k] = self.options_data[k]
+                
+            if "_settings" in self.options_data:
+                new_data["_settings"] = self.options_data["_settings"]
+                
+            self.options_data = new_data
+            self._refresh_action_list()
+            self.action_listbox.select(self.current_action)
+
     def _save_current_action(self):
         """Save the currently edited action."""
         if not self.current_action:
@@ -2477,6 +2536,56 @@ class PromptEditorWindow:
                 for i, mod in enumerate(modifiers):
                     self.modifier_listbox.add_item(str(i), mod.get('label', mod.get('key', '')), mod.get('icon', ''))
     
+    def _move_modifier_up(self):
+        """Move selected modifier up."""
+        selected_id = self.modifier_listbox.get_selected()
+        if not selected_id:
+            return
+            
+        try:
+            index = int(selected_id)
+        except ValueError:
+            return
+            
+        settings = self.options_data.get("_settings", {})
+        modifiers = settings.get("modifiers", [])
+        
+        if 0 < index < len(modifiers):
+            modifiers[index], modifiers[index-1] = modifiers[index-1], modifiers[index]
+            
+            # Refresh list
+            self.modifier_listbox.clear()
+            for i, mod in enumerate(modifiers):
+                self.modifier_listbox.add_item(str(i), mod.get('label', mod.get('key', '')), mod.get('icon', ''))
+            
+            # Restore selection (now at index-1)
+            self.modifier_listbox.select(str(index-1))
+
+    def _move_modifier_down(self):
+        """Move selected modifier down."""
+        selected_id = self.modifier_listbox.get_selected()
+        if not selected_id:
+            return
+            
+        try:
+            index = int(selected_id)
+        except ValueError:
+            return
+            
+        settings = self.options_data.get("_settings", {})
+        modifiers = settings.get("modifiers", [])
+        
+        if 0 <= index < len(modifiers) - 1:
+            modifiers[index], modifiers[index+1] = modifiers[index+1], modifiers[index]
+            
+            # Refresh list
+            self.modifier_listbox.clear()
+            for i, mod in enumerate(modifiers):
+                self.modifier_listbox.add_item(str(i), mod.get('label', mod.get('key', '')), mod.get('icon', ''))
+            
+            # Restore selection (now at index+1)
+            self.modifier_listbox.select(str(index+1))
+
     def _save_current_modifier(self):
         """Save the currently edited modifier."""
         selected_id = self.modifier_listbox.get_selected()
@@ -2547,6 +2656,56 @@ class PromptEditorWindow:
                 for i, grp in enumerate(groups):
                      self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
     
+    def _move_group_up(self):
+        """Move selected group up."""
+        selected_id = self.group_listbox.get_selected()
+        if not selected_id:
+            return
+            
+        try:
+            index = int(selected_id)
+        except ValueError:
+            return
+            
+        settings = self.options_data.get("_settings", {})
+        groups = settings.get("popup_groups", [])
+        
+        if 0 < index < len(groups):
+            groups[index], groups[index-1] = groups[index-1], groups[index]
+            
+            # Refresh list
+            self.group_listbox.clear()
+            for i, grp in enumerate(groups):
+                self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
+            
+            # Restore selection
+            self.group_listbox.select(str(index-1))
+
+    def _move_group_down(self):
+        """Move selected group down."""
+        selected_id = self.group_listbox.get_selected()
+        if not selected_id:
+            return
+            
+        try:
+            index = int(selected_id)
+        except ValueError:
+            return
+            
+        settings = self.options_data.get("_settings", {})
+        groups = settings.get("popup_groups", [])
+        
+        if 0 <= index < len(groups) - 1:
+            groups[index], groups[index+1] = groups[index+1], groups[index]
+            
+            # Refresh list
+            self.group_listbox.clear()
+            for i, grp in enumerate(groups):
+                self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
+            
+            # Restore selection
+            self.group_listbox.select(str(index+1))
+
     def _save_current_group(self):
         """Save the currently edited group."""
         selected_id = self.group_listbox.get_selected()
