@@ -426,8 +426,8 @@ def call_api_simple(provider, prompt, image_base64, mime_type, model_override, c
     messages = [{
         "role": "user",
         "content": [
-            {"type": "image_url", "image_url": {"url": data_url}},
-            {"type": "text", "text": prompt}
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": data_url}}
         ]
     }]
     return call_api_with_retry(provider, messages, model_override, config, ai_params, key_managers)

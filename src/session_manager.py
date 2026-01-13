@@ -82,9 +82,10 @@ class ChatSession:
                 if needs_image:
                     # Use array format with image and text
                     content_parts = []
+                    # Recommended order: Text then Images
+                    content_parts.append({"type": "text", "text": content})
                     data_url = f"data:{self.mime_type};base64,{self.image_base64}"
                     content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
-                    content_parts.append({"type": "text", "text": content})
                     messages.append({"role": "user", "content": content_parts})
                 else:
                     # Simple string format for user messages without image
