@@ -4,6 +4,7 @@ Configuration loading and management
 """
 
 import os
+import re
 from pathlib import Path
 
 # Configuration file paths
@@ -170,7 +171,16 @@ def load_config(filepath=CONFIG_FILE):
             
             elif current_section in keys:
                 if stripped and not stripped.startswith('#'):
-                    keys[current_section].append(stripped)
+                    # Strip inline comments (format: key   # name or key # name)
+                    # Use regex to handle variable whitespace before #
+                    # The comment is for display purposes only; we only store the key
+                    match = re.search(r'\s+#', stripped)
+                    if match:
+                        key_part = stripped[:match.start()].strip()
+                    else:
+                        key_part = stripped.strip()
+                    if key_part:
+                        keys[current_section].append(key_part)
         
         if multiline_key and current_section == 'endpoints':
             endpoints[multiline_key] = ' '.join(multiline_value)

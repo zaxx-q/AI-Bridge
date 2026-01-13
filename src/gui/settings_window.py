@@ -18,12 +18,11 @@ import re
 import time
 import shutil
 import threading
+import queue
 import tkinter as tk
 from tkinter import messagebox
 from typing import Dict, Optional, List, Callable, Any
 from pathlib import Path
-
-import threading
 
 # Import CustomTkinter with fallback
 from .platform import HAVE_CTK, ctk
@@ -67,7 +66,9 @@ class ConfigData:
     def __init__(self):
         self.config: Dict[str, Any] = {}       # [config] section values
         self.endpoints: Dict[str, str] = {}    # [endpoints] section
-        self.keys: Dict[str, List[str]] = {    # API key sections
+        # API key sections - now stores dicts with "key" and "name" fields
+        # Format: [{"key": "sk-xxx", "name": "My Key"}, ...]
+        self.keys: Dict[str, List[Dict[str, str]]] = {
             "custom": [],
             "openrouter": [],
             "google": []
@@ -160,7 +161,22 @@ def parse_config_full(filepath: str = "config.ini") -> ConfigData:
             
             elif current_section in data.keys:
                 if stripped and not stripped.startswith('#'):
-                    data.keys[current_section].append(stripped)
+                    # Parse key with optional inline comment for name
+                    # Format: sk-xxxxx   # My Key Name (uses any whitespace before #)
+                    # Use regex to handle variable whitespace
+                    match = re.search(r'\s+#\s*', stripped)
+                    if match:
+                        key_part = stripped[:match.start()].strip()
+                        comment = stripped[match.end():].strip()
+                        data.keys[current_section].append({
+                            "key": key_part,
+                            "name": comment
+                        })
+                    else:
+                        data.keys[current_section].append({
+                            "key": stripped.strip(),
+                            "name": ""
+                        })
         
         # Flush any remaining multiline
         if multiline_key and current_section == 'endpoints':
@@ -284,7 +300,20 @@ def save_config_full(data: ConfigData, filepath: str = "config.ini") -> bool:
         for section in ['custom', 'openrouter', 'google']:
             section_end = _find_section_end(lines, section)
             if section_end > 0:
-                key_lines = [key + '\n' for key in data.keys[section]]
+                key_lines = []
+                for key_data in data.keys[section]:
+                    if isinstance(key_data, dict):
+                        key_str = key_data.get("key", "")
+                        name = key_data.get("name", "")
+                        if key_str:  # Only write non-empty keys
+                            if name:
+                                key_lines.append(f'{key_str}   # {name}\n')
+                            else:
+                                key_lines.append(f'{key_str}\n')
+                    else:
+                        # Backward compat: plain string
+                        if key_data:
+                            key_lines.append(f'{key_data}\n')
                 lines = lines[:section_end] + key_lines + lines[section_end:]
         
         # Write file
@@ -391,6 +420,9 @@ class SettingsWindow:
         
         # Theme preview
         self.preview_frame: Optional[Any] = None
+        
+        # Queue for thread-safe callbacks (used when running standalone)
+        self._callback_queue: queue.Queue = queue.Queue()
         
         # Determine if we can use CTk (must be in main thread)
         self.use_ctk = _can_use_ctk()
@@ -536,6 +568,10 @@ class SettingsWindow:
                     if not self.root.winfo_exists():
                         break
                     self.root.update()
+                    
+                    # Process any pending callbacks from background threads
+                    self._process_callback_queue()
+                    
                     time.sleep(0.01)
                 except tk.TclError:
                     break
@@ -544,6 +580,47 @@ class SettingsWindow:
         finally:
             # Ensure proper cleanup when loop exits
             self._safe_destroy()
+    
+    def _process_callback_queue(self):
+        """Process any pending callbacks from background threads."""
+        try:
+            while True:
+                callback = self._callback_queue.get_nowait()
+                if callback and callable(callback):
+                    try:
+                        callback()
+                    except Exception as e:
+                        print(f"[Settings] Error in queued callback: {e}")
+        except queue.Empty:
+            pass
+    
+    def _schedule_callback(self, callback: Callable):
+        """
+        Schedule a callback to run on the GUI thread.
+        Works both when attached to master and when standalone.
+        """
+        if self._destroyed:
+            return
+        
+        if self.master:
+            # When attached to a master, use GUICoordinator to run on GUI thread
+            # (calling self.root.after() from a background thread would fail)
+            try:
+                from .core import GUICoordinator
+                
+                def safe_wrapper():
+                    if not self._destroyed:
+                        try:
+                            callback()
+                        except tk.TclError:
+                            pass
+                
+                GUICoordinator.get_instance().run_on_gui_thread(safe_wrapper)
+            except Exception as e:
+                print(f"[Settings] Failed to schedule callback via GUICoordinator: {e}")
+        else:
+            # When standalone, use the queue (processed in _run_event_loop)
+            self._callback_queue.put(callback)
     
     def _create_title_bar(self, parent):
         """Create the title bar."""
@@ -747,23 +824,26 @@ class SettingsWindow:
                              self.config_data.config.get("custom_url", "") or "",
                              width=400, hint="OpenAI-compatible endpoint URL")
         
-        self._add_entry_field(scroll_frame, "custom_model", "Model:",
-                             self.config_data.config.get("custom_model", "") or "",
-                             width=300, hint="Model ID to use")
+        # Model dropdown with refresh button
+        self._add_model_dropdown_field(scroll_frame, "custom_model", "Model:",
+                                       self.config_data.config.get("custom_model", "") or "",
+                                       provider="custom", width=300)
         
         # OpenRouter settings
         create_section_header(scroll_frame, "🚀 OpenRouter", self.colors, top_padding=20)
         
-        self._add_entry_field(scroll_frame, "openrouter_model", "Model:",
-                             self.config_data.config.get("openrouter_model", ""),
-                             width=300, hint="e.g. openai/gpt-oss-120b:free")
+        # Model dropdown with refresh button
+        self._add_model_dropdown_field(scroll_frame, "openrouter_model", "Model:",
+                                       self.config_data.config.get("openrouter_model", ""),
+                                       provider="openrouter", width=300)
         
         # Google settings
         create_section_header(scroll_frame, "💎 Google Gemini", self.colors, top_padding=20)
         
-        self._add_entry_field(scroll_frame, "google_model", "Model:",
-                             self.config_data.config.get("google_model", ""),
-                             width=300, hint="e.g. gemini-2.5-flash-lite")
+        # Model dropdown with refresh button
+        self._add_model_dropdown_field(scroll_frame, "google_model", "Model:",
+                                       self.config_data.config.get("google_model", ""),
+                                       provider="google", width=300)
     
     def _create_streaming_tab(self, frame):
         """Create the Streaming/Thinking settings tab."""
@@ -977,7 +1057,7 @@ class SettingsWindow:
         if self.use_ctk:
             ctk.CTkLabel(
                 container,
-                text=f"Manage {provider} API keys (keys are masked for security)",
+                text=f"Manage {provider} API keys (keys are masked for security). Add a name after '   # ' in the key field.",
                 font=get_ctk_font(12),
                 **get_ctk_label_colors(self.colors, muted=True)
             ).pack(anchor="w", pady=(0, 12))
@@ -997,62 +1077,129 @@ class SettingsWindow:
         
         def refresh_keys_list():
             listbox.clear()
-            for i, key in enumerate(self.widgets[f"keys_{provider}_data"]):
-                masked = self._mask_key(key)
+            for i, key_data in enumerate(self.widgets[f"keys_{provider}_data"]):
+                masked = self._mask_key(key_data)
                 listbox.add_item(str(i), masked, "🔑")
 
+        # Initialize with config data (already in dict format from parser)
         self.widgets[f"keys_{provider}_data"] = list(self.config_data.keys.get(provider, []))
         refresh_keys_list()
         
         self.widgets[f"keys_{provider}_listbox"] = listbox
+        self.widgets[f"keys_{provider}_refresh"] = refresh_keys_list
         
-        # Button frame
-        btn_frame = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
-        btn_frame.pack(fill="x", pady=(10, 0))
+        # Input frame for key + name with labels
+        input_frame = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
+        input_frame.pack(fill="x", pady=(10, 0))
         
-        # Add key entry
+        # Add key entry with label
         if self.use_ctk:
+            # API Key label
+            ctk.CTkLabel(
+                input_frame, text="API Key:",
+                font=get_ctk_font(12),
+                **get_ctk_label_colors(self.colors)
+            ).pack(side="left", padx=(0, 4))
+            
             entry_var = tk.StringVar(master=self.root)
             key_entry = ctk.CTkEntry(
-                btn_frame, textvariable=entry_var,
-                font=get_ctk_font(12), width=400, height=36,
-                placeholder_text="Paste new API key here...",
+                input_frame, textvariable=entry_var,
+                font=get_ctk_font(12), width=280, height=36,
+                placeholder_text="Paste key here...",
                 **get_ctk_entry_colors(self.colors)
             )
+            key_entry.pack(side="left", padx=(0, 12))
+            
+            # Name label
+            ctk.CTkLabel(
+                input_frame, text="Name:",
+                font=get_ctk_font(12),
+                **get_ctk_label_colors(self.colors)
+            ).pack(side="left", padx=(0, 4))
+            
+            # Name entry
+            name_var = tk.StringVar(master=self.root)
+            name_entry = ctk.CTkEntry(
+                input_frame, textvariable=name_var,
+                font=get_ctk_font(12), width=140, height=36,
+                placeholder_text="Optional...",
+                **get_ctk_entry_colors(self.colors)
+            )
+            name_entry.pack(side="left", padx=(0, 8))
         else:
             entry_var = tk.StringVar(master=self.root)
-            key_entry = tk.Entry(btn_frame, textvariable=entry_var,
-                                font=("Consolas", 10), width=40,
+            key_entry = tk.Entry(input_frame, textvariable=entry_var,
+                                font=("Consolas", 10), width=35,
                                 bg=self.colors.input_bg, fg=self.colors.fg)
-            key_entry.insert(0, "Paste new API key here...")
+            key_entry.insert(0, "API key...")
             key_entry.configure(fg=self.colors.blockquote)
+            key_entry.pack(side="left", padx=(0, 6))
             
-            def on_focus_in(e):
-                if key_entry.get() == "Paste new API key here...":
+            name_var = tk.StringVar(master=self.root)
+            name_entry = tk.Entry(input_frame, textvariable=name_var,
+                                 font=("Segoe UI", 10), width=15,
+                                 bg=self.colors.input_bg, fg=self.colors.fg)
+            name_entry.insert(0, "Name...")
+            name_entry.configure(fg=self.colors.blockquote)
+            name_entry.pack(side="left", padx=(0, 6))
+            
+            def on_key_focus_in(e):
+                if key_entry.get() == "API key...":
                     key_entry.delete(0, "end")
                     key_entry.configure(fg=self.colors.fg)
             
-            def on_focus_out(e):
+            def on_key_focus_out(e):
                 if not key_entry.get():
-                    key_entry.insert(0, "Paste new API key here...")
+                    key_entry.insert(0, "API key...")
                     key_entry.configure(fg=self.colors.blockquote)
             
-            key_entry.bind('<FocusIn>', on_focus_in)
-            key_entry.bind('<FocusOut>', on_focus_out)
+            def on_name_focus_in(e):
+                if name_entry.get() == "Name...":
+                    name_entry.delete(0, "end")
+                    name_entry.configure(fg=self.colors.fg)
+            
+            def on_name_focus_out(e):
+                if not name_entry.get():
+                    name_entry.insert(0, "Name...")
+                    name_entry.configure(fg=self.colors.blockquote)
+            
+            key_entry.bind('<FocusIn>', on_key_focus_in)
+            key_entry.bind('<FocusOut>', on_key_focus_out)
+            name_entry.bind('<FocusIn>', on_name_focus_in)
+            name_entry.bind('<FocusOut>', on_name_focus_out)
         
-        key_entry.pack(side="left", padx=(0, 10))
+        # Button frame
+        btn_frame = ctk.CTkFrame(container, fg_color="transparent") if self.use_ctk else tk.Frame(container, bg=self.colors.bg)
+        btn_frame.pack(fill="x", pady=(8, 0))
         
         def add_key():
             key = entry_var.get().strip()
-            if key and key != "Paste new API key here...":
-                self.widgets[f"keys_{provider}_data"].append(key)
+            name = name_var.get().strip()
+            
+            # Clean up placeholder text
+            if key == "API key...":
+                key = ""
+            if name == "Name...":
+                name = ""
+            
+            if key:
+                self.widgets[f"keys_{provider}_data"].append({
+                    "key": key,
+                    "name": name
+                })
                 refresh_keys_list()
                 entry_var.set("")
+                name_var.set("")
                 if self.use_ctk:
-                    key_entry.configure(placeholder_text="Paste new API key here...")
+                    key_entry.configure(placeholder_text="API key...")
+                    name_entry.configure(placeholder_text="Name (optional)...")
                 else:
-                    key_entry.insert(0, "Paste new API key here...")
+                    key_entry.delete(0, "end")
+                    key_entry.insert(0, "API key...")
                     key_entry.configure(fg=self.colors.blockquote)
+                    name_entry.delete(0, "end")
+                    name_entry.insert(0, "Name...")
+                    name_entry.configure(fg=self.colors.blockquote)
         
         def remove_key():
             selected_id = listbox.get_selected()
@@ -1061,19 +1208,293 @@ class SettingsWindow:
                 del self.widgets[f"keys_{provider}_data"][idx]
                 refresh_keys_list()
         
-        create_emoji_button(btn_frame, "Add", "", self.colors, "success", 80, 36, add_key).pack(side="left", padx=4)
-        create_emoji_button(btn_frame, "Remove", "", self.colors, "danger", 90, 36, remove_key).pack(side="left", padx=4)
+        def move_key_up():
+            selected_id = listbox.get_selected()
+            if selected_id:
+                idx = int(selected_id)
+                keys = self.widgets[f"keys_{provider}_data"]
+                if idx > 0:
+                    keys[idx], keys[idx-1] = keys[idx-1], keys[idx]
+                    refresh_keys_list()
+                    # Re-select the moved item (now at idx-1)
+                    listbox.select(str(idx-1))
+        
+        def move_key_down():
+            selected_id = listbox.get_selected()
+            if selected_id:
+                idx = int(selected_id)
+                keys = self.widgets[f"keys_{provider}_data"]
+                if idx < len(keys) - 1:
+                    keys[idx], keys[idx+1] = keys[idx+1], keys[idx]
+                    refresh_keys_list()
+                    # Re-select the moved item (now at idx+1)
+                    listbox.select(str(idx+1))
+        
+        create_emoji_button(btn_frame, "Add", "", self.colors, "success", 70, 36, add_key).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "Remove", "", self.colors, "danger", 80, 36, remove_key).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "⬆", "", self.colors, "secondary", 40, 36, move_key_up).pack(side="left", padx=3)
+        create_emoji_button(btn_frame, "⬇", "", self.colors, "secondary", 40, 36, move_key_down).pack(side="left", padx=3)
     
     def _upgrade_tabs(self, tabview):
         """Invoke internals to add images to tabs and increase font size."""
         # DEPRECATED: Use custom_widgets.upgrade_tabview_with_icons
         pass
 
-    def _mask_key(self, key: str) -> str:
-        """Mask an API key for display."""
+    def _mask_key(self, key_data) -> str:
+        """Mask an API key for display, including name if present."""
+        # Handle both dict format and legacy string format
+        if isinstance(key_data, dict):
+            key = key_data.get("key", "")
+            name = key_data.get("name", "")
+        else:
+            key = str(key_data)
+            name = ""
+        
         if len(key) <= 8:
-            return "*" * len(key)
-        return key[:4] + "..." + key[-4:]
+            masked = "*" * len(key)
+        else:
+            masked = key[:4] + "..." + key[-4:]
+        
+        if name:
+            return f"{masked} ({name})"
+        return masked
+    
+    def _collect_ui_values_for_provider(self, provider: str) -> dict:
+        """
+        Collect current UI values needed for model fetching.
+        Must be called from the main thread before starting background work.
+        
+        Args:
+            provider: Provider type (custom, openrouter, google)
+            
+        Returns:
+            dict with 'custom_url', 'keys', 'error' keys
+        """
+        result = {"custom_url": None, "keys": [], "error": None}
+        
+        # Get custom URL if this is the custom provider
+        if provider == "custom":
+            custom_url_var = self.vars.get("custom_url")
+            if custom_url_var:
+                try:
+                    result["custom_url"] = custom_url_var.get()
+                except tk.TclError:
+                    result["error"] = "Could not read custom URL"
+                    return result
+            else:
+                result["error"] = "Custom URL not configured"
+                return result
+        
+        # Get keys from UI (not saved config)
+        keys_data = self.widgets.get(f"keys_{provider}_data", [])
+        if not keys_data:
+            result["error"] = f"No API keys configured for {provider}"
+            return result
+        
+        # Extract actual keys from the dict format
+        for kd in keys_data:
+            if isinstance(kd, dict):
+                key_str = kd.get("key", "")
+                if key_str:
+                    result["keys"].append(key_str)
+            elif kd:
+                result["keys"].append(str(kd))
+        
+        if not result["keys"]:
+            result["error"] = f"No valid API keys for {provider}"
+        
+        return result
+    
+    def _fetch_models_with_values(self, provider: str, ui_values: dict) -> tuple:
+        """
+        Fetch models using pre-collected UI values.
+        Safe to call from a background thread.
+        
+        Args:
+            provider: Provider type (custom, openrouter, google)
+            ui_values: Dict from _collect_ui_values_for_provider
+            
+        Returns:
+            (model_ids: List[str], error: Optional[str])
+        """
+        if ui_values.get("error"):
+            return [], ui_values["error"]
+        
+        key_strings = ui_values.get("keys", [])
+        if not key_strings:
+            return [], f"No valid API keys for {provider}"
+        
+        # Build temporary config
+        temp_config = {
+            "request_timeout": 30,  # Use shorter timeout for fetching
+        }
+        
+        if provider == "custom" and ui_values.get("custom_url"):
+            temp_config["custom_url"] = ui_values["custom_url"]
+        
+        # Create temporary KeyManager and fetch
+        try:
+            from ..key_manager import KeyManager
+            temp_key_manager = KeyManager(key_strings, provider)
+            
+            # Create provider and fetch
+            from ..api_client import get_provider_for_type
+            provider_instance = get_provider_for_type(provider, temp_key_manager, temp_config)
+            models, error = provider_instance.fetch_models()
+            
+            if error:
+                return [], error
+            if not models:
+                return [], "No models returned"
+            
+            return [m.get("id", str(m)) for m in models], None
+        except Exception as e:
+            return [], f"Error fetching models: {e}"
+    
+    def _refresh_models(self, provider: str, dropdown_widget, status_label):
+        """
+        Refresh models in background thread, update dropdown when done.
+        
+        Args:
+            provider: Provider type (custom, openrouter, google)
+            dropdown_widget: CTkComboBox or ttk.Combobox to update
+            status_label: Label widget to show status
+        """
+        # Collect UI values on main thread BEFORE starting background work
+        ui_values = self._collect_ui_values_for_provider(provider)
+        
+        # Check for immediate errors
+        if ui_values.get("error"):
+            if self.use_ctk:
+                status_label.configure(text=f"❌ {ui_values['error'][:35]}", text_color=self.colors.accent_red)
+            else:
+                status_label.configure(text=f"Error: {ui_values['error'][:35]}", fg=self.colors.accent_red)
+            return
+        
+        # Show loading state
+        if self.use_ctk:
+            status_label.configure(text="🔄 Loading...", text_color=self.colors.accent)
+        else:
+            status_label.configure(text="Loading...", fg=self.colors.accent)
+        
+        def fetch_thread():
+            # Use pre-collected values (safe in background thread)
+            models, error = self._fetch_models_with_values(provider, ui_values)
+            # Schedule UI update on GUI thread using thread-safe method
+            if self.root and not self._destroyed:
+                self._schedule_callback(lambda: self._update_model_dropdown(
+                    provider, dropdown_widget, status_label, models, error
+                ))
+        
+        threading.Thread(target=fetch_thread, daemon=True).start()
+    
+    def _update_model_dropdown(self, provider: str, dropdown_widget, status_label,
+                               models: List[str], error: Optional[str]):
+        """Update model dropdown after fetch completes."""
+        if self._destroyed:
+            return
+        
+        if error:
+            if self.use_ctk:
+                status_label.configure(text=f"❌ {error[:40]}", text_color=self.colors.accent_red)
+            else:
+                status_label.configure(text=f"Error: {error[:40]}", fg=self.colors.accent_red)
+            return
+        
+        if not models:
+            if self.use_ctk:
+                status_label.configure(text="⚠️ No models found", text_color=self.colors.accent_yellow)
+            else:
+                status_label.configure(text="No models found", fg=self.colors.accent_yellow)
+            return
+        
+        # Update dropdown values
+        if self.use_ctk:
+            dropdown_widget.configure(values=models)
+            status_label.configure(text=f"✅ {len(models)} models", text_color=self.colors.accent_green)
+        else:
+            dropdown_widget.configure(values=models)
+            status_label.configure(text=f"{len(models)} models", fg=self.colors.accent_green)
+    
+    def _add_model_dropdown_field(self, parent, key: str, label: str, value: str,
+                                  provider: str, width: int = 300, hint: str = None):
+        """
+        Add a model dropdown field with refresh button.
+        
+        Args:
+            parent: Parent widget
+            key: Config key name (e.g., 'custom_model')
+            label: Display label
+            value: Current value
+            provider: Provider type for fetching models
+            width: Dropdown width
+            hint: Optional hint text
+        """
+        row = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
+        
+        self.vars[key] = tk.StringVar(master=self.root, value=value or "")
+        
+        if self.use_ctk:
+            ctk.CTkLabel(row, text=label, font=get_ctk_font(13), width=180, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            
+            # Create editable combobox (not readonly - user can type custom values)
+            dropdown = ctk.CTkComboBox(
+                row, variable=self.vars[key],
+                values=[value] if value else [],
+                width=width, height=34, font=get_ctk_font(13),
+                **get_ctk_combobox_colors(self.colors)
+            )
+            dropdown.pack(side="left", padx=(12, 0))
+            self.widgets[key] = dropdown
+            
+            # Refresh button
+            refresh_btn = create_emoji_button(
+                row, "", "🔄", self.colors, "secondary", 40, 34,
+                command=lambda: self._refresh_models(provider, dropdown, status_label)
+            )
+            refresh_btn.pack(side="left", padx=(8, 0))
+            
+            # Status label
+            status_label = ctk.CTkLabel(row, text="", font=get_ctk_font(11), width=150,
+                                       **get_ctk_label_colors(self.colors, muted=True))
+            status_label.pack(side="left", padx=(8, 0))
+            self.widgets[f"{key}_status"] = status_label
+            
+            if hint:
+                ctk.CTkLabel(row, text=hint, font=get_ctk_font(11),
+                            **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(10, 0))
+        else:
+            from tkinter import ttk
+            tk.Label(row, text=label, font=("Segoe UI", 10), width=18, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            
+            dropdown = ttk.Combobox(
+                row, textvariable=self.vars[key],
+                values=[value] if value else [],
+                width=width//10
+            )
+            dropdown.pack(side="left", padx=(10, 0))
+            self.widgets[key] = dropdown
+            
+            # Refresh button
+            refresh_btn = tk.Button(
+                row, text="🔄", font=("Segoe UI", 9),
+                bg=self.colors.surface1, fg=self.colors.fg,
+                command=lambda: self._refresh_models(provider, dropdown, status_label)
+            )
+            refresh_btn.pack(side="left", padx=(6, 0))
+            
+            # Status label
+            status_label = tk.Label(row, text="", font=("Segoe UI", 9),
+                                   bg=self.colors.bg, fg=self.colors.blockquote, width=18)
+            status_label.pack(side="left", padx=(6, 0))
+            self.widgets[f"{key}_status"] = status_label
+            
+            if hint:
+                tk.Label(row, text=hint, font=("Segoe UI", 9),
+                        bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(10, 0))
     
     def _create_endpoints_tab(self, frame):
         """Create the Endpoints settings tab."""
@@ -1431,7 +1852,13 @@ class SettingsWindow:
         row = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
         row.pack(fill="x", pady=8)
         
-        self.vars[key] = tk.IntVar(master=self.root, value=value)
+        # Use StringVar instead of IntVar to avoid TclError when field is cleared
+        self.vars[key] = tk.StringVar(master=self.root, value=str(value) if value is not None else "")
+        
+        # Store metadata for validation and default value restoration
+        self.widgets[f"{key}_default"] = value
+        self.widgets[f"{key}_min"] = min_val
+        self.widgets[f"{key}_max"] = max_val
         
         if self.use_ctk:
             ctk.CTkLabel(row, text=label, font=get_ctk_font(13), width=200, anchor="w",
@@ -1513,21 +1940,47 @@ class SettingsWindow:
         
         # Collect values from widgets
         for key, var in self.vars.items():
-            value = var.get()
+            try:
+                value = var.get()
+            except tk.TclError:
+                # Handle empty fields gracefully (e.g., empty integer fields)
+                value = self.widgets.get(f"{key}_default", "")
+            
+            # Handle spinbox fields (stored as StringVar but need int conversion)
+            if f"{key}_default" in self.widgets:
+                try:
+                    str_val = str(value).strip()
+                    if str_val:
+                        value = int(str_val)
+                    else:
+                        value = self.widgets[f"{key}_default"]
+                except (ValueError, TypeError):
+                    value = self.widgets[f"{key}_default"]
             
             # Handle special cases
             if key == "show_ai_response_in_chat_window":
                 value = "yes" if value else "no"
             elif key == "port":
-                value = int(value)
+                try:
+                    value = int(value)
+                except (ValueError, TypeError):
+                    value = 5000  # Default port
             
             self.config_data.config[key] = value
         
-        # Collect API keys
+        # Collect API keys (now as list of dicts with key and name)
         for provider in ["custom", "openrouter", "google"]:
             data_key = f"keys_{provider}_data"
             if data_key in self.widgets:
-                self.config_data.keys[provider] = self.widgets[data_key]
+                # Filter out empty keys and ensure dict format
+                cleaned_keys = []
+                for kd in self.widgets[data_key]:
+                    if isinstance(kd, dict):
+                        if kd.get("key"):
+                            cleaned_keys.append(kd)
+                    elif kd:  # Backward compat: plain string
+                        cleaned_keys.append({"key": str(kd), "name": ""})
+                self.config_data.keys[provider] = cleaned_keys
         
         # Save to file
         if save_config_full(self.config_data):
@@ -1541,10 +1994,19 @@ class SettingsWindow:
                 for provider in ["custom", "openrouter", "google"]:
                     if provider in web_server.KEY_MANAGERS:
                         new_keys = self.config_data.keys.get(provider, [])
-                        web_server.KEY_MANAGERS[provider].keys = [k for k in new_keys if k]
+                        # Extract just the key strings for the KeyManager
+                        key_strings = []
+                        for kd in new_keys:
+                            if isinstance(kd, dict):
+                                key_str = kd.get("key", "")
+                                if key_str:
+                                    key_strings.append(key_str)
+                            elif kd:
+                                key_strings.append(str(kd))
+                        web_server.KEY_MANAGERS[provider].keys = key_strings
                         web_server.KEY_MANAGERS[provider].current_index = 0
                         web_server.KEY_MANAGERS[provider].exhausted_keys.clear()
-                        print(f"[Settings] Reloaded {len(new_keys)} {provider} API key(s)")
+                        print(f"[Settings] Reloaded {len(key_strings)} {provider} API key(s)")
                 
                 # Hot-reload endpoints without restart
                 for endpoint_name, prompt in self.config_data.endpoints.items():
