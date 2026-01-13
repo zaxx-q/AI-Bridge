@@ -76,13 +76,13 @@ You can configure API keys via the **Settings** window (right-click tray icon ->
 
 ```ini
 [google]
-AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX  # My Primary Key
 
 [openrouter]
-sk-or-v1-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+sk-or-v1-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX # Project Backup
 ```
 
-> 💡 **Tip**: Add multiple keys (one per line) for automatic rotation when rate limits are hit.
+> 💡 **Tip**: Add multiple keys (one per line) for automatic rotation when rate limits are hit. You can name your keys using inline comments (`#`).
 
 ## 📋 Usage
 
@@ -135,11 +135,11 @@ curl -X POST -F "image=@screenshot.png" "http://127.0.0.1:5000/describe?show=yes
 
 When console is visible, press these keys:
 
-| Key | Action |
+Key | Action |
 |-----|--------|
-| `S` | Show system status |
-| `O` | Open session browser |
-| `M` | List available models |
+`S` | Show system status |
+`O` | Open session browser |
+`M` | List available models (Use `?N` for details, e.g., `?1`) |
 | `P` | Switch AI provider |
 | `T` | Toggle thinking mode |
 | `R` | Toggle streaming mode |
@@ -181,8 +181,8 @@ Access via `http://127.0.0.1:5000/my_analyzer` or `http://127.0.0.1:5000/my_tran
 
 Customize prompts in `text_edit_tool_options.json`. The tool supports two types of interactions:
 
-1. **Edit Mode** (`prompt_type: "edit"`): Strict text replacement (e.g., Proofread, Rewrite)
-2. **General Mode** (`prompt_type: "general"`): Conversational responses (e.g., Explain, Ask)
+1. **Edit Mode** (`prompt_type: "edit"`): Strict text replacement (e.g., Proofread, Rewrite). Uses `base_output_rules_edit`.
+2. **General Mode** (`prompt_type: "general"`): Conversational responses (e.g., Explain, Ask). Uses `base_output_rules_general`.
 
 ```json
 {
@@ -215,6 +215,7 @@ Customize prompts in `text_edit_tool_options.json`. The tool supports two types 
 The TextEditTool popup includes a **Modifier Bar** that lets you fine-tune the output. Toggle these modifiers to inject specific instructions into the prompt:
 
 - **Variations** (🔢): Generate 3 alternative versions.
+- **Direct** (🎯): Make output direct and concise, no fluff.
 - **Explain** (📝): Add an explanation of changes.
 - **Creative** (🎨): Take more liberties with phrasing.
 - **Literal** (📏): Stay close to the original.

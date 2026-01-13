@@ -144,6 +144,7 @@ To ensure robustness across different environments, AIPromptBridge includes a ce
 | `ChatWindow` | Interactive AI chat with streaming |
 | `SessionBrowserWindow` | Browse and restore saved sessions |
 | `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) and scrollable ModifierBar |
+| `ErrorPopup` | Dialog for displaying API failures to user |
 | `TypingIndicator` | Tooltip showing typing status and abort hotkey |
 | `SettingsWindow` | GUI editor for config.ini with tabbed interface |
 | `PromptEditorWindow` | GUI editor for text_edit_tool_options.json with Playground testing |
@@ -198,8 +199,8 @@ When a session is initiated from the TextEditTool (e.g., asking a question about
 ### Prompt Architecture (Two-Tier)
 
 The TextEditTool utilizes a `prompt_type` system to distinguish between strict editing and general conversation:
-- **Edit Mode** (`"edit"`): Encourages direct task completion with zero conversational overhead. Used for rewrites and proofreading.
-- **General Mode** (`"general"`): Uses more permissive rules allowing explanations, markdown, and a conversational tone. Used for "Explain", "ELI5", and "Ask".
+- **Edit Mode** (`"edit"`): Encourages direct task completion with zero conversational overhead. Used for rewrites and proofreading. Uses `base_output_rules_edit`.
+- **General Mode** (`"general"`): Uses more permissive rules allowing explanations, markdown, and a conversational tone. Used for "Explain", "ELI5", and "Ask". Uses `base_output_rules_general`.
 
 ### Context Injection
 
@@ -221,7 +222,7 @@ Sessions do NOT store provider/model. This allows:
 
 The tray application (`src/tray.py`) manages:
 
-- Console show/hide (console X button is disabled in tray mode)
+- Console show/hide handles both standard console and **Windows Terminal** (console X button is disabled in tray mode)
 - Application restart (spawns new process, exits current)
 - Quick access to session browser
 - Config file editing
@@ -370,6 +371,8 @@ The `EmojiRenderer` class manages the loading, caching, and rendering of emoji i
 GUI editor for `config.ini` (`src/gui/settings_window.py`):
 
 - **Tabbed Interface**: General, Provider, Streaming, TextEditTool, API Keys, Endpoints, Theme
+- **API Key Naming**: Supports associative names for API keys via inline comments
+- **Model Dropdowns**: Interactive dropdowns for model selection with background refreshing
 - **Live Preview**: Theme tab shows real-time preview of color changes
 - **Validation**: Port numbers, hotkey formats
 - **Backup**: Creates `.bak` file before saving

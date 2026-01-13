@@ -35,7 +35,7 @@ AIPromptBridge/
     ├── gui/                    # GUI Package (CustomTkinter)
     │   ├── __init__.py
     │   ├── core.py             # GUICoordinator singleton for thread-safe GUI
-    │   ├── custom_widgets.py   # Reusable UI components (ScrollableButtonList)
+    │   ├── custom_widgets.py   # Reusable UI components (ScrollableButtonList, ScrollableComboBox)
     │   ├── emoji_renderer.py   # Twemoji-based color emoji support for Windows
     │   ├── hotkey.py           # Global hotkey listener (pynput)
     │   ├── options.py          # Default options and settings constants
@@ -77,7 +77,7 @@ AIPromptBridge/
 |--------|---------|
 | `core.py` | GUICoordinator singleton managing all CustomTkinter windows |
 | `emoji_renderer.py` | EmojiRenderer for Windows color emoji support (Twemoji) |
-| `custom_widgets.py` | Custom scrollable lists and emoji-aware buttons/headers |
+| `custom_widgets.py` | Custom scrollable lists and emoji-aware dropdowns (ScrollableComboBox) |
 | `text_edit_tool.py` | Global hotkey TextEditTool application |
 | `platform.py` | Central authority for UI toolkit availability and toolkit fallback |
 | `windows.py` | Chat window and session browser implementations |

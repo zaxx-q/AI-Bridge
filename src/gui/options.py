@@ -247,8 +247,8 @@ DEFAULT_OPTIONS = {
         "icon": "⏩",
         "prompt_type": "edit",
         "system_prompt": "You are a creative text-completion assistant who seamlessly extends existing writing.\n\n<constraints>\n- Match the original style, tone, voice, and vocabulary.\n- Continue naturally from where the text ends.\n- Don't contradict anything in the existing content.\n- If the text is formal, stay formal; if playful, stay playful.\n</constraints>",
-        "task": "Continue this text naturally, matching its style and tone. Write the next logical paragraph or section.",
-        "show_chat_window_instead_of_replace": False
+        "task": "Directly continue this text naturally, matching its style and tone. If it already ends with a period or paragraph break, write the next logical section or paragraph.",
+        "show_chat_window_instead_of_replace": True
     },
     "Reply Suggest": {
         "icon": "💬",
