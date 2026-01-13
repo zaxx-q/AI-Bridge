@@ -770,7 +770,7 @@ class TextEditToolApp:
                     system_prompt = system_prompt + "\n\n" + modifier_injections
             
             # Get prompt type (default to "edit" for backward compatibility)
-            # "edit" prompts use base_output_rules (strict, no explanations)
+            # "edit" prompts use base_output_rules_edit (strict, no explanations)
             # "general" prompts use base_output_rules_general (more permissive)
             prompt_type = option.get("prompt_type", "edit")
             
@@ -778,7 +778,7 @@ class TextEditToolApp:
             if prompt_type == "general":
                 base_output_rules = self._get_setting("base_output_rules_general", "")
             else:
-                base_output_rules = self._get_setting("base_output_rules", "")
+                base_output_rules = self._get_setting("base_output_rules_edit", "")
             
             text_delimiter = self._get_setting("text_delimiter", "\n\n<text_to_process>\n")
             text_delimiter_close = self._get_setting("text_delimiter_close", "\n</text_to_process>")

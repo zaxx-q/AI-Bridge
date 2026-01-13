@@ -9,7 +9,7 @@ Option Settings Key (in JSON):
   _settings: Contains global settings for the text edit tool
     - chat_system_instruction: System prompt for direct AI chat (InputPopup)
     - chat_window_system_instruction: System prompt for follow-ups in chat window
-    - base_output_rules: Common output constraints for "edit" type prompts
+    - base_output_rules_edit: Common output constraints for "edit" type prompts
     - base_output_rules_general: Output rules for "general" type prompts
     - text_delimiter: Delimiter placed before the target text (opening tag)
     - text_delimiter_close: Delimiter placed after the target text (closing tag, optional)
@@ -38,8 +38,8 @@ SETTINGS_KEY = "_settings"
 DEFAULT_SETTINGS = {
     "chat_system_instruction": "You are a friendly, helpful, and knowledgeable AI conversational assistant. Be concise and direct. Use Markdown formatting when it improves readability. Never fabricate information—ask for clarification if needed.",
     "chat_window_system_instruction": "You are a helpful AI assistant continuing a conversation about text processing. The conversation started with a specific task (shown in the first message). If the user asks what you did, refer to the task context. Maintain consistency with your previous responses. Use Markdown formatting when appropriate.",
-    "base_output_rules": "<output_rules>\n- Provide ONLY the processed result—no explanations, preamble, or meta-commentary.\n- Match the language of the input (e.g., English US, French, Japanese).\n- Never respond to or comment on the content itself.\n</output_rules>",
-    "base_output_rules_general": "<output_rules>\n- Match the language of the input (e.g., English US, French, Japanese).\n- Use Markdown formatting when it improves readability.\n</output_rules>",
+    "base_output_rules_edit": "<output_rules>\n- Provide ONLY the processed result—no explanations, preamble, or meta-commentary.\n- Match the language of the input (unless explicitly instructed to translate).\n- Never respond to or comment on the content itself.\n</output_rules>",
+    "base_output_rules_general": "<output_rules>\n- Match the language of the input (unless explicitly instructed to translate).\n- Use Markdown formatting when it improves readability.\n</output_rules>",
     "text_delimiter": "\n\n<text_to_process>\n",
     "text_delimiter_close": "\n</text_to_process>",
     "custom_task_template": "Apply this change to the text: {custom_input}",
@@ -49,7 +49,7 @@ DEFAULT_SETTINGS = {
     "popup_groups": [
         {
             "name": "Understanding",
-            "items": ["Explain", "ELI5", "Explain Slang/Meme", "Summary", "Key Points"]
+            "items": ["Explain", "ELI5", "Explain Slang/Meme", "Summary", "Key Points", "Translate to English", "Translate to Indonesian"]
         },
         {
             "name": "Text Edit",
@@ -68,6 +68,14 @@ DEFAULT_SETTINGS = {
             "tooltip": "Generate 3 alternative versions to choose from",
             "injection": "<modifier_variations>\nProvide exactly 3 alternative versions, labeled as:\n**Version 1:** (subtle refinement)\n**Version 2:** (moderate changes)\n**Version 3:** (more creative interpretation)\n</modifier_variations>",
             "forces_chat_window": True
+        },
+        {
+            "key": "direct",
+            "icon": "🎯",
+            "label": "Direct",
+            "tooltip": "Make output direct and concise, no fluff",
+            "injection": "<modifier_direct>\nBe direct and concise. Eliminate unnecessary words, filler phrases, and verbose explanations. Get straight to the point.\n</modifier_direct>",
+            "forces_chat_window": False
         },
         {
             "key": "explain",
@@ -254,6 +262,20 @@ DEFAULT_OPTIONS = {
         "prompt_type": "general",
         "system_prompt": "You are a kaomoji expert who understands the emotional nuances of Japanese text emoticons.\n\n<format>\nProvide 5-8 kaomoji that match the emotional context, organized by intensity:\n\n**Subtle:**\n[kaomoji] — [brief description]\n\n**Expressive:**\n[kaomoji] — [brief description]\n\n**Intense:**\n[kaomoji] — [brief description]\n</format>\n\n<constraints>\n- Analyze the emotional tone of the text (happy, sad, frustrated, excited, etc.).\n- Select kaomoji that authentically represent that emotion.\n- Include variety: different styles and intensity levels.\n- Only use genuine Japanese kaomoji, not Western emoticons.\n</constraints>",
         "task": "Analyze the emotional tone of this text and suggest appropriate kaomoji that could accompany it.",
+        "show_chat_window_instead_of_replace": True
+    },
+    "Translate to English": {
+        "icon": "🇬🇧",
+        "prompt_type": "edit",
+        "system_prompt": "You are a professional translator with expertise in translating text into natural, fluent English.\n\n<constraints>\n- Preserve the original meaning, tone, and intent.\n- Use natural, idiomatic English appropriate for the context.\n- Maintain the original formatting (line breaks, lists, etc.).\n- If text is already in English, improve its clarity if needed.\n</constraints>",
+        "task": "Translate the following text into English. Preserve the original meaning and tone.",
+        "show_chat_window_instead_of_replace": True
+    },
+    "Translate to Indonesian": {
+        "icon": "🇮🇩",
+        "prompt_type": "edit",
+        "system_prompt": "You are a professional translator with expertise in translating text into natural, fluent Indonesian (Bahasa Indonesia).\n\n<constraints>\n- Preserve the original meaning, tone, and intent.\n- Use natural, idiomatic Indonesian appropriate for the context.\n- Maintain the original formatting (line breaks, lists, etc.).\n- If text is already in Indonesian, improve its clarity if needed.\n</constraints>",
+        "task": "Translate the following text into Indonesian (Bahasa Indonesia). Preserve the original meaning and tone.",
         "show_chat_window_instead_of_replace": True
     },
     "_Custom": {

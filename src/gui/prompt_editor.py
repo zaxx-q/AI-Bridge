@@ -965,7 +965,7 @@ class PromptEditorWindow:
         text_fields = [
             ("chat_system_instruction", "Chat System Instruction", True),
             ("chat_window_system_instruction", "Chat Window System Instruction", True),
-            ("base_output_rules", "Base Output Rules", True),
+            ("base_output_rules_edit", "Base Output Rules (Edit)", True),
             ("base_output_rules_general", "Base Output Rules (General)", True),
             ("text_delimiter", "Text Delimiter", False),
             ("text_delimiter_close", "Text Delimiter Close", False),
@@ -1885,7 +1885,7 @@ class PromptEditorWindow:
         if prompt_type == "general":
             output_rules = settings.get("base_output_rules_general", "")
         else:
-            output_rules = settings.get("base_output_rules", "")
+            output_rules = settings.get("base_output_rules_edit", "")
             
         if output_rules:
             user_parts.append(output_rules)
