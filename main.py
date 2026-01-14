@@ -228,6 +228,12 @@ def cleanup():
 
 def signal_handler(signum, frame):
     """Handle interrupt signals"""
+    # Check if TextEditTool is currently copying (Ctrl+C simulation)
+    # If so, ignore the signal as it's self-inflicted
+    global TEXT_EDIT_TOOL_APP
+    if TEXT_EDIT_TOOL_APP and hasattr(TEXT_EDIT_TOOL_APP, 'is_copying') and TEXT_EDIT_TOOL_APP.is_copying():
+        return
+
     if HAVE_RICH:
         console.print("\n\n[bold yellow]Shutdown signal received...[/bold yellow]")
     else:

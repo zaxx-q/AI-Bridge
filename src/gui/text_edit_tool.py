@@ -1198,6 +1198,16 @@ class TextEditToolApp:
         """Check if TextEditTool is paused."""
         return self.hotkey_listener is not None and self.hotkey_listener.is_paused()
     
+    def is_copying(self) -> bool:
+        """
+        Check if TextHandler is currently performing a copy operation (Ctrl+C).
+        Includes a grace period to catch delayed signals.
+        """
+        # Check active flag OR if we just copied in the last 200ms
+        # This prevents race conditions where the thread finishes faster than the signal handler fires
+        return (self.text_handler.is_copying or
+                (time.time() - self.text_handler.last_copy_time < 0.2))
+    
     def get_status(self) -> Dict:
         """Get current status."""
         return {

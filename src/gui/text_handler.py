@@ -19,6 +19,8 @@ class TextHandler:
     
     def __init__(self):
         self.keyboard = pykeyboard.Controller()
+        self.is_copying = False
+        self.last_copy_time = 0.0
         logging.debug('TextHandler initialized')
     
     def get_selected_text(self, sleep_duration: float = 0.01, max_wait: float = 0.4) -> str:
@@ -52,6 +54,8 @@ class TextHandler:
         time.sleep(sleep_duration)
         
         try:
+            self.is_copying = True
+            self.last_copy_time = time.time()
             # logging.debug('Simulating Ctrl+C')
             self.keyboard.press(pykeyboard.Key.ctrl)
             self.keyboard.press('c')
@@ -59,6 +63,7 @@ class TextHandler:
             self.keyboard.release(pykeyboard.Key.ctrl)
         except Exception as e:
             logging.error(f'Failed to simulate Ctrl+C: {e}')
+            self.is_copying = False
             return ""
         
         # Poll for clipboard update
@@ -77,6 +82,9 @@ class TextHandler:
             except Exception:
                 pass
             time.sleep(0.01)  # 10ms poll interval
+        
+        # Reset copying flag after operation complete
+        self.is_copying = False
             
         # If we successfully captured text, it means we overwrote the user's clipboard.
         # We should restore the original content to be transparent.
