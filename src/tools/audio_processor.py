@@ -380,6 +380,100 @@ def get_presets_by_category(category: str) -> List[AudioPreset]:
     return [p for p in AUDIO_PRESETS.values() if p.category == category]
 
 
+# =============================================================================
+# OUTPUT OPTIMIZATION OPTIONS
+# =============================================================================
+
+@dataclass
+class OutputOptimization:
+    """
+    Audio output optimization settings for file size reduction.
+    
+    Optimized for voice/speech and AI processing.
+    """
+    # Channel settings
+    convert_to_mono: bool = False  # Convert stereo/multichannel to mono
+    
+    # Sample rate (Hz) - None means keep original
+    # Recommended for voice: 16000 (smallest), 22050 (good), 44100 (high quality)
+    sample_rate: Optional[int] = None
+    
+    # Bitrate (kbps) - None means use codec default
+    # Recommended for voice: 32 (min), 48 (phone), 64 (good), 96 (high), 128 (default)
+    bitrate_kbps: Optional[int] = None
+    
+    def to_ffmpeg_args(self) -> List[str]:
+        """Convert to FFmpeg command-line arguments"""
+        args = []
+        
+        if self.convert_to_mono:
+            # -ac 1 forces mono output, properly downmixing stereo
+            args.extend(["-ac", "1"])
+        
+        if self.sample_rate:
+            args.extend(["-ar", str(self.sample_rate)])
+        
+        if self.bitrate_kbps:
+            args.extend(["-b:a", f"{self.bitrate_kbps}k"])
+        
+        return args
+    
+    def describe(self) -> str:
+        """Human-readable description of settings"""
+        parts = []
+        
+        if self.convert_to_mono:
+            parts.append("Mono")
+        
+        if self.sample_rate:
+            parts.append(f"{self.sample_rate} Hz")
+        
+        if self.bitrate_kbps:
+            parts.append(f"{self.bitrate_kbps} kbps")
+        
+        return ", ".join(parts) if parts else "No optimization"
+    
+    @classmethod
+    def for_voice_small(cls) -> 'OutputOptimization':
+        """Preset: Smallest file size for voice (phone quality)"""
+        return cls(convert_to_mono=True, sample_rate=16000, bitrate_kbps=32)
+    
+    @classmethod
+    def for_voice_balanced(cls) -> 'OutputOptimization':
+        """Preset: Balanced quality/size for voice (recommended)"""
+        return cls(convert_to_mono=True, sample_rate=22050, bitrate_kbps=64)
+    
+    @classmethod
+    def for_voice_quality(cls) -> 'OutputOptimization':
+        """Preset: Higher quality voice"""
+        return cls(convert_to_mono=True, sample_rate=44100, bitrate_kbps=96)
+    
+    @classmethod
+    def mono_only(cls) -> 'OutputOptimization':
+        """Preset: Just convert to mono, keep other settings"""
+        return cls(convert_to_mono=True)
+
+
+# Voice-optimized sample rate options
+SAMPLE_RATE_OPTIONS = {
+    16000: "16 kHz - Phone quality (smallest, good for AI)",
+    22050: "22 kHz - Voice optimized (recommended for speech)",
+    32000: "32 kHz - FM radio quality",
+    44100: "44 kHz - CD quality (larger files)",
+    48000: "48 kHz - Professional (largest)",
+}
+
+# Voice-optimized bitrate options (for MP3/AAC)
+BITRATE_OPTIONS = {
+    32: "32 kbps - Very compressed (smallest, phone quality)",
+    48: "48 kbps - Compressed (phone/voice memo quality)",
+    64: "64 kbps - Good for speech (recommended)",
+    96: "96 kbps - High quality voice",
+    128: "128 kbps - Default quality (larger files)",
+    192: "192 kbps - High quality (unnecessary for voice)",
+}
+
+
 @dataclass
 class AudioInfo:
     """Information about an audio file"""
@@ -402,6 +496,21 @@ class AudioInfo:
         if self.size_bytes <= TARGET_CHUNK_SIZE_BYTES:
             return 1
         return max(1, int(self.size_bytes / TARGET_CHUNK_SIZE_BYTES) + 1)
+    
+    @property
+    def is_mono(self) -> bool:
+        """Check if audio is mono"""
+        return self.channels == 1
+    
+    @property
+    def is_stereo(self) -> bool:
+        """Check if audio is stereo"""
+        return self.channels == 2
+    
+    @property
+    def is_multichannel(self) -> bool:
+        """Check if audio has more than 2 channels"""
+        return self.channels > 2
 
 
 @dataclass
@@ -728,7 +837,8 @@ class AudioProcessor:
         filepath: Path,
         preset_id: str,
         intensity: Intensity = Intensity.MEDIUM,
-        output_path: Optional[Path] = None
+        output_path: Optional[Path] = None,
+        optimization: Optional[OutputOptimization] = None
     ) -> ProcessingResult:
         """
         Apply a voice enhancement preset to an audio file.
@@ -738,6 +848,7 @@ class AudioProcessor:
             preset_id: ID of the preset to apply (e.g., "voice_clarity")
             intensity: Intensity level (LOW, MEDIUM, HIGH)
             output_path: Where to save output. If None, creates temp file.
+            optimization: Optional output optimization settings (mono, bitrate, sample rate)
             
         Returns:
             ProcessingResult with output path
@@ -757,13 +868,14 @@ class AudioProcessor:
             )
         
         print_info(f"Applying preset: {preset.name} ({intensity.value})")
-        return self.apply_filter_chain(filepath, filter_chain, output_path)
+        return self.apply_filter_chain(filepath, filter_chain, output_path, optimization)
     
     def apply_effects(
         self,
         filepath: Path,
         effects: List[AudioEffect],
-        output_path: Optional[Path] = None
+        output_path: Optional[Path] = None,
+        optimization: Optional[OutputOptimization] = None
     ) -> ProcessingResult:
         """
         Apply a custom list of audio effects to a file.
@@ -772,6 +884,7 @@ class AudioProcessor:
             filepath: Path to audio file
             effects: List of AudioEffect objects to apply
             output_path: Where to save output. If None, creates temp file.
+            optimization: Optional output optimization settings
             
         Returns:
             ProcessingResult with output path
@@ -784,13 +897,14 @@ class AudioProcessor:
         
         filter_chain = ",".join(e.to_filter_string() for e in effects)
         print_info(f"Applying {len(effects)} custom effects")
-        return self.apply_filter_chain(filepath, filter_chain, output_path)
+        return self.apply_filter_chain(filepath, filter_chain, output_path, optimization)
     
     def apply_filter_chain(
         self,
         filepath: Path,
         filter_chain: str,
-        output_path: Optional[Path] = None
+        output_path: Optional[Path] = None,
+        optimization: Optional[OutputOptimization] = None
     ) -> ProcessingResult:
         """
         Apply an FFmpeg audio filter chain to a file.
@@ -799,6 +913,7 @@ class AudioProcessor:
             filepath: Path to audio file
             filter_chain: FFmpeg -af filter string (e.g., "highpass=f=80,loudnorm")
             output_path: Where to save output. If None, creates temp file.
+            optimization: Optional output optimization settings (mono, bitrate, sample rate)
             
         Returns:
             ProcessingResult with output path
@@ -830,14 +945,31 @@ class AudioProcessor:
                 self._ffmpeg_path,
                 "-y",  # Overwrite
                 "-i", str(filepath),
-                "-af", filter_chain,
             ]
             
+            # Add filter chain if provided
+            if filter_chain:
+                cmd.extend(["-af", filter_chain])
+            
+            # Add optimization settings (before codec selection)
+            if optimization:
+                opt_args = optimization.to_ffmpeg_args()
+                if opt_args:
+                    cmd.extend(opt_args)
+                    print_info(f"Optimizing output: {optimization.describe()}")
+            
             # Choose codec based on output format
+            # Note: if optimization specifies bitrate, don't override with quality setting
+            has_bitrate = optimization and optimization.bitrate_kbps
+            
             if output_path.suffix.lower() == ".mp3":
-                cmd.extend(["-c:a", "libmp3lame", "-q:a", "2"])
+                cmd.extend(["-c:a", "libmp3lame"])
+                if not has_bitrate:
+                    cmd.extend(["-q:a", "2"])  # High quality MP3
             elif output_path.suffix.lower() == ".m4a":
-                cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+                cmd.extend(["-c:a", "aac"])
+                if not has_bitrate:
+                    cmd.extend(["-b:a", "192k"])
             elif output_path.suffix.lower() == ".flac":
                 cmd.extend(["-c:a", "flac"])
             elif output_path.suffix.lower() == ".wav":
@@ -874,6 +1006,25 @@ class AudioProcessor:
                 success=False,
                 error=str(e)
             )
+    
+    def apply_optimization_only(
+        self,
+        filepath: Path,
+        optimization: OutputOptimization,
+        output_path: Optional[Path] = None
+    ) -> ProcessingResult:
+        """
+        Apply only output optimization (mono, bitrate, sample rate) without effects.
+        
+        Args:
+            filepath: Path to audio file
+            optimization: Output optimization settings
+            output_path: Where to save output. If None, creates temp file.
+            
+        Returns:
+            ProcessingResult with output path
+        """
+        return self.apply_filter_chain(filepath, "", output_path, optimization)
     
     def preview_preset(
         self,

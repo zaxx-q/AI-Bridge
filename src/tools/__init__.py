@@ -34,6 +34,10 @@ from .audio_processor import (
     AudioEffect,
     AudioPreset,
     Intensity,
+    # Output optimization
+    OutputOptimization,
+    SAMPLE_RATE_OPTIONS,
+    BITRATE_OPTIONS,
     # Preset functions
     get_preset,
     get_all_presets,
@@ -70,6 +74,10 @@ __all__ = [
     "get_all_presets",
     "get_presets_by_category",
     "AUDIO_PRESETS",
+    # Audio processor - output optimization
+    "OutputOptimization",
+    "SAMPLE_RATE_OPTIONS",
+    "BITRATE_OPTIONS",
     # Audio processor - utilities
     "check_ffmpeg_available",
     "needs_chunking",

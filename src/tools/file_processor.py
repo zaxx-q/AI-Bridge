@@ -32,6 +32,9 @@ from .audio_processor import (
     AudioEffect,
     AudioPreset,
     Intensity,
+    OutputOptimization,
+    SAMPLE_RATE_OPTIONS,
+    BITRATE_OPTIONS,
     check_ffmpeg_available,
     needs_chunking,
     is_audio_file,
@@ -399,11 +402,14 @@ class FileProcessor(BaseTool):
             
             print("\n🔧 Advanced:")
             print("  [A] Advanced mode - Custom effect chains")
+            print("  [O] File size optimization - Mono, bitrate, sample rate")
             
             if has_ffplay and sample_audio:
-                print("\n  [P] Preview - Listen to sample with current settings")
+                print("\n  [P] Preview audio - Listen to sample with current settings")
             elif not has_ffplay:
-                print("\n  [P] Preview - (FFplay not available)")
+                print("\n  [P] Preview audio - (FFplay not available)")
+            
+            print("  [E] Estimate file size - See resulting sizes and chunking status")
             
             if current_config:
                 print("  [C] Continue with current settings")
@@ -418,10 +424,28 @@ class FileProcessor(BaseTool):
                 return None
             
             if choice == 'c' and current_config:
-                return current_config
+                # Before continuing, ask about file size optimization
+                optimized_config = self._step_file_optimization(audio_files, current_config)
+                if optimized_config is None:
+                    return None
+                return optimized_config
             
             if choice == '1':
-                return {}  # No preprocessing
+                # Even with no audio processing, offer file size optimization
+                print("\n💡 Tip: You can still optimize file size for AI processing")
+                try:
+                    optimize_choice = input("Would you like to optimize file size? [y/N]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    return None
+                
+                if optimize_choice == 'y':
+                    empty_config: Dict[str, Any] = {}
+                    optimized_config = self._step_file_optimization(audio_files, empty_config)
+                    if optimized_config is None:
+                        return None
+                    return optimized_config
+                
+                return {}  # No preprocessing or optimization
             
             if choice == '2':
                 # Normalize only
@@ -467,6 +491,25 @@ class FileProcessor(BaseTool):
             if choice == 'p' and has_ffplay and sample_audio:
                 # Preview with current settings
                 self._preview_audio_settings(sample_audio, current_config)
+                continue
+            
+            if choice == 'o':
+                # Quick optimization menu
+                opt_preset = self._show_optimization_presets(2)  # Assume stereo
+                if opt_preset is None:
+                    return None
+                if opt_preset == "custom":
+                    # Run full customization
+                    current_config = self._step_file_optimization(audio_files, current_config)
+                    if current_config is None:
+                        return None
+                elif opt_preset:
+                    current_config["optimization"] = opt_preset
+                continue
+            
+            if choice == 'e':
+                # Estimate file size preview
+                self._preview_file_size(audio_files, current_config)
                 continue
             
             # If no valid choice and we have settings, continue with them
@@ -901,6 +944,449 @@ class FileProcessor(BaseTool):
                 print_error("No effects configured")
         
         print("✅ Preview finished")
+    
+    def _preview_file_size(
+        self,
+        audio_files: List[FileInfo],
+        current_config: Dict[str, Any]
+    ):
+        """
+        Preview estimated file sizes after applying current settings.
+        
+        Shows:
+        - Original file sizes
+        - Estimated sizes after processing
+        - Whether files will need chunking
+        
+        Args:
+            audio_files: List of audio files to analyze
+            current_config: Current preprocessing/optimization config
+        """
+        print("\n📊 File Size Estimation")
+        print("─" * 60)
+        
+        # Get optimization settings
+        opt_config = current_config.get("optimization", {})
+        convert_to_mono = opt_config.get("convert_to_mono", False)
+        target_sample_rate = opt_config.get("sample_rate")
+        target_bitrate = opt_config.get("bitrate_kbps")
+        
+        # Get preset/effect info
+        preprocess_type = current_config.get("type", "")
+        
+        # Show settings being applied
+        print("\n  Applied settings:")
+        if preprocess_type == "preset":
+            preset_id = current_config.get("preset_id", "")
+            intensity = current_config.get("intensity", "medium")
+            preset = get_preset(preset_id)
+            if preset:
+                print(f"    • Preset: {preset.name} ({intensity})")
+        elif preprocess_type == "custom":
+            effects = current_config.get("effects", [])
+            if effects:
+                effect_names = [e.get("name", "?") for e in effects]
+                print(f"    • Effects: {', '.join(effect_names)}")
+        elif preprocess_type == "normalize":
+            print(f"    • Normalize: EBU R128")
+        
+        if convert_to_mono:
+            print(f"    • Channels: Convert to mono")
+        if target_sample_rate:
+            print(f"    • Sample rate: {target_sample_rate:,} Hz")
+        if target_bitrate:
+            print(f"    • Bitrate: {target_bitrate} kbps")
+        
+        if not any([preprocess_type, convert_to_mono, target_sample_rate, target_bitrate]):
+            print(f"    • (No changes - original format)")
+        
+        print()
+        
+        # Analyze each file (up to 10 for preview)
+        files_to_analyze = audio_files[:10]
+        total_original = 0
+        total_estimated = 0
+        files_needing_chunking_before = 0
+        files_needing_chunking_after = 0
+        
+        if HAVE_RICH:
+            table = Table(show_header=True, box=None)
+            table.add_column("File", style="bold", max_width=30)
+            table.add_column("Original", justify="right")
+            table.add_column("Estimated", justify="right")
+            table.add_column("Reduction", justify="right")
+            table.add_column("Chunking", justify="center")
+        
+        for file_info in files_to_analyze:
+            audio_info = self.audio_processor.get_audio_info(file_info.path)
+            if not audio_info:
+                continue
+            
+            original_size = audio_info.size_bytes
+            total_original += original_size
+            
+            # Check if original needs chunking
+            if original_size > MAX_INLINE_SIZE:
+                files_needing_chunking_before += 1
+            
+            # Estimate new size
+            estimated_size = self._estimate_processed_size(
+                audio_info,
+                convert_to_mono=convert_to_mono,
+                target_sample_rate=target_sample_rate,
+                target_bitrate=target_bitrate
+            )
+            total_estimated += estimated_size
+            
+            # Check if estimated needs chunking
+            needs_chunk_after = estimated_size > MAX_INLINE_SIZE
+            if needs_chunk_after:
+                files_needing_chunking_after += 1
+            
+            # Format sizes
+            orig_str = self._format_size(original_size)
+            est_str = self._format_size(estimated_size)
+            
+            # Calculate reduction
+            if original_size > 0:
+                reduction = ((original_size - estimated_size) / original_size) * 100
+                reduction_str = f"-{reduction:.0f}%" if reduction > 0 else f"+{abs(reduction):.0f}%"
+            else:
+                reduction_str = "-"
+            
+            # Chunking indicator
+            if original_size > MAX_INLINE_SIZE and not needs_chunk_after:
+                chunk_str = "✅ No longer needed"
+            elif needs_chunk_after:
+                chunk_str = "⚠️ Still needed"
+            else:
+                chunk_str = "✓"
+            
+            filename = file_info.path.name
+            if len(filename) > 28:
+                filename = filename[:25] + "..."
+            
+            if HAVE_RICH:
+                table.add_row(filename, orig_str, est_str, reduction_str, chunk_str)
+            else:
+                print(f"  {filename:<30} {orig_str:>10} → {est_str:>10} ({reduction_str:>6}) {chunk_str}")
+        
+        if HAVE_RICH:
+            console.print(table)
+        
+        # Show totals if multiple files
+        if len(files_to_analyze) > 1:
+            print(f"\n  ─────────────────────────────────────────────────────────")
+            total_orig_str = self._format_size(total_original)
+            total_est_str = self._format_size(total_estimated)
+            
+            if total_original > 0:
+                total_reduction = ((total_original - total_estimated) / total_original) * 100
+                print(f"  Total: {total_orig_str} → {total_est_str} (-{total_reduction:.0f}%)")
+            else:
+                print(f"  Total: {total_orig_str} → {total_est_str}")
+        
+        # Show chunking summary
+        if files_needing_chunking_before > 0:
+            print(f"\n  📦 Chunking Summary:")
+            print(f"     Before: {files_needing_chunking_before} file(s) need chunking (>15MB)")
+            print(f"     After:  {files_needing_chunking_after} file(s) need chunking")
+            
+            if files_needing_chunking_after < files_needing_chunking_before:
+                avoided = files_needing_chunking_before - files_needing_chunking_after
+                print(f"     ✅ {avoided} file(s) no longer need chunking!")
+        
+        # Show note if more files exist
+        if len(audio_files) > 10:
+            print(f"\n  (Showing first 10 of {len(audio_files)} files)")
+        
+        print()
+    
+    def _estimate_processed_size(
+        self,
+        audio_info: 'AudioInfo',
+        convert_to_mono: bool = False,
+        target_sample_rate: Optional[int] = None,
+        target_bitrate: Optional[int] = None
+    ) -> int:
+        """
+        Estimate the output file size after processing.
+        
+        Uses bitrate-based estimation for compressed formats.
+        
+        Args:
+            audio_info: Original audio information
+            convert_to_mono: Whether converting to mono
+            target_sample_rate: Target sample rate (Hz)
+            target_bitrate: Target bitrate (kbps)
+            
+        Returns:
+            Estimated file size in bytes
+        """
+        duration = audio_info.duration_seconds
+        if duration <= 0:
+            return audio_info.size_bytes
+        
+        # Get original characteristics
+        orig_channels = audio_info.channels or 2
+        orig_sample_rate = audio_info.sample_rate or 44100
+        orig_bitrate = audio_info.bitrate_kbps or 128
+        
+        # Determine output characteristics
+        out_channels = 1 if convert_to_mono else orig_channels
+        out_sample_rate = target_sample_rate or orig_sample_rate
+        out_bitrate = target_bitrate or orig_bitrate
+        
+        # For compressed formats (MP3, AAC, etc.), size is primarily determined by bitrate
+        # Size (bytes) = (bitrate_kbps * 1000 / 8) * duration_seconds
+        # But we need to account for:
+        # - Mono vs stereo (mono is typically ~50% smaller at same quality)
+        # - Sample rate reduction (proportional reduction)
+        
+        # If we have a target bitrate, use it directly
+        if target_bitrate:
+            # Bitrate already accounts for channels in lossy formats
+            estimated_bytes = (target_bitrate * 1000 / 8) * duration
+        else:
+            # Estimate based on original bitrate with adjustments
+            estimated_bitrate = orig_bitrate
+            
+            # Adjust for channel change (rough estimate)
+            if convert_to_mono and orig_channels > 1:
+                # Mono at same quality is roughly 50-60% of stereo size
+                estimated_bitrate *= 0.55
+            
+            # Adjust for sample rate reduction (proportional)
+            if target_sample_rate and target_sample_rate < orig_sample_rate:
+                sample_rate_ratio = target_sample_rate / orig_sample_rate
+                # Lower sample rate allows lower bitrate at same quality
+                # But the relationship isn't perfectly linear
+                estimated_bitrate *= (0.5 + 0.5 * sample_rate_ratio)
+            
+            estimated_bytes = (estimated_bitrate * 1000 / 8) * duration
+        
+        # Add some overhead for container/headers (~2-5%)
+        estimated_bytes *= 1.03
+        
+        return int(estimated_bytes)
+    
+    def _format_size(self, size_bytes: int) -> str:
+        """Format file size in human-readable format"""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        else:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+    
+    def _step_file_optimization(self, audio_files: List[FileInfo], current_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        File size optimization step for audio files.
+        
+        Prompts user for:
+        - Mono conversion (if stereo/multichannel)
+        - Bitrate optimization
+        - Sample rate downsampling
+        
+        Args:
+            audio_files: List of audio files to process
+            current_config: Current preprocessing config (will be modified)
+            
+        Returns:
+            Updated config with optimization settings, empty to skip, or None if cancelled
+        """
+        print("\n📦 File Size Optimization")
+        print("─" * 50)
+        print("  Optimize output file size for voice/AI processing")
+        
+        # Sample one audio file to get channel info
+        sample_audio = audio_files[0].path if audio_files else None
+        channel_count = 2  # Default assumption
+        sample_rate = 44100  # Default assumption
+        
+        if sample_audio:
+            audio_info = self.audio_processor.get_audio_info(sample_audio)
+            if audio_info:
+                channel_count = audio_info.channels or 2
+                sample_rate = audio_info.sample_rate or 44100
+                duration = audio_info.duration_seconds
+                
+                print(f"\n  Sample file info:")
+                channel_label = 'Mono' if channel_count == 1 else ('Stereo' if channel_count == 2 else f'{channel_count}-channel')
+                print(f"    Channels:    {channel_count} ({channel_label})")
+                print(f"    Sample rate: {sample_rate:,} Hz")
+                if duration:
+                    print(f"    Duration:    {duration:.1f}s")
+        
+        # Initialize optimization settings
+        optimization = OutputOptimization()
+        
+        # Step 1: Mono conversion (only ask if stereo or more)
+        if channel_count >= 2:
+            print("\n🔊 Channel Conversion:")
+            print("  [1] Keep stereo/multichannel as-is")
+            print("  [2] Convert to mono (recommended for voice)")
+            print("       • Reduces file size by ~50%")
+            print("       • Ideal for speech and AI processing")
+            
+            try:
+                mono_choice = input("\nChoice [2]: ").strip() or "2"
+            except (EOFError, KeyboardInterrupt):
+                return None
+            
+            optimization.convert_to_mono = mono_choice == "2"
+            if optimization.convert_to_mono:
+                print("  ✓ Will convert to mono")
+        else:
+            # Already mono - ensure we keep it mono (never upmix)
+            optimization.convert_to_mono = True  # -ac 1 forces mono output
+            print("\n🔊 Audio is already mono (will preserve)")
+        
+        # Step 2: Sample rate
+        print("\n📊 Sample Rate:")
+        
+        # Determine recommended rate based on content type
+        if sample_rate > 48000:
+            recommended = 48000
+            print(f"  Current: {sample_rate:,} Hz (higher than needed for voice)")
+        elif sample_rate > 22050:
+            recommended = 22050
+            print(f"  Current: {sample_rate:,} Hz")
+        else:
+            recommended = sample_rate
+            print(f"  Current: {sample_rate:,} Hz (already optimized)")
+        
+        print("\n  Options (lower = smaller file, less quality):")
+        # SAMPLE_RATE_OPTIONS is a dict {rate: label}
+        rate_options = [(r, SAMPLE_RATE_OPTIONS[r]) for r in sorted(SAMPLE_RATE_OPTIONS.keys()) if r <= sample_rate]
+        
+        for i, (rate, label) in enumerate(rate_options[:5], 1):  # Show up to 5 options
+            marker = " ◄ recommended" if rate == recommended else ""
+            print(f"    [{i}] {rate:,} Hz - {label}{marker}")
+        
+        print(f"    [K] Keep original ({sample_rate:,} Hz)")
+        
+        try:
+            rate_choice = input("\nChoice [K]: ").strip().upper() or "K"
+        except (EOFError, KeyboardInterrupt):
+            return None
+        
+        if rate_choice != "K":
+            try:
+                rate_idx = int(rate_choice) - 1
+                if 0 <= rate_idx < len(rate_options[:5]):
+                    optimization.sample_rate = rate_options[rate_idx][0]
+                    print(f"  ✓ Will resample to {optimization.sample_rate:,} Hz")
+            except ValueError:
+                pass
+        
+        if not optimization.sample_rate:
+            print(f"  ✓ Keeping original sample rate")
+        
+        # Step 3: Bitrate
+        print("\n🎚️ Output Bitrate (for compressed formats):")
+        print("  Lower bitrate = smaller file, potential quality loss")
+        print("\n  Voice-optimized options:")
+        
+        # BITRATE_OPTIONS is a dict {bitrate: label}
+        bitrate_options = [(b, BITRATE_OPTIONS[b]) for b in sorted(BITRATE_OPTIONS.keys())]
+        
+        for i, (bitrate, label) in enumerate(bitrate_options[:6], 1):
+            marker = ""
+            if bitrate == 64:
+                marker = " ◄ recommended for voice"
+            elif bitrate == 96:
+                marker = " ◄ good balance"
+            print(f"    [{i}] {bitrate} kbps - {label}{marker}")
+        
+        print(f"    [K] Keep codec default")
+        
+        try:
+            bitrate_choice = input("\nChoice [3]: ").strip().upper() or "3"  # Default to 64kbps
+        except (EOFError, KeyboardInterrupt):
+            return None
+        
+        if bitrate_choice != "K":
+            try:
+                bitrate_idx = int(bitrate_choice) - 1
+                if 0 <= bitrate_idx < len(bitrate_options[:6]):
+                    optimization.bitrate_kbps = bitrate_options[bitrate_idx][0]
+                    print(f"  ✓ Will encode at {optimization.bitrate_kbps} kbps")
+            except ValueError:
+                pass
+        
+        if not optimization.bitrate_kbps:
+            print(f"  ✓ Using codec default bitrate")
+        
+        # Summary
+        print("\n📋 Optimization Summary:")
+        if optimization.convert_to_mono:
+            print("  • Converting to mono")
+        if optimization.sample_rate:
+            print(f"  • Resampling to {optimization.sample_rate:,} Hz")
+        if optimization.bitrate_kbps:
+            print(f"  • Bitrate: {optimization.bitrate_kbps} kbps")
+        
+        if not any([optimization.convert_to_mono and channel_count >= 2,
+                    optimization.sample_rate, optimization.bitrate_kbps]):
+            print("  (No optimization - keeping original format)")
+        
+        # Add optimization to config
+        current_config["optimization"] = {
+            "convert_to_mono": optimization.convert_to_mono,
+            "sample_rate": optimization.sample_rate,
+            "bitrate_kbps": optimization.bitrate_kbps
+        }
+        
+        return current_config
+    
+    def _show_optimization_presets(self, channel_count: int) -> Optional[Dict[str, Any]]:
+        """
+        Show quick optimization presets.
+        
+        Args:
+            channel_count: Current audio channel count
+            
+        Returns:
+            Optimization dict or None if cancelled
+        """
+        print("\n⚡ Quick Optimization Presets:")
+        print("  [1] 🎤 Voice (smallest) - Mono, 22kHz, 48kbps")
+        print("       Best for: Speech, podcasts, AI transcription")
+        print("  [2] 🎙️ Podcast (balanced) - Mono, 44.1kHz, 96kbps")
+        print("       Best for: High-quality voice, music with speech")
+        print("  [3] 🎵 Quality (larger) - Keep channels, 44.1kHz, 128kbps")
+        print("       Best for: Music, audio with effects")
+        print("  [4] 📱 Mobile (tiny) - Mono, 16kHz, 32kbps")
+        print("       Best for: Maximum compression, basic speech")
+        print("  [C] Custom settings...")
+        print("  [S] Skip optimization")
+        
+        try:
+            choice = input("\nChoice: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        
+        presets = {
+            "1": OutputOptimization.for_voice_small(),
+            "2": OutputOptimization.for_voice_balanced(),
+            "3": OutputOptimization.for_voice_quality(),
+            "4": OutputOptimization(convert_to_mono=True, sample_rate=16000, bitrate_kbps=32),
+        }
+        
+        if choice in presets:
+            opt = presets[choice]
+            return {
+                "convert_to_mono": opt.convert_to_mono,
+                "sample_rate": opt.sample_rate,
+                "bitrate_kbps": opt.bitrate_kbps
+            }
+        elif choice == "c":
+            return "custom"  # Signal to run full customization
+        elif choice == "s":
+            return {}
+        
+        return None
     
     # ─────────────────────────────────────────────────────────────────
     # STEP 2: Prompt Selection
@@ -1627,9 +2113,37 @@ class FileProcessor(BaseTool):
         
         preprocess_type = self._audio_preprocessing.get("type")
         
+        # Get optimization settings if present
+        optimization = None
+        opt_config = self._audio_preprocessing.get("optimization")
+        if opt_config:
+            optimization = OutputOptimization(
+                convert_to_mono=opt_config.get("convert_to_mono", False),
+                sample_rate=opt_config.get("sample_rate"),
+                bitrate_kbps=opt_config.get("bitrate_kbps")
+            )
+            if interactive and optimization.describe() != "No optimization":
+                print(f"   📦 Output optimization: {optimization.describe()}")
+        
+        # If we only have optimization (no effects), apply it alone
+        if not preprocess_type and optimization:
+            if interactive:
+                print(f"   📦 Applying file size optimization...")
+            
+            result = self.audio_processor.apply_optimization_only(filepath, optimization)
+            
+            if result.success:
+                if interactive:
+                    print(f"   ✅ File optimized")
+                return result.output_path, result
+            else:
+                if interactive:
+                    print(f"   ⚠️ Optimization failed: {result.error}")
+                return filepath, None
+        
         if preprocess_type == "amplify":
             volume_percent = self._audio_preprocessing.get("volume_percent", 100)
-            if volume_percent == 100:
+            if volume_percent == 100 and not optimization:
                 return filepath, None
             
             if interactive:
@@ -1644,6 +2158,15 @@ class FileProcessor(BaseTool):
             if result.success:
                 if interactive:
                     print(f"   ✅ Volume adjusted")
+                # If we have optimization, apply it to the amplified result
+                if optimization:
+                    opt_result = self.audio_processor.apply_optimization_only(
+                        result.output_path, optimization
+                    )
+                    result.cleanup()
+                    if opt_result.success:
+                        return opt_result.output_path, opt_result
+                    # Fall through with original result on optimization failure
                 return result.output_path, result
             else:
                 if interactive:
@@ -1662,6 +2185,14 @@ class FileProcessor(BaseTool):
             if result.success:
                 if interactive:
                     print(f"   ✅ Audio normalized")
+                # If we have optimization, apply it to the normalized result
+                if optimization:
+                    opt_result = self.audio_processor.apply_optimization_only(
+                        result.output_path, optimization
+                    )
+                    result.cleanup()
+                    if opt_result.success:
+                        return opt_result.output_path, opt_result
                 return result.output_path, result
             else:
                 if interactive:
@@ -1699,6 +2230,14 @@ class FileProcessor(BaseTool):
             if normalize_result.success:
                 if interactive:
                     print(f"   ✅ Audio amplified and normalized")
+                # If we have optimization, apply it
+                if optimization:
+                    opt_result = self.audio_processor.apply_optimization_only(
+                        normalize_result.output_path, optimization
+                    )
+                    normalize_result.cleanup()
+                    if opt_result.success:
+                        return opt_result.output_path, opt_result
                 return normalize_result.output_path, normalize_result
             else:
                 if interactive:
@@ -1721,10 +2260,12 @@ class FileProcessor(BaseTool):
             if interactive:
                 print(f"   🎤 Applying {preset.name} ({intensity_str})...")
             
+            # Pass optimization directly to apply_preset
             result = self.audio_processor.apply_preset(
                 filepath,
                 preset_id,
-                intensity=intensity
+                intensity=intensity,
+                optimization=optimization
             )
             
             if result.success:
@@ -1741,6 +2282,11 @@ class FileProcessor(BaseTool):
             effects_config = self._audio_preprocessing.get("effects", [])
             
             if not effects_config:
+                # Still apply optimization if present
+                if optimization:
+                    result = self.audio_processor.apply_optimization_only(filepath, optimization)
+                    if result.success:
+                        return result.output_path, result
                 return filepath, None
             
             effects = [AudioEffect(e["name"], e.get("params", {})) for e in effects_config]
@@ -1749,9 +2295,11 @@ class FileProcessor(BaseTool):
                 effect_names = ", ".join(e.name for e in effects)
                 print(f"   🔧 Applying custom effects: {effect_names}...")
             
+            # Pass optimization directly to apply_effects
             result = self.audio_processor.apply_effects(
                 filepath,
-                effects
+                effects,
+                optimization=optimization
             )
             
             if result.success:
