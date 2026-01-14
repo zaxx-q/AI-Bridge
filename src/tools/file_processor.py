@@ -114,10 +114,15 @@ class FileProcessor(BaseTool):
             if scan_result is None:
                 return ToolResult(success=False, message="Cancelled")
             
-            # Step 1.5: Audio preprocessing (if audio files detected)
+            # Step 1.5: Audio Effects (if audio files detected)
             if "audio" in scan_result.by_type:
                 self._audio_preprocessing = self._step_audio_preprocessing(scan_result)
                 # None means cancelled, empty dict means skip preprocessing
+                if self._audio_preprocessing is None:
+                    return ToolResult(success=False, message="Cancelled")
+                
+                # Step 1.6: Audio Optimization (after effects)
+                self._audio_preprocessing = self._step_audio_optimization(scan_result, self._audio_preprocessing)
                 if self._audio_preprocessing is None:
                     return ToolResult(success=False, message="Cancelled")
             
@@ -352,12 +357,12 @@ class FileProcessor(BaseTool):
         return None
     
     # ─────────────────────────────────────────────────────────────────
-    # STEP 1.5: Audio Preprocessing (Optional)
+    # STEP 1.5: Audio Effects / Cleanup
     # ─────────────────────────────────────────────────────────────────
     
     def _step_audio_preprocessing(self, scan_result: ScanResult) -> Optional[Dict[str, Any]]:
         """
-        Optional step: Configure audio preprocessing with interactive preview.
+        Optional step: Configure audio effects and cleanup.
         
         Args:
             scan_result: Scan result with audio files
@@ -380,17 +385,17 @@ class FileProcessor(BaseTool):
         current_config: Dict[str, Any] = {}
         
         while True:
-            print(f"\n🎵 Audio Preprocessing ({audio_count} file(s))")
+            print(f"\n🎵 Audio Effects & Cleanup ({audio_count} file(s))")
             print("─" * 50)
             
             # Show current settings
             if current_config:
                 self._display_preprocessing_settings(current_config)
             else:
-                print("  Current: No preprocessing")
+                print("  Current: No effects (Original audio)")
             
             print("\n📋 Quick Options:")
-            print("  [1] Skip - Process audio as-is")
+            print("  [1] No Effects - Skip to optimization")
             print("  [2] Normalize - Auto-adjust to optimal level (EBU R128)")
             
             print("\n🎤 Voice Enhancement Presets:")
@@ -402,17 +407,14 @@ class FileProcessor(BaseTool):
             
             print("\n🔧 Advanced:")
             print("  [A] Advanced mode - Custom effect chains")
-            print("  [O] File size optimization - Mono, bitrate, sample rate")
             
             if has_ffplay and sample_audio:
                 print("\n  [P] Preview audio - Listen to sample with current settings")
             elif not has_ffplay:
                 print("\n  [P] Preview audio - (FFplay not available)")
             
-            print("  [E] Estimate file size - See resulting sizes and chunking status")
-            
             if current_config:
-                print("  [C] Continue with current settings")
+                print("  [C] Continue")
             print("  [Q] Cancel")
             
             try:
@@ -424,28 +426,10 @@ class FileProcessor(BaseTool):
                 return None
             
             if choice == 'c' and current_config:
-                # Before continuing, ask about file size optimization
-                optimized_config = self._step_file_optimization(audio_files, current_config)
-                if optimized_config is None:
-                    return None
-                return optimized_config
+                return current_config
             
             if choice == '1':
-                # Even with no audio processing, offer file size optimization
-                print("\n💡 Tip: You can still optimize file size for AI processing")
-                try:
-                    optimize_choice = input("Would you like to optimize file size? [y/N]: ").strip().lower()
-                except (EOFError, KeyboardInterrupt):
-                    return None
-                
-                if optimize_choice == 'y':
-                    empty_config: Dict[str, Any] = {}
-                    optimized_config = self._step_file_optimization(audio_files, empty_config)
-                    if optimized_config is None:
-                        return None
-                    return optimized_config
-                
-                return {}  # No preprocessing or optimization
+                return {}
             
             if choice == '2':
                 # Normalize only
@@ -491,25 +475,6 @@ class FileProcessor(BaseTool):
             if choice == 'p' and has_ffplay and sample_audio:
                 # Preview with current settings
                 self._preview_audio_settings(sample_audio, current_config)
-                continue
-            
-            if choice == 'o':
-                # Quick optimization menu
-                opt_preset = self._show_optimization_presets(2)  # Assume stereo
-                if opt_preset is None:
-                    return None
-                if opt_preset == "custom":
-                    # Run full customization
-                    current_config = self._step_file_optimization(audio_files, current_config)
-                    if current_config is None:
-                        return None
-                elif opt_preset:
-                    current_config["optimization"] = opt_preset
-                continue
-            
-            if choice == 'e':
-                # Estimate file size preview
-                self._preview_file_size(audio_files, current_config)
                 continue
             
             # If no valid choice and we have settings, continue with them
@@ -774,36 +739,138 @@ class FileProcessor(BaseTool):
         # Use defaults for other effects
         return default_params
     
-    def _display_preprocessing_settings(self, config: Dict[str, Any]):
+    def _step_audio_optimization(self, scan_result: ScanResult, current_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Step 1.6: Configure file size optimization.
+        
+        Args:
+            scan_result: Scan result with audio files
+            current_config: Existing config from Step 1.5 (effects)
+            
+        Returns:
+            Updated config dict or None if cancelled
+        """
+        audio_files = scan_result.by_type.get("audio", [])
+        
+        # Sample for defaults
+        sample_audio = audio_files[0].path if audio_files else None
+        channel_count = 2
+        if sample_audio:
+             audio_info = self.audio_processor.get_audio_info(sample_audio)
+             if audio_info and audio_info.channels:
+                 channel_count = audio_info.channels
+        
+        while True:
+            # Check current optimization status
+            opt_config = current_config.get("optimization", {})
+            
+            print(f"\n📦 Audio File Optimization")
+            print("─" * 50)
+            
+            # Display effects summary if present
+            if current_config.get("type"):
+                self._display_preprocessing_settings(current_config, label="Effects")
+                
+            # Display current optimization
+            if opt_config:
+                self._display_optimization_settings(opt_config)
+            else:
+                print("  Optimization: None (Original quality/size)")
+
+            print("\n📋 Options:")
+            print("  [1] Quick presets (Voice, Podcast, etc.)")
+            print("  [2] Custom settings (Mono, Sample Rate, Bitrate)")
+            print("  [3] Skip optimization (Keep original)")
+            
+            print("\n  [E] Estimate file size & check chunking")
+            
+            print("\n  [C] Continue")
+            print("  [Q] Cancel")
+            
+            try:
+                choice = input("\nChoice: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                return None
+                
+            if choice == 'q':
+                return None
+            
+            if choice == 'c' or (choice == '3' and not opt_config):
+                return current_config
+            
+            if choice == '1':
+                # Quick presets
+                presets_config = self._show_optimization_presets(channel_count)
+                if presets_config == "custom":
+                     # Go to custom
+                     updated = self._step_file_optimization(audio_files, current_config)
+                     if updated:
+                         current_config = updated
+                elif presets_config:
+                    current_config["optimization"] = presets_config
+                elif presets_config == {}: # Skip/Clear
+                    current_config.pop("optimization", None)
+                continue
+                
+            if choice == '2':
+                # Custom settings
+                updated = self._step_file_optimization(audio_files, current_config)
+                if updated:
+                    current_config = updated
+                continue
+                
+            if choice == '3':
+                # Clear optimization
+                current_config.pop("optimization", None)
+                print("✅ Optimization cleared")
+                continue
+                
+            if choice == 'e':
+                self._preview_file_size(audio_files, current_config)
+                continue
+
+    def _display_optimization_settings(self, opt_config: Dict[str, Any]):
+        """Display current optimization settings"""
+        parts = []
+        if opt_config.get("convert_to_mono"):
+            parts.append("Mono")
+        if opt_config.get("sample_rate"):
+            parts.append(f"{opt_config['sample_rate']}Hz")
+        if opt_config.get("bitrate_kbps"):
+            parts.append(f"{opt_config['bitrate_kbps']}kbps")
+            
+        print(f"  Optimization: {', '.join(parts)}")
+
+    def _display_preprocessing_settings(self, config: Dict[str, Any], label: str = "Current"):
         """Display current preprocessing settings"""
         preprocess_type = config.get("type", "")
         
         if preprocess_type == "amplify":
             volume = config.get("volume_percent", 100)
             boost = volume - 100
-            print(f"  Current: Amplify by {boost:+d}%")
+            print(f"  {label}: Amplify by {boost:+d}%")
         
         elif preprocess_type == "normalize":
-            print(f"  Current: Normalize to optimal level (EBU R128)")
+            print(f"  {label}: Normalize to optimal level (EBU R128)")
         
         elif preprocess_type == "amplify_normalize":
             volume = config.get("volume_percent", 100)
             boost = volume - 100
-            print(f"  Current: Amplify by {boost:+d}% then Normalize")
+            print(f"  {label}: Amplify by {boost:+d}% then Normalize")
         
         elif preprocess_type == "preset":
             preset_id = config.get("preset_id", "")
             intensity = config.get("intensity", "medium")
             preset = get_preset(preset_id)
             if preset:
-                print(f"  Current: {preset.name} ({intensity})")
+                print(f"  {label}: {preset.name} ({intensity})")
             else:
-                print(f"  Current: Preset {preset_id} ({intensity})")
+                print(f"  {label}: Preset {preset_id} ({intensity})")
         
         elif preprocess_type == "custom":
             effects = config.get("effects", [])
             effect_names = [e.get("name", "?") for e in effects]
-            print(f"  Current: Custom chain - {', '.join(effect_names)}")
+            print(f"  {label}: Custom chain - {', '.join(effect_names)}")
     
     def _get_amplify_settings(self, with_normalize: bool = False) -> Optional[Dict[str, Any]]:
         """
@@ -1351,14 +1418,14 @@ class FileProcessor(BaseTool):
             Optimization dict or None if cancelled
         """
         print("\n⚡ Quick Optimization Presets:")
-        print("  [1] 🎤 Voice (smallest) - Mono, 22kHz, 48kbps")
-        print("       Best for: Speech, podcasts, AI transcription")
-        print("  [2] 🎙️ Podcast (balanced) - Mono, 44.1kHz, 96kbps")
+        print("  [1] 🎤 Voice (smallest) - Mono, 16kHz, 32kbps")
+        print("       Best for: Speech, podcasts, AI transcription (phone quality)")
+        print("  [2] 🎙️ Podcast (balanced) - Mono, 22kHz, 64kbps")
         print("       Best for: High-quality voice, music with speech")
-        print("  [3] 🎵 Quality (larger) - Keep channels, 44.1kHz, 128kbps")
-        print("       Best for: Music, audio with effects")
+        print("  [3] 🎵 Quality (larger) - Mono, 44.1kHz, 96kbps")
+        print("       Best for: Music, audio with effects (preserves fidelity)")
         print("  [4] 📱 Mobile (tiny) - Mono, 16kHz, 32kbps")
-        print("       Best for: Maximum compression, basic speech")
+        print("       Best for: Maximum compression, exact same as Voice (smallest)")
         print("  [C] Custom settings...")
         print("  [S] Skip optimization")
         
