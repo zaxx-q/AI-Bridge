@@ -533,8 +533,8 @@ class PromptEditorWindow:
                 self.root.configure(bg=self.colors.bg)
         
         self.root.title("AIPromptBridge Prompt Editor")
-        self.root.geometry("1200x850")
-        self.root.minsize(1000, 650)
+        self.root.geometry("1000x736")
+        self.root.minsize(900, 600)
         
         # Set icon - use repeated after() calls to override CTk's default icon
         if getattr(sys, 'frozen', False):
@@ -562,7 +562,7 @@ class PromptEditorWindow:
         
         # Main container
         main_container = ctk.CTkFrame(self.root, fg_color=self.colors.bg) if self.use_ctk else tk.Frame(self.root, bg=self.colors.bg)
-        main_container.pack(fill="both", expand=True, padx=10, pady=10)
+        main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
         # Title bar
         self._create_title_bar(main_container)
@@ -624,7 +624,7 @@ class PromptEditorWindow:
     def _create_title_bar(self, parent):
         """Create the title bar."""
         title_frame = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
-        title_frame.pack(fill="x", pady=(0, 15))
+        title_frame.pack(fill="x", pady=(0, 10))
         
         if self.use_ctk:
             # Title with emoji image support
@@ -676,7 +676,7 @@ class PromptEditorWindow:
                 text_color=self.colors.fg,
                 corner_radius=8
             )
-            self.tabview.pack(fill="both", expand=True, pady=(0, 10))
+            self.tabview.pack(fill="both", expand=True, pady=(0, 2))
             
             # Create tabs
             self.tabview.add("⚡ Actions")
@@ -699,7 +699,7 @@ class PromptEditorWindow:
             style = ttk.Style(self.root)
             style.theme_use('clam')
             self.tabview = ttk.Notebook(parent)
-            self.tabview.pack(fill="both", expand=True, pady=(0, 10))
+            self.tabview.pack(fill="both", expand=True, pady=(0, 2))
             
             actions_frame = tk.Frame(self.tabview, bg=self.colors.bg)
             settings_frame = tk.Frame(self.tabview, bg=self.colors.bg)
@@ -2741,7 +2741,7 @@ class PromptEditorWindow:
     def _create_button_bar(self, parent):
         """Create the bottom button bar."""
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent") if self.use_ctk else tk.Frame(parent, bg=self.colors.bg)
-        btn_frame.pack(fill="x", pady=(10, 0))
+        btn_frame.pack(fill="x", pady=(2, 0))
         
         create_emoji_button(
             btn_frame, "Save All", "💾", self.colors, "success", 140, 42, self._save_all
