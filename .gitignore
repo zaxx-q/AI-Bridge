@@ -1,8 +1,8 @@
-run_py.bat
 .env
 config.ini
 chat_sessions.json
 **/__pycache__
+*.pyc
 build
 plans
 *.bak

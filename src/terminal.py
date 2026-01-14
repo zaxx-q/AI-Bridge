@@ -68,7 +68,7 @@ def print_commands_box():
             ("L", "📋", "Sessions"),
             ("O", "🌐", "Browser"),
             ("E", "📡", "Endpoints"),
-            ("H", "❓", "Help"),
+            ("X", "🧰", "Tools"),
         ])
         
         # Column 2: Configuration
@@ -84,7 +84,7 @@ def print_commands_box():
             ("S", "📊", "Status"),
             ("T", "💭", "Thinking"),
             ("R", "🌊", "Streaming"),
-            ("", "", ""), # Spacer
+            ("H", "❓", "Help"),
         ])
         
         grid.add_row(col1, col2, col3)
@@ -102,10 +102,10 @@ def print_commands_box():
         print("─" * 64)
         print("  COMMANDS                                       Ctrl+C to stop")
         print("─" * 64)
-        print("  [L] 📋 Sessions      [P] 🔄 Provider     [T] 💭 Thinking")
-        print("  [O] 🖥️ Browser       [M] 🤖 Models       [R] 🌊 Streaming")
-        print("  [E] 📡 Endpoints     [S] 📊 Status       [H] ❓ Help")
-        print("  [G] 🔨 Settings      [W] 📝 Prompts")
+        print("  [L] 📋 Sessions      [P] 🔄 Provider     [S] 📊 Status")
+        print("  [O] 🌐 Browser       [M] 🤖 Models       [T] 💭 Thinking")
+        print("  [E] 📡 Endpoints     [G] 🔨 Settings     [R] 🌊 Streaming")
+        print("  [X] 🧰 Tools         [W] 📝 Prompts      [H] ❓ Help")
         print("─" * 64)
         print()
 
@@ -621,6 +621,18 @@ def terminal_session_manager(endpoints=None):
                     else:
                         print("\n✗ GUI not available\n")
             
+            elif key == 'x':
+                # Open Tools menu
+                from .tools.file_processor import show_tools_menu
+                if HAVE_RICH:
+                    console.print("\n[bold]🧰  Opening Tools menu...[/bold]\n")
+                else:
+                    print("\n🧰  Opening Tools menu...\n")
+                show_tools_menu(_endpoints)
+                # Reprint commands box after returning
+                print()
+                print_commands_box()
+            
             elif key == 'h':
                 print(f"\n{'─'*64}")
                 print("❓ HELP")
@@ -631,6 +643,7 @@ def terminal_session_manager(endpoints=None):
                 print("   [D] 🗑️ Delete        Delete a session by ID")
                 print("   [C] 🧹 Clear         Clear all sessions")
                 print("   [E] 📡 Endpoints     List registered endpoints")
+                print("   [X] 🧰 Tools         Open tools menu (File Processor, etc.)")
                 print("   [M] 🤖 Models        List/set models from API")
                 print("   [P] 🔄 Provider      Switch API provider")
                 print("   [S] 📊 Status        Show current configuration")

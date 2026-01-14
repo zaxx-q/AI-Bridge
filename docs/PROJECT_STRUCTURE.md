@@ -1,6 +1,6 @@
 # Project Structure
 
-AIPromptBridge follows a modular architecture separating the web server, GUI, system tray, and AI providers.
+AIPromptBridge follows a modular architecture separating the web server, GUI, system tray, AI providers, and tools.
 
 ```
 AIPromptBridge/
@@ -10,6 +10,7 @@ AIPromptBridge/
 ├── config.ini                  # Configuration (auto-generated on first run)
 ├── chat_sessions.json          # Saved chat sessions (auto-created)
 ├── text_edit_tool_options.json # TextEditTool prompts and settings
+├── tools_config.json           # Tools configuration and prompts
 ├── icon.ico                    # System tray icon
 ├── LICENSE
 ├── README.md
@@ -27,7 +28,7 @@ AIPromptBridge/
     ├── key_manager.py          # API key rotation with exhaustion tracking
     ├── request_pipeline.py     # Unified request processing with logging
     ├── session_manager.py      # Session persistence with sequential IDs
-    ├── terminal.py             # Interactive terminal commands
+    ├── terminal.py             # Interactive terminal commands (includes Tools menu)
     ├── tray.py                 # System tray application (Windows)
     ├── utils.py                # Utility functions (strip_markdown, etc.)
     ├── web_server.py           # Flask server and API endpoints
@@ -49,11 +50,19 @@ AIPromptBridge/
     │   ├── utils.py            # GUI utilities (clipboard, markdown render)
     │   └── windows.py          # Chat and Browser windows
     │
-    └── providers/              # AI Provider Implementations
-        ├── __init__.py         # Provider exports and factory
-        ├── base.py             # Abstract base provider, retry logic, ProviderResult
-        ├── gemini_native.py    # Native Gemini API with full feature support
-        └── openai_compatible.py # OpenRouter, Custom, Google OpenAI-compat
+    ├── providers/              # AI Provider Implementations
+    │   ├── __init__.py         # Provider exports and factory
+    │   ├── base.py             # Abstract base provider, retry logic, ProviderResult
+    │   ├── gemini_native.py    # Native Gemini API with full feature support
+    │   └── openai_compatible.py # OpenRouter, Custom, Google OpenAI-compat
+    │
+    └── tools/                  # Tools Package - Batch file processing
+        ├── __init__.py         # Tool exports
+        ├── base.py             # Abstract BaseTool class
+        ├── checkpoint.py       # Checkpoint/resume system for batch processing
+        ├── config.py           # Tools configuration loader
+        ├── file_handler.py     # File type detection and content reading
+        └── file_processor.py   # File Processor tool with interactive wizard
 ```
 
 ## Key Modules
@@ -94,3 +103,23 @@ AIPromptBridge/
 | `base.py` | Abstract BaseProvider with retry logic |
 | `openai_compatible.py` | OpenAI API format (OpenRouter, custom endpoints) |
 | `gemini_native.py` | Native Google Gemini API with thinking support |
+
+### Tools (`src/tools/`)
+
+| Module | Purpose |
+|--------|---------|
+| `base.py` | Abstract BaseTool class with pause/resume support |
+| `checkpoint.py` | Checkpoint persistence for interrupted batch processing |
+| `config.py` | Tools configuration loader (tools_config.json) |
+| `file_handler.py` | File type detection, directory scanning, API message building |
+| `file_processor.py` | File Processor tool - batch process images/text/code with AI |
+
+## Tools Configuration
+
+The `tools_config.json` file contains:
+- Tool prompts (OCR, Describe, Summarize, Code Review, etc.)
+- Output modes (individual files or combined)
+- File type mappings for auto-detection
+- Settings (delay between requests, checkpoint options)
+
+Access via terminal: Press `[X]` → `[1] File Processor`

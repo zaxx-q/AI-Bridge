@@ -6,14 +6,18 @@ Uses the native Gemini API format (camelCase) with full feature support:
 - Safety settings with BLOCK_NONE
 - Streaming via streamGenerateContent endpoint
 - Full retry logic matching reverse-proxy behavior
+- Files API for large file uploads (>15 MB)
 
 Reference: JSON-request-reference.md and reverse-proxy/src/upstream/gemini.js
 """
 
 import json
+import os
 import re
 import time
-from typing import List, Dict, Optional, Any
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Dict, Optional, Any, Tuple
 import requests
 
 from .base import (
@@ -40,6 +44,29 @@ SAFETY_SETTINGS = [
 ]
 
 
+# Maximum size for inline data (15 MB to be safe, actual limit is 20 MB for total request)
+MAX_INLINE_SIZE_BYTES = 15 * 1024 * 1024
+
+
+@dataclass
+class UploadedFile:
+    """Represents a file uploaded to the Gemini Files API"""
+    name: str
+    uri: str
+    mime_type: str
+    size_bytes: int
+    display_name: Optional[str] = None
+    
+    def to_file_data_part(self) -> Dict:
+        """Convert to fileData part for generateContent request"""
+        return {
+            "fileData": {
+                "mimeType": self.mime_type,
+                "fileUri": self.uri
+            }
+        }
+
+
 class GeminiNativeProvider(BaseProvider):
     """
     Provider for native Gemini API.
@@ -54,6 +81,12 @@ class GeminiNativeProvider(BaseProvider):
     Thinking configuration (per JSON-request-reference.md):
     - Gemini 2.5: thinkingBudget (integer token count, -1 = auto/unlimited)
     - Gemini 3.x: thinkingLevel ("low" or "high")
+    
+    Files API:
+    - Files > 15 MB are uploaded via Files API
+    - Files are automatically deleted after 48 hours
+    - Maximum file size: 2 GB
+    - Maximum storage: 20 GB per project
     """
     
     def __init__(self, key_manager=None, config: Optional[Dict] = None):
@@ -67,6 +100,245 @@ class GeminiNativeProvider(BaseProvider):
                 - thinking_level: Level for 3.x models ("high" or "low")
         """
         super().__init__("Gemini-Native", key_manager, config)
+        self._uploaded_files: Dict[str, UploadedFile] = {}  # Cache of uploaded files
+    
+    # =========================================================================
+    # FILES API METHODS
+    # =========================================================================
+    
+    def upload_file(self, filepath: Path, display_name: Optional[str] = None) -> Tuple[Optional[UploadedFile], Optional[str]]:
+        """
+        Upload a file to Gemini Files API using resumable upload.
+        
+        Files are automatically deleted after 48 hours.
+        
+        Args:
+            filepath: Path to file to upload
+            display_name: Optional display name for the file
+            
+        Returns:
+            Tuple of (UploadedFile, None) on success or (None, error_message) on failure
+        """
+        if not self.key_manager or not self.key_manager.has_keys():
+            return None, "No API keys configured for Gemini"
+        
+        current_key = self.key_manager.get_current_key()
+        if not current_key:
+            return None, "No API key available"
+        
+        filepath = Path(filepath)
+        if not filepath.exists():
+            return None, f"File not found: {filepath}"
+        
+        # Detect MIME type
+        import mimetypes
+        mime_type = mimetypes.guess_type(str(filepath))[0]
+        if not mime_type:
+            # Fallback for common audio types
+            ext_to_mime = {
+                ".mp3": "audio/mp3",
+                ".wav": "audio/wav",
+                ".aiff": "audio/aiff",
+                ".aac": "audio/aac",
+                ".ogg": "audio/ogg",
+                ".flac": "audio/flac",
+                ".m4a": "audio/mp4",
+                ".wma": "audio/x-ms-wma",
+            }
+            mime_type = ext_to_mime.get(filepath.suffix.lower(), "application/octet-stream")
+        
+        file_size = filepath.stat().st_size
+        if display_name is None:
+            display_name = filepath.name
+        
+        self.log("info", f"Uploading file: {filepath.name} ({file_size / (1024*1024):.1f} MB)")
+        
+        try:
+            # Step 1: Initiate resumable upload
+            init_url = f"{GEMINI_BASE_URL.replace('/v1beta', '')}/upload/v1beta/files"
+            
+            init_headers = {
+                "x-goog-api-key": current_key,
+                "X-Goog-Upload-Protocol": "resumable",
+                "X-Goog-Upload-Command": "start",
+                "X-Goog-Upload-Header-Content-Length": str(file_size),
+                "X-Goog-Upload-Header-Content-Type": mime_type,
+                "Content-Type": "application/json"
+            }
+            
+            init_body = {
+                "file": {
+                    "display_name": display_name
+                }
+            }
+            
+            init_response = requests.post(
+                init_url,
+                headers=init_headers,
+                json=init_body,
+                timeout=60
+            )
+            
+            if init_response.status_code != 200:
+                return None, f"Failed to initiate upload ({init_response.status_code}): {init_response.text[:200]}"
+            
+            # Get upload URL from response headers
+            upload_url = init_response.headers.get("x-goog-upload-url")
+            if not upload_url:
+                # Sometimes it's in a different header
+                upload_url = init_response.headers.get("X-Goog-Upload-URL")
+            
+            if not upload_url:
+                return None, "Failed to get upload URL from response headers"
+            
+            # Step 2: Upload the actual file bytes
+            with open(filepath, "rb") as f:
+                file_data = f.read()
+            
+            upload_headers = {
+                "Content-Length": str(file_size),
+                "X-Goog-Upload-Offset": "0",
+                "X-Goog-Upload-Command": "upload, finalize"
+            }
+            
+            upload_response = requests.post(
+                upload_url,
+                headers=upload_headers,
+                data=file_data,
+                timeout=300  # 5 minutes for large files
+            )
+            
+            if upload_response.status_code != 200:
+                return None, f"Failed to upload file ({upload_response.status_code}): {upload_response.text[:200]}"
+            
+            # Parse response to get file info
+            file_info = upload_response.json()
+            file_obj = file_info.get("file", {})
+            
+            uploaded = UploadedFile(
+                name=file_obj.get("name", ""),
+                uri=file_obj.get("uri", ""),
+                mime_type=mime_type,
+                size_bytes=file_size,
+                display_name=display_name
+            )
+            
+            # Cache the uploaded file
+            self._uploaded_files[str(filepath)] = uploaded
+            
+            self.log("info", f"File uploaded successfully: {uploaded.uri}")
+            return uploaded, None
+            
+        except requests.exceptions.Timeout:
+            return None, "Upload timed out"
+        except requests.exceptions.RequestException as e:
+            return None, f"Upload failed: {e}"
+        except Exception as e:
+            return None, f"Unexpected error during upload: {e}"
+    
+    def get_file_info(self, file_name: str) -> Tuple[Optional[Dict], Optional[str]]:
+        """
+        Get metadata for an uploaded file.
+        
+        Args:
+            file_name: The file name returned from upload (e.g., "files/abc123")
+            
+        Returns:
+            Tuple of (file_info_dict, None) on success or (None, error_message) on failure
+        """
+        if not self.key_manager or not self.key_manager.has_keys():
+            return None, "No API keys configured"
+        
+        current_key = self.key_manager.get_current_key()
+        if not current_key:
+            return None, "No API key available"
+        
+        url = f"{GEMINI_BASE_URL}/{file_name}?key={current_key}"
+        
+        try:
+            response = requests.get(url, timeout=30)
+            
+            if response.status_code != 200:
+                return None, f"Failed to get file info ({response.status_code}): {response.text[:200]}"
+            
+            return response.json(), None
+            
+        except Exception as e:
+            return None, f"Error getting file info: {e}"
+    
+    def delete_file(self, file_name: str) -> Tuple[bool, Optional[str]]:
+        """
+        Delete an uploaded file.
+        
+        Args:
+            file_name: The file name to delete (e.g., "files/abc123")
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        if not self.key_manager or not self.key_manager.has_keys():
+            return False, "No API keys configured"
+        
+        current_key = self.key_manager.get_current_key()
+        if not current_key:
+            return False, "No API key available"
+        
+        url = f"{GEMINI_BASE_URL}/{file_name}?key={current_key}"
+        
+        try:
+            response = requests.delete(url, timeout=30)
+            
+            if response.status_code not in (200, 204):
+                return False, f"Failed to delete file ({response.status_code}): {response.text[:200]}"
+            
+            self.log("info", f"File deleted: {file_name}")
+            return True, None
+            
+        except Exception as e:
+            return False, f"Error deleting file: {e}"
+    
+    def list_files(self, page_size: int = 100) -> Tuple[Optional[List[Dict]], Optional[str]]:
+        """
+        List all uploaded files.
+        
+        Args:
+            page_size: Maximum number of files to return
+            
+        Returns:
+            Tuple of (list_of_files, None) on success or (None, error_message) on failure
+        """
+        if not self.key_manager or not self.key_manager.has_keys():
+            return None, "No API keys configured"
+        
+        current_key = self.key_manager.get_current_key()
+        if not current_key:
+            return None, "No API key available"
+        
+        url = f"{GEMINI_BASE_URL}/files?pageSize={page_size}&key={current_key}"
+        
+        try:
+            response = requests.get(url, timeout=30)
+            
+            if response.status_code != 200:
+                return None, f"Failed to list files ({response.status_code}): {response.text[:200]}"
+            
+            data = response.json()
+            return data.get("files", []), None
+            
+        except Exception as e:
+            return None, f"Error listing files: {e}"
+    
+    @staticmethod
+    def should_use_files_api(filepath: Path) -> bool:
+        """Check if a file should be uploaded via Files API (>15 MB)"""
+        try:
+            return filepath.stat().st_size > MAX_INLINE_SIZE_BYTES
+        except Exception:
+            return False
+    
+    # =========================================================================
+    # ERROR HANDLING
+    # =========================================================================
     
     def _extract_error_brief(self, error_text: str, status_code: int = 0) -> str:
         """
@@ -221,6 +493,24 @@ class GeminiNativeProvider(BaseProvider):
                                 "data": b64_data
                             }
                         })
+                elif item.get("type") == "inline_data":
+                    # Native inline data (audio, etc.)
+                    inline = item.get("inline_data", {})
+                    parts.append({
+                        "inlineData": {
+                            "mimeType": inline.get("mime_type", ""),
+                            "data": inline.get("data", "")
+                        }
+                    })
+                elif item.get("type") == "file_data":
+                    # File uploaded via Files API
+                    file_data = item.get("file_data", {})
+                    parts.append({
+                        "fileData": {
+                            "mimeType": file_data.get("mime_type", ""),
+                            "fileUri": file_data.get("file_uri", "")
+                        }
+                    })
             return parts
         
         return [{"text": str(content)}]
