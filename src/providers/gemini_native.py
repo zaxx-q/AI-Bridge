@@ -335,6 +335,117 @@ class GeminiNativeProvider(BaseProvider):
             return filepath.stat().st_size > MAX_INLINE_SIZE_BYTES
         except Exception:
             return False
+            
+    # =========================================================================
+    # BATCH API METHODS
+    # =========================================================================
+    
+    def create_batch(
+        self,
+        messages: List[Dict],
+        model: str,
+        params: Dict,
+        display_name: Optional[str] = None
+    ) -> Tuple[Optional[Dict], Optional[str]]:
+        """
+        Create a batch job (Batch API).
+        
+        Args:
+            messages: List of messages in OpenAI format
+            model: Model name
+            params: Generation parameters
+            display_name: Optional display name for the batch
+            
+        Returns:
+            Tuple of (operation_dict, error_message)
+        """
+        if not self.key_manager or not self.key_manager.has_keys():
+            return None, "No API keys configured"
+        
+        current_key = self.key_manager.get_current_key()
+        if not current_key:
+            return None, "No API key available"
+        
+        # Build the request body using the standard helper
+        # Ref: gemini-batch-api.md
+        
+        url = f"{GEMINI_BASE_URL}/models/{model}:batchGenerateContent?key={current_key}"
+        
+        # Build the single GenerateContentRequest
+        gen_req_body = self._build_request_body(messages, model, params, thinking_enabled=False)
+        
+        req_body = {
+            "displayName": display_name or f"batch_{int(time.time())}",
+            "requests": [
+                {
+                    "request": gen_req_body
+                }
+            ]
+        }
+
+        try:
+            response = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json=req_body,
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                return None, f"Failed to create batch ({response.status_code}): {response.text[:200]}"
+            
+            return response.json(), None
+            
+        except Exception as e:
+            return None, f"Error creating batch: {e}"
+
+    def get_batch(self, batch_name: str) -> Tuple[Optional[Dict], Optional[str]]:
+        """Get batch status"""
+        if not self.key_manager or not self.key_manager.has_keys():
+            return None, "No API keys configured"
+        
+        current_key = self.key_manager.get_current_key()
+        url = f"{GEMINI_BASE_URL}/{batch_name}?key={current_key}"
+        
+        try:
+            response = requests.get(url, timeout=30)
+            if response.status_code != 200:
+                return None, f"Failed to get batch ({response.status_code}): {response.text[:200]}"
+            return response.json(), None
+        except Exception as e:
+            return None, f"Error getting batch: {e}"
+
+    def list_batches(self, page_size: int = 50) -> Tuple[Optional[List[Dict]], Optional[str]]:
+        """List batches"""
+        if not self.key_manager or not self.key_manager.has_keys():
+            return None, "No API keys configured"
+        
+        current_key = self.key_manager.get_current_key()
+        url = f"{GEMINI_BASE_URL}/batches?pageSize={page_size}&key={current_key}"
+        
+        try:
+            response = requests.get(url, timeout=30)
+            if response.status_code != 200:
+                return None, f"Failed to list batches ({response.status_code}): {response.text[:200]}"
+            return response.json().get("batches", []), None
+        except Exception as e:
+            return None, f"Error listing batches: {e}"
+
+    def cancel_batch(self, batch_name: str) -> Tuple[bool, Optional[str]]:
+        """Cancel batch"""
+        if not self.key_manager or not self.key_manager.has_keys():
+            return False, "No API keys configured"
+        
+        current_key = self.key_manager.get_current_key()
+        url = f"{GEMINI_BASE_URL}/{batch_name}:cancel?key={current_key}"
+        
+        try:
+            response = requests.post(url, timeout=30)
+            if response.status_code != 200:
+                return False, f"Failed to cancel batch ({response.status_code}): {response.text[:200]}"
+            return True, None
+        except Exception as e:
+            return False, f"Error cancelling batch: {e}"
     
     # =========================================================================
     # ERROR HANDLING
@@ -477,17 +588,19 @@ class GeminiNativeProvider(BaseProvider):
             return [{"text": content}]
         
         if isinstance(content, list):
-            parts = []
+            text_parts = []
+            media_parts = []
+            
             for item in content:
                 if item.get("type") == "text":
-                    parts.append({"text": item.get("text", "")})
+                    text_parts.append({"text": item.get("text", "")})
                 elif item.get("type") == "image_url":
                     image_url = item.get("image_url", {}).get("url", "")
                     # Parse data URL
                     match = re.match(r"data:([^;]+);base64,(.+)", image_url)
                     if match:
                         mime_type, b64_data = match.groups()
-                        parts.append({
+                        media_parts.append({
                             "inlineData": {
                                 "mimeType": mime_type,
                                 "data": b64_data
@@ -496,7 +609,7 @@ class GeminiNativeProvider(BaseProvider):
                 elif item.get("type") == "inline_data":
                     # Native inline data (audio, etc.)
                     inline = item.get("inline_data", {})
-                    parts.append({
+                    media_parts.append({
                         "inlineData": {
                             "mimeType": inline.get("mime_type", ""),
                             "data": inline.get("data", "")
@@ -505,13 +618,15 @@ class GeminiNativeProvider(BaseProvider):
                 elif item.get("type") == "file_data":
                     # File uploaded via Files API
                     file_data = item.get("file_data", {})
-                    parts.append({
+                    media_parts.append({
                         "fileData": {
                             "mimeType": file_data.get("mime_type", ""),
                             "fileUri": file_data.get("file_uri", "")
                         }
                     })
-            return parts
+            
+            # Recommendation: Send text prompt first, then attachments
+            return text_parts + media_parts
         
         return [{"text": str(content)}]
     

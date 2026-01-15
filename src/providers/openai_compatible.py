@@ -11,6 +11,7 @@ Reference: JSON-request-reference.md and reverse-proxy/src/upstream/openai-compa
 
 import json
 import time
+import re
 from typing import List, Dict, Optional, Any
 import requests
 
@@ -161,6 +162,97 @@ class OpenAICompatibleProvider(BaseProvider):
             
         return headers
     
+    def _process_messages(self, messages: List[Dict]) -> List[Dict]:
+        """
+        Process messages to handle specific content types like audio and files.
+        
+        Transforms:
+        - Audio data URLs -> OpenAI 'input_audio' format
+        - PDF files -> OpenRouter 'file' format
+        """
+        processed = []
+        
+        for msg in messages:
+            content = msg.get("content")
+            
+            if not isinstance(content, list):
+                processed.append(msg)
+                continue
+                
+            new_content = []
+            for item in content:
+                item_type = item.get("type")
+                
+                # Handle Audio (input_audio or explicit audio type)
+                if item_type == "input_audio" or item_type == "audio":
+                    # Check for inline data or data URL
+                    audio_data = None
+                    audio_format = "wav" # default
+                    
+                    if "input_audio" in item:
+                        # Already in correct format?
+                        new_content.append(item)
+                        continue
+                        
+                    # Parse data URL if present
+                    data_url = item.get("image_url", {}).get("url") or item.get("url") or item.get("data")
+                    if data_url and isinstance(data_url, str) and data_url.startswith("data:"):
+                        match = re.match(r"data:audio/([^;]+);base64,(.+)", data_url)
+                        if match:
+                            fmt, b64 = match.groups()
+                            # key mappings often used: "mp3"->"mp3", "wav"->"wav"
+                            audio_format = fmt
+                            audio_data = b64
+                    
+                    if audio_data:
+                        new_content.append({
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": audio_data,
+                                "format": audio_format
+                            }
+                        })
+                    else:
+                        # Pass through if we couldn't process (might be valid already)
+                        new_content.append(item)
+                
+                # Handle Files (PDFs for OpenRouter)
+                elif item_type == "file":
+                    # OpenRouter format: { "type": "file", "file": { "url": "...", "file_data": "..." } }
+                    file_info = item.get("file", {})
+                    
+                    # Convert internal "file_data" or "url" into proper structure if needed
+                    # If it's already in OpenRouter format, it stays.
+                    # If it's a data URL in "url", OpenRouter supports it.
+                    
+                    # Ensure specific fields are present if we were passed a flat dict
+                    if not file_info and "url" in item:
+                         new_content.append({
+                            "type": "file",
+                            "file": {
+                                "url": item["url"]
+                            }
+                         })
+                    elif not file_info and "data" in item:
+                         new_content.append({
+                            "type": "file",
+                            "file": {
+                                "file_data": item["data"] # Base64
+                            }
+                         })
+                    else:
+                        new_content.append(item)
+                        
+                else:
+                    new_content.append(item)
+            
+            # Create new message with processed content
+            new_msg = msg.copy()
+            new_msg["content"] = new_content
+            processed.append(new_msg)
+            
+        return processed
+    
     def _build_request_body(
         self,
         messages: List[Dict],
@@ -180,7 +272,7 @@ class OpenAICompatibleProvider(BaseProvider):
         """
         body = {
             "model": model,
-            "messages": messages
+            "messages": self._process_messages(messages)
         }
         
         # Streaming configuration - MUST explicitly set stream to false
