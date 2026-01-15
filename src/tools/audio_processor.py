@@ -1306,13 +1306,25 @@ class AudioProcessor:
             return audio_info.duration_seconds
         
         # Calculate bytes per second
-        bytes_per_second = audio_info.size_bytes / audio_info.duration_seconds
+        # Use estimated bitrate if info has it, otherwise derive from file size
+        # This is more accurate for VBR/compressed formats than simple size/duration division
+        if audio_info.bitrate_kbps > 0:
+            bytes_per_second = (audio_info.bitrate_kbps * 1000) / 8
+        else:
+            bytes_per_second = audio_info.size_bytes / audio_info.duration_seconds
+        
+        # Add 10% safety margin for VBR peaks and container overhead
+        bytes_per_second *= 1.1
         
         # Target duration to hit ~14.5 MB
         target_duration = TARGET_CHUNK_SIZE_BYTES / bytes_per_second
         
-        # Round down to nearest 10 seconds for cleaner splits
-        return max(30, int(target_duration / 10) * 10)
+        # Round down to nearest 10 seconds for cleaner splits, but cap max length
+        # to avoid extremely long chunks in very low bitrate files
+        chunk_len = max(30, int(target_duration / 10) * 10)
+        
+        # Return duration, capped at 30 minutes to avoid timeouts
+        return min(chunk_len, 1800)
     
     def split_audio(
         self,

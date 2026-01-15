@@ -1808,11 +1808,19 @@ class FileProcessor(BaseTool):
             if interactive:
                 print(f"\n{progress} Processing: {file_path_obj.name}")
             
+            process_path = file_path_obj
+            preprocess_result = None
+            
             try:
-                # Check for large files
-                file_size = file_path_obj.stat().st_size
-                is_large = file_size > MAX_INLINE_SIZE
                 is_audio = is_audio_file(file_path_obj)
+                
+                # Preprocess audio first if needed (optimization can reduce file size)
+                if is_audio:
+                    process_path, preprocess_result = self._preprocess_audio_if_needed(file_path_obj, interactive)
+                
+                # Check size of the (potentially processed) file
+                file_size = process_path.stat().st_size
+                is_large = file_size > MAX_INLINE_SIZE
                 
                 response = None
                 
@@ -1821,6 +1829,7 @@ class FileProcessor(BaseTool):
                         print(f"   ⚠️ Large file: {file_size / (1024*1024):.1f} MB")
                     
                     # Get handling mode (prompt if needed)
+                    # Note: We pass original path for cache key/display, but logic uses is_audio
                     mode = self._get_large_file_mode(file_path_obj, is_audio, interactive)
                     
                     if mode == LARGE_FILE_MODE_SKIP:
@@ -1830,20 +1839,20 @@ class FileProcessor(BaseTool):
                         continue
                     
                     elif mode == LARGE_FILE_MODE_CHUNKING and is_audio:
-                        # Use FFmpeg chunking
+                        # Use FFmpeg chunking on the processed file
                         response = self._process_audio_with_chunking(
-                            file_path_obj, cp.prompt_text, cp, interactive
+                            process_path, cp.prompt_text, cp, interactive, skip_preprocessing=True
                         )
                     
                     else:
-                        # Use Files API
+                        # Use Files API with the processed file
                         response = self._process_with_files_api(
-                            file_path_obj, cp.prompt_text, cp, interactive
+                            process_path, cp.prompt_text, cp, interactive
                         )
                 else:
                     # Standard inline processing
                     response = self._process_file_inline(
-                        file_path_obj, cp.prompt_text, cp, interactive
+                        process_path, cp.prompt_text, cp, interactive
                     )
                 
                 if response is None:
@@ -1882,6 +1891,11 @@ class FileProcessor(BaseTool):
                 result.add_error(file_path, error_msg)
                 if interactive:
                     print(f"   ❌ Error: {error_msg}")
+            
+            finally:
+                # Cleanup preprocessing temp file
+                if preprocess_result:
+                    preprocess_result.cleanup()
             
             # Save checkpoint after each file
             self.checkpoint_manager.save(cp)
@@ -1987,7 +2001,12 @@ class FileProcessor(BaseTool):
         Returns:
             Mode string: LARGE_FILE_MODE_FILES_API, LARGE_FILE_MODE_CHUNKING, or LARGE_FILE_MODE_SKIP
         """
-        # Check if we already have a mode for this file
+        # Check if we already have a default mode (from "Apply to all")
+        default_mode = self._large_file_mode.get("_default")
+        if default_mode:
+            return default_mode
+        
+        # Check if we already have a specific mode for this file
         cached = self._large_file_mode.get(str(filepath))
         if cached:
             return cached
@@ -2385,7 +2404,8 @@ class FileProcessor(BaseTool):
         filepath: Path,
         prompt: str,
         checkpoint: FileProcessorCheckpoint,
-        interactive: bool
+        interactive: bool,
+        skip_preprocessing: bool = False
     ) -> Optional[str]:
         """
         Process audio file by splitting into chunks.
@@ -2402,8 +2422,12 @@ class FileProcessor(BaseTool):
         from src.api_client import call_api_with_retry
         from src import web_server
         
-        # Apply preprocessing if configured
-        process_path, preprocess_result = self._preprocess_audio_if_needed(filepath, interactive)
+        # Apply preprocessing if configured and not skipped
+        if not skip_preprocessing:
+            process_path, preprocess_result = self._preprocess_audio_if_needed(filepath, interactive)
+        else:
+            process_path = filepath
+            preprocess_result = None
         
         if interactive:
             print(f"   ✂️ Splitting audio with FFmpeg...")
