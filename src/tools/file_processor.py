@@ -2646,19 +2646,22 @@ class FileProcessor(BaseTool):
                 if i < len(result.chunks) - 1 and checkpoint.delay_between_requests > 0:
                     time.sleep(checkpoint.delay_between_requests)
             
-            if not chunk_outputs:
-                # Build detailed error message from all chunk errors
-                if chunk_errors:
-                    # Take up to 3 unique errors to keep message manageable
-                    unique_errors = list(dict.fromkeys(chunk_errors))[:3]
-                    error_summary = "; ".join(unique_errors)
-                    if len(chunk_errors) > 3:
-                        error_summary += f" (+{len(chunk_errors) - 3} more)"
-                    raise Exception(f"All {len(result.chunks)} chunks failed: {error_summary}")
-                else:
-                    raise Exception("All chunks failed to process (no response)")
+            # Fail if any chunk had an error (for complete retry support)
+            if chunk_errors:
+                # Take up to 3 unique errors to keep message manageable
+                unique_errors = list(dict.fromkeys(chunk_errors))[:3]
+                error_summary = "; ".join(unique_errors)
+                if len(chunk_errors) > 3:
+                    error_summary += f" (+{len(chunk_errors) - 3} more)"
+                
+                failed_count = len(chunk_errors)
+                total_count = len(result.chunks)
+                raise Exception(f"{failed_count}/{total_count} chunks failed: {error_summary}")
             
-            # Merge outputs
+            if not chunk_outputs:
+                raise Exception("All chunks failed to process (no response)")
+            
+            # Merge outputs - only reached if all chunks succeeded
             if interactive:
                 print(f"   📝 Merging {len(chunk_outputs)} transcripts...")
             
