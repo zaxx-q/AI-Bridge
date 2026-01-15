@@ -51,6 +51,16 @@ Customizable appearance with:
 - **Smart retry logic** - Handles errors gracefully with configurable delays
 - **Empty response detection** - Automatically retries with next key
 - **Streaming support** - Real-time responses
+- **Batch Processing** - Async processing for large workloads (Gemini Batch API)
+
+### 🧰 Tools System
+New in v2.7.0, the **File Processor** tool enables bulk operations:
+- **Batch Processing**: Process folders of Images, Audio, Code, Text, or PDFs
+- **Audio Optimization**: Reduce file size (mono, sample rate) for efficient AI processing
+- **Smart Handling**:
+  - **Large Files**: Auto-switches to Gemini Files API or Chunking logic
+  - **Checkpoints**: Resume interrupted jobs or retry failures
+  - **Interactive Mode**: Pause (`P`), Stop (`S`), or Abort (`Esc`) during processing
 
 ## 🚀 Quick Start
 

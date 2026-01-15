@@ -53,16 +53,17 @@ AIPromptBridge/
     ├── providers/              # AI Provider Implementations
     │   ├── __init__.py         # Provider exports and factory
     │   ├── base.py             # Abstract base provider, retry logic, ProviderResult
-    │   ├── gemini_native.py    # Native Gemini API with full feature support
+    │   ├── gemini_native.py    # Native Gemini API (Batch, Files API support)
     │   └── openai_compatible.py # OpenRouter, Custom, Google OpenAI-compat
     │
     └── tools/                  # Tools Package - Batch file processing
         ├── __init__.py         # Tool exports
+        ├── audio_processor.py  # Audio optimization, chunking, and FFmpeg wrapper
         ├── base.py             # Abstract BaseTool class
-        ├── checkpoint.py       # Checkpoint/resume system for batch processing
+        ├── checkpoint.py       # Checkpoint/resume system (Retry Checkpoint support)
         ├── config.py           # Tools configuration loader
-        ├── file_handler.py     # File type detection and content reading
-        └── file_processor.py   # File Processor tool with interactive wizard
+        ├── file_handler.py     # File type detection, PDF support, multimodal handling
+        └── file_processor.py   # Interactive File Processor (Batch/Files API logic)
 ```
 
 ## Key Modules

@@ -14,6 +14,7 @@ AIPromptBridge is a Windows application consisting of:
 6. **AI Provider System** - Unified abstraction for multiple AI backends
 7. **Theme System** - Multi-theme support with dark/light modes and system detection
 8. **Settings Infrastructure** - GUI editors for config.ini and prompt options with hot-reload
+9. **Tools Subsystem** - Batch file processing framework with checkpoints and audio optimization
 
 ## Component Diagram
 
@@ -22,6 +23,7 @@ flowchart TB
     subgraph Main["main.py"]
         Tray["System Tray<br/>(tray.py)"]
         Console["Console UI<br/>(terminal.py)"]
+        Tools["Tools<br/>(tools/file_processor.py)"]
         Flask["Flask Server<br/>(web_server.py)"]
         TET["TextEditTool<br/>(text_edit_tool.py)"]
         Popups["Popups<br/>(popups.py)"]
@@ -49,6 +51,8 @@ flowchart TB
     
     Tray --> Pipeline
     Flask --> Pipeline
+    Console --> Tools
+    Tools --> Pipeline
     TET --> Popups
     Popups --> Modifiers
     TET --> TypingInd
@@ -73,13 +77,15 @@ class BaseProvider:
     def call_api(messages, config, ai_params, key_manager) -> ProviderResult
     def call_api_streaming(messages, config, ai_params, key_manager, callback) -> ProviderResult
     def get_model_list(config, key_manager) -> List[str]
+    def upload_file(path) -> (file_obj, error)  # Optional
+    def create_batch(messages, model, params) -> (batch_obj, error)  # Optional
 ```
 
 ### Available Providers
 
 | Provider | Class | Use Case |
 | ---------- | ------- | ---------- |
-| `google` | `GeminiNativeProvider` | Native Gemini API with thinking, tools |
+| `google` | `GeminiNativeProvider` | Native Gemini API (Thinking, Batch, Files) |
 | `openrouter` | `OpenAICompatibleProvider` | OpenRouter.ai models |
 | `custom` | `OpenAICompatibleProvider` | Any OpenAI-compatible endpoint |
 
