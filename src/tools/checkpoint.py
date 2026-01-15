@@ -6,6 +6,7 @@ Provides:
 - Checkpoint creation and persistence
 - Resume from saved state
 - Progress tracking across sessions
+- Failed files checkpoint for retry
 """
 
 import json
@@ -13,7 +14,7 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 
 
 @dataclass
@@ -54,6 +55,12 @@ class FileProcessorCheckpoint:
     
     # For combined output mode - accumulated content
     combined_output_content: str = ""
+    
+    # Retry checkpoint metadata
+    is_retry_checkpoint: bool = False
+    original_session_id: Optional[str] = None
+    retry_count: int = 0
+    original_errors: List[Dict[str, str]] = field(default_factory=list)  # Preserved from original for display
     
     @property
     def remaining_files(self) -> List[str]:
@@ -124,7 +131,7 @@ class FileProcessorCheckpoint:
     
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of checkpoint state"""
-        return {
+        summary = {
             "session_id": self.session_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -138,6 +145,79 @@ class FileProcessorCheckpoint:
             "provider": self.provider,
             "model": self.model,
         }
+        
+        if self.is_retry_checkpoint:
+            summary["is_retry_checkpoint"] = True
+            summary["original_session_id"] = self.original_session_id
+            summary["retry_count"] = self.retry_count
+        
+        return summary
+    
+    def get_failed_files_summary(self) -> List[Dict[str, str]]:
+        """Get a list of failed files with their errors"""
+        return self.failed_files.copy()
+    
+    def get_original_errors(self) -> List[Dict[str, str]]:
+        """Get original errors for retry checkpoint (for display purposes)"""
+        if self.is_retry_checkpoint and self.original_errors:
+            return self.original_errors.copy()
+        return self.failed_files.copy()
+    
+    @classmethod
+    def create_retry_checkpoint(
+        cls,
+        original: "FileProcessorCheckpoint",
+        failed_only: bool = True
+    ) -> Optional["FileProcessorCheckpoint"]:
+        """
+        Create a new checkpoint for retrying failed files.
+        
+        Args:
+            original: The original checkpoint with failed files
+            failed_only: If True, only include failed files
+            
+        Returns:
+            New checkpoint for retrying, or None if no files to retry
+        """
+        if not original.failed_files:
+            return None
+        
+        # Get list of failed file paths
+        failed_paths = [f["path"] for f in original.failed_files]
+        
+        if not failed_paths:
+            return None
+        
+        now = datetime.now().isoformat()
+        
+        # Preserve original errors for display
+        original_errors = original.failed_files.copy()
+        
+        return cls(
+            session_id=str(uuid.uuid4())[:8],
+            created_at=now,
+            updated_at=now,
+            input_path=original.input_path,
+            input_files=failed_paths,  # Only the failed files
+            prompt_key=original.prompt_key,
+            prompt_text=original.prompt_text,
+            output_mode=original.output_mode,
+            output_path=original.output_path,
+            naming_template=original.naming_template,
+            output_extension=original.output_extension,
+            provider=original.provider,
+            model=original.model,
+            delay_between_requests=original.delay_between_requests,
+            use_batch=original.use_batch,
+            completed_files=[],
+            failed_files=[],  # Reset - these will be tracked fresh
+            current_index=0,
+            combined_output_content="",
+            is_retry_checkpoint=True,
+            original_session_id=original.session_id,
+            retry_count=original.retry_count + 1,
+            original_errors=original_errors  # Preserve original errors for display
+        )
 
 
 class CheckpointManager:
@@ -149,9 +229,11 @@ class CheckpointManager:
     - Create new checkpoints
     - Clear completed checkpoints
     - Query checkpoint existence and validity
+    - Failed files checkpoint for retry
     """
     
     DEFAULT_CHECKPOINT_FILE = ".file_processor_checkpoint.json"
+    FAILED_CHECKPOINT_FILE = ".file_processor_failed.json"
     
     def __init__(self, checkpoint_file: str = None, checkpoint_dir: Path = None):
         """
@@ -169,9 +251,18 @@ class CheckpointManager:
         """Get full path to checkpoint file"""
         return self.checkpoint_dir / self.checkpoint_file
     
+    @property
+    def failed_checkpoint_path(self) -> Path:
+        """Get full path to failed files checkpoint"""
+        return self.checkpoint_dir / self.FAILED_CHECKPOINT_FILE
+    
     def exists(self) -> bool:
         """Check if a checkpoint file exists"""
         return self.checkpoint_path.exists()
+    
+    def failed_exists(self) -> bool:
+        """Check if a failed files checkpoint exists"""
+        return self.failed_checkpoint_path.exists()
     
     def load(self) -> Optional[FileProcessorCheckpoint]:
         """
@@ -210,6 +301,85 @@ class CheckpointManager:
         """Remove checkpoint file"""
         if self.exists():
             self.checkpoint_path.unlink()
+    
+    def load_failed(self) -> Optional[FileProcessorCheckpoint]:
+        """
+        Load failed files checkpoint.
+        
+        Returns:
+            FileProcessorCheckpoint if exists and valid, None otherwise
+        """
+        if not self.failed_exists():
+            return None
+        
+        try:
+            with open(self.failed_checkpoint_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return FileProcessorCheckpoint.from_dict(data)
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            print(f"[Warning] Failed to load failed checkpoint: {e}")
+            return None
+    
+    def save_failed(self, checkpoint: FileProcessorCheckpoint):
+        """
+        Save failed files checkpoint.
+        
+        Args:
+            checkpoint: Checkpoint to save (should be a retry checkpoint)
+        """
+        checkpoint.updated_at = datetime.now().isoformat()
+        
+        # Ensure directory exists
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        
+        with open(self.failed_checkpoint_path, "w", encoding="utf-8") as f:
+            json.dump(checkpoint.to_dict(), f, indent=2, ensure_ascii=False)
+    
+    def clear_failed(self):
+        """Remove failed files checkpoint"""
+        if self.failed_exists():
+            self.failed_checkpoint_path.unlink()
+    
+    def create_failed_checkpoint(
+        self,
+        original: FileProcessorCheckpoint
+    ) -> Optional[FileProcessorCheckpoint]:
+        """
+        Create and save a checkpoint for retrying failed files.
+        
+        Args:
+            original: The original checkpoint with failed files
+            
+        Returns:
+            The retry checkpoint, or None if no failed files
+        """
+        retry_checkpoint = FileProcessorCheckpoint.create_retry_checkpoint(original)
+        
+        if retry_checkpoint:
+            self.save_failed(retry_checkpoint)
+        
+        return retry_checkpoint
+    
+    def get_failed_summary(self) -> Optional[Dict[str, Any]]:
+        """
+        Get summary of failed files checkpoint.
+        
+        Returns:
+            Summary dict if failed checkpoint exists, None otherwise
+        """
+        checkpoint = self.load_failed()
+        if checkpoint:
+            return checkpoint.get_summary()
+        return None
+    
+    def has_any_checkpoint(self) -> Tuple[bool, bool]:
+        """
+        Check for any checkpoint existence.
+        
+        Returns:
+            Tuple of (has_main_checkpoint, has_failed_checkpoint)
+        """
+        return (self.exists(), self.failed_exists())
     
     def create(
         self,
@@ -303,3 +473,16 @@ class CheckpointManager:
             return False
         
         return True
+    
+    def can_retry_failed(self) -> bool:
+        """
+        Check if there's a failed checkpoint that can be retried.
+        
+        Returns:
+            True if failed checkpoint exists with files to retry
+        """
+        checkpoint = self.load_failed()
+        if not checkpoint:
+            return False
+        
+        return len(checkpoint.remaining_files) > 0

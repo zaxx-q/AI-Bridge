@@ -101,8 +101,10 @@ class FileProcessor(BaseTool):
             ToolResult with processing outcome
         """
         try:
-            # Check for existing checkpoint
-            if self.checkpoint_manager.exists():
+            # Check for existing checkpoint (main or failed)
+            main_exists, failed_exists = self.checkpoint_manager.has_any_checkpoint()
+            
+            if main_exists:
                 resume = self._prompt_resume_checkpoint()
                 if resume is None:
                     return ToolResult(success=False, message="Cancelled")
@@ -110,6 +112,16 @@ class FileProcessor(BaseTool):
                     return self._resume_from_checkpoint()
                 else:
                     self.checkpoint_manager.clear()
+            
+            # Check for failed files checkpoint (only if no main checkpoint)
+            if not main_exists and failed_exists:
+                retry = self._prompt_retry_failed()
+                if retry is None:
+                    return ToolResult(success=False, message="Cancelled")
+                elif retry:
+                    return self._resume_from_failed_checkpoint()
+                else:
+                    self.checkpoint_manager.clear_failed()
             
             # Step 1: Input selection
             scan_result = self._step_input_selection()
@@ -1909,10 +1921,24 @@ class FileProcessor(BaseTool):
                 print(f"❌ Failed: {result.failed_count}")
             print("─" * 60)
         
-        # Clear checkpoint if fully complete
+        # Clear main checkpoint if all files were attempted
         if cp.is_complete:
             self.checkpoint_manager.clear()
-            result.message = f"Processed {result.processed_count} files successfully"
+            
+            # If there were failures, create a failed checkpoint for retry
+            if cp.failed_files:
+                retry_checkpoint = self.checkpoint_manager.create_failed_checkpoint(cp)
+                if retry_checkpoint and interactive:
+                    print(f"\n💾 Failed files checkpoint saved.")
+                    print(f"   {len(cp.failed_files)} file(s) can be retried later.")
+                    print(f"   Run File Processor again to retry failed files.")
+                    self._display_failed_files_summary(cp.failed_files)
+                
+                result.message = f"Processed {result.processed_count} files, {result.failed_count} failed (checkpoint saved for retry)"
+            else:
+                # Clear any old failed checkpoint on complete success
+                self.checkpoint_manager.clear_failed()
+                result.message = f"Processed {result.processed_count} files successfully"
         else:
             result.message = f"Processed {result.processed_count}/{total} files"
         
@@ -1965,6 +1991,90 @@ class FileProcessor(BaseTool):
             return ToolResult(success=False, message="Failed to load checkpoint")
         
         return self._execute_processing()
+    
+    def _prompt_retry_failed(self) -> Optional[bool]:
+        """
+        Prompt user to retry failed files.
+        
+        Returns:
+            True to retry, False to start new (clears failed checkpoint), None to cancel
+        """
+        checkpoint = self.checkpoint_manager.load_failed()
+        if not checkpoint:
+            return False
+        
+        summary = checkpoint.get_summary()
+        # Use get_original_errors() to show preserved error info from original run
+        original_errors = checkpoint.get_original_errors()
+        
+        self._print_header("⚠️  FAILED FILES CHECKPOINT FOUND")
+        print(f"\nPrevious session: {summary['created_at'][:19]}")
+        print(f"Files to retry: {len(checkpoint.input_files)}")
+        print(f"Prompt: {summary['prompt_key']}")
+        print(f"Output: {summary['output_path']}")
+        
+        if summary.get('is_retry_checkpoint'):
+            print(f"Retry attempt: #{summary.get('retry_count', 1)}")
+        
+        # Show failed files with their original errors
+        self._display_failed_files_summary(original_errors)
+        
+        print("\n[R] Retry failed files")
+        print("[N] Start new session (clears failed checkpoint)")
+        print("[Q] Cancel")
+        
+        try:
+            choice = input("\nChoice: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        
+        if choice == 'r':
+            return True
+        elif choice == 'n':
+            return False
+        else:
+            return None
+    
+    def _resume_from_failed_checkpoint(self) -> ToolResult:
+        """Resume processing from failed files checkpoint"""
+        self._current_checkpoint = self.checkpoint_manager.load_failed()
+        if not self._current_checkpoint:
+            return ToolResult(success=False, message="Failed to load failed checkpoint")
+        
+        # Clear the failed checkpoint since we're using it now
+        # (A new one will be created if there are still failures)
+        self.checkpoint_manager.clear_failed()
+        
+        # Save as main checkpoint
+        self.checkpoint_manager.save(self._current_checkpoint)
+        
+        return self._execute_processing()
+    
+    def _display_failed_files_summary(self, failed_files: list):
+        """
+        Display a summary of failed files with their errors.
+        
+        Args:
+            failed_files: List of {"path": str, "error": str} dicts
+        """
+        if not failed_files:
+            return
+        
+        print(f"\n📋 Failed files:")
+        
+        # Show up to 10 files
+        display_count = min(len(failed_files), 10)
+        for i, f in enumerate(failed_files[:display_count]):
+            filepath = Path(f["path"])
+            error = f.get("error", "Unknown error")
+            # Truncate error if too long
+            if len(error) > 50:
+                error = error[:47] + "..."
+            print(f"   {i+1}. {filepath.name}")
+            print(f"      Error: {error}")
+        
+        if len(failed_files) > 10:
+            print(f"   ... and {len(failed_files) - 10} more files")
     
     # ─────────────────────────────────────────────────────────────────
     # Large File Handling
