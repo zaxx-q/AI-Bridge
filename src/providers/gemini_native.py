@@ -615,6 +615,22 @@ class GeminiNativeProvider(BaseProvider):
                             "data": inline.get("data", "")
                         }
                     })
+                elif item.get("type") == "file":
+                    # Generic file type (PDF, etc.)
+                    # Can be nested {"file": {"url": ...}} or flat {"url": ...}
+                    file_obj = item.get("file", {})
+                    url = file_obj.get("url", "") or item.get("url", "")
+                    
+                    # Check for data URL
+                    match = re.match(r"data:([^;]+);base64,(.+)", url)
+                    if match:
+                        mime_type, b64_data = match.groups()
+                        media_parts.append({
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": b64_data
+                            }
+                        })
                 elif item.get("type") == "file_data":
                     # File uploaded via Files API
                     file_data = item.get("file_data", {})

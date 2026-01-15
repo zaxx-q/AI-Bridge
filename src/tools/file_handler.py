@@ -88,6 +88,7 @@ class FileHandler:
         "image": [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"],
         "audio": [".mp3", ".wav", ".aiff", ".aac", ".ogg", ".flac", ".m4a", ".wma"],
         "text": [".txt", ".md", ".rst", ".log", ".csv"],
+        "document": [".pdf"],
         "code": [
             ".py", ".js", ".ts", ".jsx", ".tsx",  # Python, JavaScript, TypeScript
             ".java", ".kt", ".scala",  # JVM
@@ -244,6 +245,12 @@ class FileHandler:
                 base64_data = base64.b64encode(f.read()).decode("utf-8")
             return ("audio", base64_data, mime_type)
         
+        elif file_type == "document":
+            mime_type = "application/pdf"
+            with open(filepath, "rb") as f:
+                base64_data = base64.b64encode(f.read()).decode("utf-8")
+            return ("document", base64_data, mime_type)
+        
         else:
             # Text or code - read as text
             try:
@@ -285,6 +292,7 @@ class FileHandler:
                 ]
             }
         
+        
         elif content_type == "audio":
             # Audio message - uses inline_data format for Gemini
             # Note: This format works with Gemini Native provider
@@ -297,6 +305,21 @@ class FileHandler:
                             "mime_type": mime_type,
                             "data": content
                         }
+                    },
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        
+        elif content_type == "document":
+            # Document (PDF) message - use generic file format
+            # This is supported by OpenAICompatible (via internal translation) and GeminiNative (via update)
+            data_url = f"data:{mime_type};base64,{content}"
+            return {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "file",
+                        "file": {"url": data_url}
                     },
                     {"type": "text", "text": prompt}
                 ]

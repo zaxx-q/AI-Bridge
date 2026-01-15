@@ -42,6 +42,8 @@ from .audio_processor import (
     get_all_presets,
     get_presets_by_category,
     TARGET_CHUNK_SIZE_BYTES,
+    AudioInfo,
+    ProcessingResult,
 )
 
 # Import console utilities
@@ -874,46 +876,6 @@ class FileProcessor(BaseTool):
             effect_names = [e.get("name", "?") for e in effects]
             print(f"  {label}: Custom chain - {', '.join(effect_names)}")
     
-    def _get_amplify_settings(self, with_normalize: bool = False) -> Optional[Dict[str, Any]]:
-        """
-        Get volume amplification settings from user.
-        
-        Args:
-            with_normalize: If True, include normalization after amplification
-            
-        Returns:
-            Config dict, empty dict to skip, or None if cancelled
-        """
-        print("\nEnter volume boost percentage:")
-        print("  (e.g., 50 for +50%, -20 for -20%, 0 to skip)")
-        
-        try:
-            percent_str = input("> ").strip()
-            if not percent_str:
-                return {}
-            percent = int(percent_str)
-        except (EOFError, KeyboardInterrupt):
-            return None
-        except ValueError:
-            print_warning("Invalid percentage")
-            return {}
-        
-        if percent == 0 and not with_normalize:
-            return {}
-        
-        if with_normalize:
-            print(f"✅ Will amplify by {percent:+d}% then normalize")
-            return {
-                "type": "amplify_normalize",
-                "volume_percent": 100 + percent
-            }
-        else:
-            print(f"✅ Will amplify volume by {percent:+d}%")
-            return {
-                "type": "amplify",
-                "volume_percent": 100 + percent
-            }
-    
     def _preview_audio_settings(self, audio_path: Path, config: Dict[str, Any]):
         """
         Preview audio with current preprocessing settings.
@@ -1461,7 +1423,7 @@ class FileProcessor(BaseTool):
     # STEP 2: Prompt Selection
     # ─────────────────────────────────────────────────────────────────
     
-    def _step_prompt_selection(self, scan_result: ScanResult) -> tuple[Optional[str], Optional[str]]:
+    def _step_prompt_selection(self, scan_result: ScanResult) -> Tuple[Optional[str], Optional[str]]:
         """
         Step 2: Select processing prompt.
         
@@ -1862,7 +1824,6 @@ class FileProcessor(BaseTool):
                         response = self._process_with_files_api(
                             process_path, cp.prompt_text, cp, interactive
                         )
-                    )
                 
                 # Check for Batch API
                 elif cp.use_batch and "gemini" in cp.provider.lower():
@@ -2549,8 +2510,6 @@ class FileProcessor(BaseTool):
             String with Batch Operation details
         """
         from src import web_server
-        from src.api_client import _build_messages
-        
         # Determine content type for the message construction
         # We need to construct messages just like normal, then call create_batch
         
