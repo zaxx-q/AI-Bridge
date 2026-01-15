@@ -13,8 +13,16 @@ Provides:
 
 import sys
 import time
+import threading
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable, Tuple
+
+# Windows-specific non-blocking keyboard input
+try:
+    import msvcrt
+    HAVE_MSVCRT = True
+except ImportError:
+    HAVE_MSVCRT = False
 
 from .base import BaseTool, ToolResult, ToolStatus
 from .file_handler import FileHandler, FileInfo, ScanResult
@@ -1725,6 +1733,50 @@ class FileProcessor(BaseTool):
     # STEP 5: Execute Processing
     # ─────────────────────────────────────────────────────────────────
     
+    def _start_keyboard_listener(self):
+        """Start a background thread to listen for keyboard input (Windows only)"""
+        if not HAVE_MSVCRT:
+            return None
+        
+        self._keyboard_stop_event = threading.Event()
+        
+        def keyboard_listener():
+            """Listen for keyboard input in background"""
+            while not self._keyboard_stop_event.is_set():
+                try:
+                    if msvcrt.kbhit():
+                        key = msvcrt.getch()
+                        # Handle special keys (arrows, function keys start with 0x00 or 0xE0)
+                        if key in (b'\x00', b'\xe0'):
+                            msvcrt.getch()  # Consume the second byte
+                            continue
+                        
+                        key_lower = key.lower()
+                        
+                        if key_lower == b'p':
+                            self.request_pause()
+                            print("\n⏸️  Pause requested... (will pause after current file)")
+                        elif key_lower == b's':
+                            self.request_pause()  # Stop is implemented as pause + quit prompt
+                            print("\n⏹️  Stop requested... (saving progress)")
+                        elif key == b'\x1b':  # Escape key
+                            self.request_abort()
+                            print("\n🛑 Abort requested... (stopping immediately)")
+                    
+                    # Small sleep to prevent CPU spinning
+                    time.sleep(0.05)
+                except Exception:
+                    break
+        
+        thread = threading.Thread(target=keyboard_listener, daemon=True)
+        thread.start()
+        return thread
+    
+    def _stop_keyboard_listener(self):
+        """Stop the keyboard listener thread"""
+        if hasattr(self, '_keyboard_stop_event'):
+            self._keyboard_stop_event.set()
+    
     def _execute_processing(self, interactive: bool = True) -> ToolResult:
         """
         Execute the actual file processing.
@@ -1742,6 +1794,11 @@ class FileProcessor(BaseTool):
         remaining = cp.remaining_files
         total = len(cp.input_files)
         
+        # Start keyboard listener for interactive mode
+        keyboard_thread = None
+        if interactive and HAVE_MSVCRT:
+            keyboard_thread = self._start_keyboard_listener()
+        
         if interactive:
             self._print_header("📁 FILE PROCESSOR - Processing")
             print(f"\n🚀 Starting processing of {len(remaining)} files")
@@ -1754,7 +1811,10 @@ class FileProcessor(BaseTool):
             print(f"   Delay:    {cp.delay_between_requests}s")
             if cp.use_batch:
                 print(f"   Mode:     BATCH API (Async)")
-            print("\n[P] Pause  [S] Stop (saves progress)  [Esc] Abort")
+            if HAVE_MSVCRT:
+                print("\n[P] Pause  [S] Stop (saves progress)  [Esc] Abort")
+            else:
+                print("\n(Keyboard controls not available - use Ctrl+C to abort)")
             print("─" * 60)
         
         self.status = ToolStatus.RUNNING
@@ -1764,138 +1824,150 @@ class FileProcessor(BaseTool):
         from src.api_client import call_api_with_retry
         from src import web_server
         
-        for i, file_path in enumerate(remaining):
-            # Check for abort/pause
-            if self.check_abort():
-                self.status = ToolStatus.CANCELLED
-                self.checkpoint_manager.save(cp)
-                result.message = "Aborted by user"
-                result.success = False
-                break
-            
-            if not self.check_pause():
-                # Paused - save and wait
-                self.checkpoint_manager.save(cp)
-                if interactive:
-                    print("\n⏸️  Paused. Press Enter to resume, 'q' to quit...")
-                    try:
-                        resume = input().strip().lower()
-                        if resume == 'q':
+        try:
+            for i, file_path in enumerate(remaining):
+                # Check for abort/pause
+                if self.check_abort():
+                    self.status = ToolStatus.CANCELLED
+                    self.checkpoint_manager.save(cp)
+                    result.message = "Aborted by user"
+                    result.success = False
+                    break
+                
+                if not self.check_pause():
+                    # Paused - save and wait
+                    self.checkpoint_manager.save(cp)
+                    
+                    # Stop keyboard listener while waiting for input
+                    self._stop_keyboard_listener()
+                    
+                    if interactive:
+                        print("\n⏸️  Paused. Press Enter to resume, 'q' to quit...")
+                        try:
+                            resume = input().strip().lower()
+                            if resume == 'q':
+                                result.message = "Stopped by user"
+                                break
+                            self.request_resume()
+                            # Restart keyboard listener
+                            if HAVE_MSVCRT:
+                                keyboard_thread = self._start_keyboard_listener()
+                        except (EOFError, KeyboardInterrupt):
                             result.message = "Stopped by user"
                             break
-                        self.request_resume()
-                    except (EOFError, KeyboardInterrupt):
-                        result.message = "Stopped by user"
-                        break
-            
-            # Process file
-            file_path_obj = Path(file_path)
-            progress = f"[{len(cp.completed_files) + len(cp.failed_files) + 1}/{total}]"
-            
-            if interactive:
-                print(f"\n{progress} Processing: {file_path_obj.name}")
-            
-            process_path = file_path_obj
-            preprocess_result = None
-            
-            try:
-                is_audio = is_audio_file(file_path_obj)
                 
-                # Preprocess audio first if needed (optimization can reduce file size)
-                if is_audio:
-                    process_path, preprocess_result = self._preprocess_audio_if_needed(file_path_obj, interactive)
+                # Process file
+                file_path_obj = Path(file_path)
+                progress = f"[{len(cp.completed_files) + len(cp.failed_files) + 1}/{total}]"
                 
-                # Check size of the (potentially processed) file
-                file_size = process_path.stat().st_size
-                is_large = file_size > MAX_INLINE_SIZE
+                if interactive:
+                    print(f"\n{progress} Processing: {file_path_obj.name}")
                 
-                response = None
+                process_path = file_path_obj
+                preprocess_result = None
                 
-                if is_large:
-                    if interactive:
-                        print(f"   ⚠️ Large file: {file_size / (1024*1024):.1f} MB")
+                try:
+                    is_audio = is_audio_file(file_path_obj)
                     
-                    # Get handling mode (prompt if needed)
-                    # Note: We pass original path for cache key/display, but logic uses is_audio
-                    mode = self._get_large_file_mode(file_path_obj, is_audio, interactive)
+                    # Preprocess audio first if needed (optimization can reduce file size)
+                    if is_audio:
+                        process_path, preprocess_result = self._preprocess_audio_if_needed(file_path_obj, interactive)
                     
-                    if mode == LARGE_FILE_MODE_SKIP:
-                        cp.mark_failed(file_path, "Skipped large file")
+                    # Check size of the (potentially processed) file
+                    file_size = process_path.stat().st_size
+                    is_large = file_size > MAX_INLINE_SIZE
+                    
+                    response = None
+                    
+                    if is_large:
                         if interactive:
-                            print(f"   ⏭️ Skipped")
-                        continue
+                            print(f"   ⚠️ Large file: {file_size / (1024*1024):.1f} MB")
+                        
+                        # Get handling mode (prompt if needed)
+                        # Note: We pass original path for cache key/display, but logic uses is_audio
+                        mode = self._get_large_file_mode(file_path_obj, is_audio, interactive)
+                        
+                        if mode == LARGE_FILE_MODE_SKIP:
+                            cp.mark_failed(file_path, "Skipped large file")
+                            if interactive:
+                                print(f"   ⏭️ Skipped")
+                            continue
+                        
+                        elif mode == LARGE_FILE_MODE_CHUNKING and is_audio:
+                            # Use FFmpeg chunking on the processed file
+                            response = self._process_audio_with_chunking(
+                                process_path, cp.prompt_text, cp, interactive, skip_preprocessing=True
+                            )
+                        
+                        else:
+                            # Use Files API with the processed file
+                            response = self._process_with_files_api(
+                                process_path, cp.prompt_text, cp, interactive
+                            )
                     
-                    elif mode == LARGE_FILE_MODE_CHUNKING and is_audio:
-                        # Use FFmpeg chunking on the processed file
-                        response = self._process_audio_with_chunking(
-                            process_path, cp.prompt_text, cp, interactive, skip_preprocessing=True
-                        )
-                    
-                    else:
-                        # Use Files API with the processed file
-                        response = self._process_with_files_api(
+                    # Check for Batch API
+                    elif cp.use_batch and "gemini" in cp.provider.lower():
+                         response = self._process_file_batch(
                             process_path, cp.prompt_text, cp, interactive
                         )
-                
-                # Check for Batch API
-                elif cp.use_batch and "gemini" in cp.provider.lower():
-                     response = self._process_file_batch(
-                        process_path, cp.prompt_text, cp, interactive
-                    )
-                else:
-                    # Standard inline processing
-                    response = self._process_file_inline(
-                        process_path, cp.prompt_text, cp, interactive
-                    )
-                
-                if response is None:
-                    raise Exception("No response from processing")
-                
-                # Handle output
-                if cp.output_mode == "individual":
-                    output_path = self.file_handler.get_output_path(
-                        file_path_obj,
-                        Path(cp.output_path),
-                        cp.naming_template,
-                        cp.output_extension,
-                        index=len(cp.completed_files)
-                    )
+                    else:
+                        # Standard inline processing
+                        response = self._process_file_inline(
+                            process_path, cp.prompt_text, cp, interactive
+                        )
                     
-                    # Write output
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(output_path, "w", encoding="utf-8") as f:
-                        f.write(response)
+                    if response is None:
+                        raise Exception("No response from processing")
                     
-                    result.output_paths.append(str(output_path))
+                    # Handle output
+                    if cp.output_mode == "individual":
+                        output_path = self.file_handler.get_output_path(
+                            file_path_obj,
+                            Path(cp.output_path),
+                            cp.naming_template,
+                            cp.output_extension,
+                            index=len(cp.completed_files)
+                        )
+                        
+                        # Write output
+                        output_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(output_path, "w", encoding="utf-8") as f:
+                            f.write(response)
+                        
+                        result.output_paths.append(str(output_path))
+                        if interactive:
+                            print(f"   ✅ → {output_path.name}")
+                    else:
+                        # Combined mode
+                        cp.append_combined_content(file_path, response)
+                        if interactive:
+                            print(f"   ✅ Added to combined output")
+                    
+                    cp.mark_completed(file_path)
+                    result.processed_count += 1
+                    
+                except Exception as e:
+                    error_msg = str(e)[:100]
+                    cp.mark_failed(file_path, error_msg)
+                    result.add_error(file_path, error_msg)
                     if interactive:
-                        print(f"   ✅ → {output_path.name}")
-                else:
-                    # Combined mode
-                    cp.append_combined_content(file_path, response)
-                    if interactive:
-                        print(f"   ✅ Added to combined output")
+                        print(f"   ❌ Error: {error_msg}")
                 
-                cp.mark_completed(file_path)
-                result.processed_count += 1
+                finally:
+                    # Cleanup preprocessing temp file
+                    if preprocess_result:
+                        preprocess_result.cleanup()
                 
-            except Exception as e:
-                error_msg = str(e)[:100]
-                cp.mark_failed(file_path, error_msg)
-                result.add_error(file_path, error_msg)
-                if interactive:
-                    print(f"   ❌ Error: {error_msg}")
-            
-            finally:
-                # Cleanup preprocessing temp file
-                if preprocess_result:
-                    preprocess_result.cleanup()
-            
-            # Save checkpoint after each file
-            self.checkpoint_manager.save(cp)
-            
-            # Delay between requests (except for last file)
-            if i < len(remaining) - 1 and cp.delay_between_requests > 0:
-                time.sleep(cp.delay_between_requests)
+                # Save checkpoint after each file
+                self.checkpoint_manager.save(cp)
+                
+                # Delay between requests (except for last file)
+                if i < len(remaining) - 1 and cp.delay_between_requests > 0:
+                    time.sleep(cp.delay_between_requests)
+        
+        finally:
+            # Always stop keyboard listener
+            self._stop_keyboard_listener()
         
         # Handle combined output
         if cp.output_mode == "combined" and cp.combined_output_content:
@@ -2537,6 +2609,7 @@ class FileProcessor(BaseTool):
         
         try:
             chunk_outputs = []
+            chunk_errors = []  # Track actual errors from each chunk
             
             for i, chunk in enumerate(result.chunks):
                 if interactive:
@@ -2556,6 +2629,7 @@ class FileProcessor(BaseTool):
                 )
                 
                 if error:
+                    chunk_errors.append(f"Chunk {i+1}: {error}")
                     if interactive:
                         print(f"      ⚠️ Chunk error: {error[:50]}")
                     continue
@@ -2564,13 +2638,25 @@ class FileProcessor(BaseTool):
                     chunk_outputs.append((chunk, response))
                     if interactive:
                         print(f"      ✅ Done")
+                else:
+                    # Empty response is also an error
+                    chunk_errors.append(f"Chunk {i+1}: Empty response")
                 
                 # Delay between chunks
                 if i < len(result.chunks) - 1 and checkpoint.delay_between_requests > 0:
                     time.sleep(checkpoint.delay_between_requests)
             
             if not chunk_outputs:
-                raise Exception("All chunks failed to process")
+                # Build detailed error message from all chunk errors
+                if chunk_errors:
+                    # Take up to 3 unique errors to keep message manageable
+                    unique_errors = list(dict.fromkeys(chunk_errors))[:3]
+                    error_summary = "; ".join(unique_errors)
+                    if len(chunk_errors) > 3:
+                        error_summary += f" (+{len(chunk_errors) - 3} more)"
+                    raise Exception(f"All {len(result.chunks)} chunks failed: {error_summary}")
+                else:
+                    raise Exception("All chunks failed to process (no response)")
             
             # Merge outputs
             if interactive:
