@@ -45,6 +45,7 @@ class FileProcessorCheckpoint:
     provider: str
     model: str
     delay_between_requests: float
+    use_batch: bool = False
     
     # Progress tracking
     completed_files: List[str] = field(default_factory=list)
@@ -222,7 +223,8 @@ class CheckpointManager:
         output_extension: str,
         provider: str,
         model: str,
-        delay: float
+        delay: float,
+        use_batch: bool = False
     ) -> FileProcessorCheckpoint:
         """
         Create a new checkpoint.
@@ -239,6 +241,7 @@ class CheckpointManager:
             provider: AI provider name
             model: Model name
             delay: Delay between requests in seconds
+            use_batch: Whether to use Batch API
         
         Returns:
             New FileProcessorCheckpoint
@@ -260,6 +263,7 @@ class CheckpointManager:
             provider=provider,
             model=model,
             delay_between_requests=delay,
+            use_batch=use_batch,
             completed_files=[],
             failed_files=[],
             current_index=0,

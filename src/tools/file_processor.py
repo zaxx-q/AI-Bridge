@@ -154,7 +154,8 @@ class FileProcessor(BaseTool):
                 output_extension=output_config["extension"],
                 provider=exec_settings["provider"],
                 model=exec_settings["model"],
-                delay=exec_settings["delay"]
+                delay=exec_settings["delay"],
+                use_batch=exec_settings.get("use_batch", False)
             )
             
             # Step 5: Execute processing
@@ -206,7 +207,8 @@ class FileProcessor(BaseTool):
             output_extension=output_config.get("extension", ".txt"),
             provider=kwargs.get("provider", "google"),
             model=kwargs.get("model", ""),
-            delay=kwargs.get("delay", 1.0)
+            delay=kwargs.get("delay", 1.0),
+            use_batch=kwargs.get("use_batch", False)
         )
         
         return self._execute_processing(interactive=False)
@@ -1730,8 +1732,17 @@ class FileProcessor(BaseTool):
         settings = {
             "provider": current_provider,
             "model": current_model,
-            "delay": default_delay
+            "delay": default_delay,
+            "use_batch": False
         }
+        
+        # Batch API (Gemini only)
+        if "gemini" in current_provider.lower():
+            try:
+                batch_input = input("\nUse Batch API (Async)? [y/N]: ").strip().lower()
+                settings["use_batch"] = batch_input == 'y'
+            except (EOFError, KeyboardInterrupt):
+                return None
         
         print(f"\n✅ Settings configured")
         return settings
@@ -1767,6 +1778,8 @@ class FileProcessor(BaseTool):
             thinking_status = "ON" if current_thinking else "OFF"
             print(f"   Thinking: {thinking_status} (System Setting)")
             print(f"   Delay:    {cp.delay_between_requests}s")
+            if cp.use_batch:
+                print(f"   Mode:     BATCH API (Async)")
             print("\n[P] Pause  [S] Stop (saves progress)  [Esc] Abort")
             print("─" * 60)
         
@@ -1849,6 +1862,13 @@ class FileProcessor(BaseTool):
                         response = self._process_with_files_api(
                             process_path, cp.prompt_text, cp, interactive
                         )
+                    )
+                
+                # Check for Batch API
+                elif cp.use_batch and "gemini" in cp.provider.lower():
+                     response = self._process_file_batch(
+                        process_path, cp.prompt_text, cp, interactive
+                    )
                 else:
                     # Standard inline processing
                     response = self._process_file_inline(
@@ -2508,6 +2528,118 @@ class FileProcessor(BaseTool):
         print(f"{'═' * 60}")
 
 
+    
+    def _process_file_batch(
+        self,
+        filepath: Path,
+        prompt: str,
+        checkpoint: FileProcessorCheckpoint,
+        interactive: bool
+    ) -> Optional[str]:
+        """
+        Process a file using Gemini Batch API.
+        
+        Args:
+            filepath: Path to the file
+            prompt: Prompt text
+            checkpoint: Checkpoint with content settings
+            interactive: Whether to show output
+            
+        Returns:
+            String with Batch Operation details
+        """
+        from src import web_server
+        from src.api_client import _build_messages
+        
+        # Determine content type for the message construction
+        # We need to construct messages just like normal, then call create_batch
+        
+        # Get provider
+        provider_name = checkpoint.provider
+        provider = web_server.get_provider(provider_name)
+        if not provider:
+            raise ValueError(f"Provider not found: {provider_name}")
+            
+        if not hasattr(provider, "create_batch"):
+             raise ValueError(f"Provider {provider_name} does not support Batch API")
+        
+        # 1. Check if file needs upload (Files API)
+        is_large = False
+        try:
+             is_large = filepath.stat().st_size > MAX_INLINE_SIZE
+        except:
+             pass
+        
+        # Detect mime type for constructing message
+        import mimetypes
+        mime_type = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
+        
+        file_part = {}
+        
+        if is_large or "video" in mime_type: # Video always prefers Files API usually
+             # Upload first
+             # We can reuse logic from `_process_with_files_api` but that method does the generation too.
+             # We should probably call provider.upload_file directly.
+             if hasattr(provider, "upload_file"):
+                 if interactive:
+                     print(f"   📤 Uploading to Files API (Batch requirement)...")
+                 uploaded, error = provider.upload_file(filepath)
+                 if error:
+                     raise Exception(error)
+                 file_part = {
+                     "type": "file_data",
+                     "file_data": {"mime_type": uploaded.mime_type, "file_uri": uploaded.uri}
+                 }
+             else:
+                 raise Exception("Provider does not support file upload")
+        else:
+             # Inline data
+             import base64
+             with open(filepath, "rb") as f:
+                 data = base64.b64encode(f.read()).decode("utf-8")
+             file_part = {
+                 "type": "inline_data",
+                 "inline_data": {"mime_type": mime_type, "data": data}
+             }
+        
+        # Put text prompt first (best practice)
+        msgs = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                file_part
+            ]
+        }]
+        
+        if interactive:
+            print("   ⏳ Submitting batch job...")
+            
+        result, error = provider.create_batch(
+            messages=msgs, 
+            model=checkpoint.model, 
+            params={"temperature": 0.7}, # defaults?
+            display_name=f"Batch: {filepath.name}"
+        )
+        
+        if error:
+            raise Exception(error)
+            
+        # Format the output
+        # result is the Operation object
+        op_name = result.get("name", "unknown")
+        
+        output = f"""--- BATCH JOB SUBMITTED ---
+File: {filepath.name}
+Batch Name: {op_name}
+Date: {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+Status: The job has been submitted to Gemini Batch API.
+You can check progress using the ID: {op_name}
+Response will not be available immediately.
+"""
+        return output
+
+    
 def show_tools_menu(endpoints: Dict[str, str] = None) -> bool:
     """
     Display the Tools menu and handle selection.
