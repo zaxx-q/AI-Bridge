@@ -283,60 +283,58 @@ class FileHandler:
         
         if content_type == "image":
             # Image message with vision
+            # Text prompt first, then image (best practice for multimodal)
             data_url = f"data:{mime_type};base64,{content}"
             return {
                 "role": "user",
                 "content": [
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                    {"type": "text", "text": prompt}
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}}
                 ]
             }
         
-        
         elif content_type == "audio":
-            # Audio message - uses inline_data format for Gemini
-            # Note: This format works with Gemini Native provider
+            # Audio message - uses inline_data format
+            # Text prompt first, then audio (best practice for multimodal)
+            # GeminiNativeProvider handles inline_data natively
+            # OpenAICompatibleProvider translates inline_data -> input_audio
             return {
                 "role": "user",
                 "content": [
+                    {"type": "text", "text": prompt},
                     {
                         "type": "inline_data",
                         "inline_data": {
                             "mime_type": mime_type,
                             "data": content
                         }
-                    },
-                    {"type": "text", "text": prompt}
+                    }
                 ]
             }
         
         elif content_type == "document":
             # Document (PDF) message - use generic file format
-            # This is supported by OpenAICompatible (via internal translation) and GeminiNative (via update)
+            # Text prompt first, then document (best practice for multimodal)
+            # OpenAICompatible handles via internal translation, GeminiNative handles natively
             data_url = f"data:{mime_type};base64,{content}"
             return {
                 "role": "user",
                 "content": [
+                    {"type": "text", "text": prompt},
                     {
                         "type": "file",
                         "file": {"url": data_url}
-                    },
-                    {"type": "text", "text": prompt}
+                    }
                 ]
             }
         
         else:
-            # Text/code message
+            # Text/code message - use TextEditTool-style delimiters
             file_type = self.detect_type(filepath)
             
-            if include_filename:
-                filename_context = f"File: {filepath.name}\n\n"
-            else:
-                filename_context = ""
-            
-            # Use code fence for code files
+            # Build file content with appropriate formatting
             if file_type == "code":
-                # Try to detect language from extension
+                # Code files get language-tagged fence
                 ext = filepath.suffix.lower().lstrip(".")
                 lang_map = {
                     "py": "python", "js": "javascript", "ts": "typescript",
@@ -349,9 +347,15 @@ class FileHandler:
                     "sql": "sql", "md": "markdown",
                 }
                 lang = lang_map.get(ext, ext)
-                full_prompt = f"{prompt}\n\n{filename_context}```{lang}\n{content}\n```"
+                file_content = f"```{lang}\n{content}\n```"
             else:
-                full_prompt = f"{prompt}\n\n{filename_context}{content}"
+                file_content = content
+            
+            # Use structured delimiters (TextEditTool-style)
+            if include_filename:
+                full_prompt = f"{prompt}\n\n<file_content filename=\"{filepath.name}\">\n{file_content}\n</file_content>"
+            else:
+                full_prompt = f"{prompt}\n\n<file_content>\n{file_content}\n</file_content>"
             
             return {
                 "role": "user",

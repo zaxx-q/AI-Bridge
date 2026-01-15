@@ -227,22 +227,53 @@ class OpenAICompatibleProvider(BaseProvider):
                     
                     # Ensure specific fields are present if we were passed a flat dict
                     if not file_info and "url" in item:
-                         new_content.append({
+                        new_content.append({
                             "type": "file",
                             "file": {
                                 "url": item["url"]
                             }
-                         })
+                        })
                     elif not file_info and "data" in item:
-                         new_content.append({
+                        new_content.append({
                             "type": "file",
                             "file": {
-                                "file_data": item["data"] # Base64
+                                "file_data": item["data"]  # Base64
                             }
-                         })
+                        })
                     else:
                         new_content.append(item)
+                
+                # Handle inline_data (Gemini format) -> input_audio (OpenAI format)
+                # This allows file_handler.py to use a unified format that both providers understand
+                elif item_type == "inline_data":
+                    inline = item.get("inline_data", {})
+                    mime_type = inline.get("mime_type", "")
+                    
+                    # Check if this is audio content
+                    if mime_type.startswith("audio/"):
+                        # Extract format from mime type (e.g., "audio/mp3" -> "mp3")
+                        audio_format = mime_type.split("/")[-1]
+                        # Handle special cases for mime type variations
+                        mime_to_format = {
+                            "mpeg": "mp3",
+                            "x-wav": "wav",
+                            "mp4": "m4a",
+                            "x-m4a": "m4a",
+                            "x-ms-wma": "wma",
+                        }
+                        audio_format = mime_to_format.get(audio_format, audio_format)
                         
+                        new_content.append({
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": inline.get("data", ""),
+                                "format": audio_format
+                            }
+                        })
+                    else:
+                        # Non-audio inline data - pass through (may be handled by server)
+                        new_content.append(item)
+                
                 else:
                     new_content.append(item)
             
