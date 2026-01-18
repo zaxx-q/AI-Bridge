@@ -136,7 +136,7 @@ def call_google_api(key_manager, model, messages, ai_params, timeout, config=Non
                         match = re.match(r"data:([^;]+);base64,(.+)", url_data)
                         if match:
                             mime_type, b64_data = match.groups()
-                            parts.append({"inlineData": {"mimeType": mime_type, "data": b64_data}})
+                            parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
         contents.append({"role": role, "parts": parts})
     
     payload = {

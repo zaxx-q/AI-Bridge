@@ -265,10 +265,11 @@ class GeminiNativeProvider(BaseProvider):
         if not current_key:
             return None, "No API key available"
         
-        url = f"{self.base_url}/{file_name}?key={current_key}"
+        url = f"{self.base_url}/{file_name}"
+        headers = {"x-goog-api-key": current_key}
         
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, headers=headers, timeout=30)
             
             if response.status_code != 200:
                 return None, f"Failed to get file info ({response.status_code}): {response.text[:200]}"
@@ -295,10 +296,11 @@ class GeminiNativeProvider(BaseProvider):
         if not current_key:
             return False, "No API key available"
         
-        url = f"{self.base_url}/{file_name}?key={current_key}"
+        url = f"{self.base_url}/{file_name}"
+        headers = {"x-goog-api-key": current_key}
         
         try:
-            response = requests.delete(url, timeout=30)
+            response = requests.delete(url, headers=headers, timeout=30)
             
             if response.status_code not in (200, 204):
                 return False, f"Failed to delete file ({response.status_code}): {response.text[:200]}"
@@ -326,10 +328,11 @@ class GeminiNativeProvider(BaseProvider):
         if not current_key:
             return None, "No API key available"
         
-        url = f"{self.base_url}/files?pageSize={page_size}&key={current_key}"
+        url = f"{self.base_url}/files?pageSize={page_size}"
+        headers = {"x-goog-api-key": current_key}
         
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, headers=headers, timeout=30)
             
             if response.status_code != 200:
                 return None, f"Failed to list files ({response.status_code}): {response.text[:200]}"
@@ -381,7 +384,7 @@ class GeminiNativeProvider(BaseProvider):
         # Build the request body using the standard helper
         # Ref: gemini-batch-api.md
         
-        url = f"{self.base_url}/models/{model}:batchGenerateContent?key={current_key}"
+        url = f"{self.base_url}/models/{model}:batchGenerateContent"
         
         # Build the single GenerateContentRequest
         gen_req_body = self._build_request_body(messages, model, params, thinking_enabled=False)
@@ -398,7 +401,10 @@ class GeminiNativeProvider(BaseProvider):
         try:
             response = requests.post(
                 url,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": current_key
+                },
                 json=req_body,
                 timeout=30
             )
@@ -417,10 +423,14 @@ class GeminiNativeProvider(BaseProvider):
             return None, "No API keys configured"
         
         current_key = self.key_manager.get_current_key()
-        url = f"{self.base_url}/{batch_name}?key={current_key}"
+        url = f"{self.base_url}/{batch_name}"
         
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(
+                url,
+                headers={"x-goog-api-key": current_key},
+                timeout=30
+            )
             if response.status_code != 200:
                 return None, f"Failed to get batch ({response.status_code}): {response.text[:200]}"
             return response.json(), None
@@ -433,10 +443,14 @@ class GeminiNativeProvider(BaseProvider):
             return None, "No API keys configured"
         
         current_key = self.key_manager.get_current_key()
-        url = f"{self.base_url}/batches?pageSize={page_size}&key={current_key}"
+        url = f"{self.base_url}/batches?pageSize={page_size}"
         
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(
+                url,
+                headers={"x-goog-api-key": current_key},
+                timeout=30
+            )
             if response.status_code != 200:
                 return None, f"Failed to list batches ({response.status_code}): {response.text[:200]}"
             return response.json().get("batches", []), None
@@ -449,10 +463,14 @@ class GeminiNativeProvider(BaseProvider):
             return False, "No API keys configured"
         
         current_key = self.key_manager.get_current_key()
-        url = f"{self.base_url}/{batch_name}:cancel?key={current_key}"
+        url = f"{self.base_url}/{batch_name}:cancel"
         
         try:
-            response = requests.post(url, timeout=30)
+            response = requests.post(
+                url,
+                headers={"x-goog-api-key": current_key},
+                timeout=30
+            )
             if response.status_code != 200:
                 return False, f"Failed to cancel batch ({response.status_code}): {response.text[:200]}"
             return True, None
@@ -513,16 +531,16 @@ class GeminiNativeProvider(BaseProvider):
         return "gemini" in lower and "2.5" in lower
     
     def _is_gemma(self, model: str) -> bool:
-        """Check if model is Gemma (doesn't support systemInstruction)"""
+        """Check if model is Gemma (doesn't support system_instruction)"""
         lower = model.lower()
         return "gemma" in lower
     
-    def _get_url(self, model: str, streaming: bool, api_key: str) -> str:
+    def _get_url(self, model: str, streaming: bool) -> str:
         """Build the API URL"""
         if streaming:
-            return f"{self.base_url}/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+            return f"{self.base_url}/models/{model}:streamGenerateContent?alt=sse"
         else:
-            return f"{self.base_url}/models/{model}:generateContent?key={api_key}"
+            return f"{self.base_url}/models/{model}:generateContent"
     
     def _convert_messages_to_contents(
         self,
@@ -535,7 +553,7 @@ class GeminiNativeProvider(BaseProvider):
         Args:
             messages: List of messages in OpenAI format
             prepend_system_to_user: If True, prepend system message to first user message
-                                   (for Gemma models that don't support systemInstruction)
+                                   (for Gemma models that don't support system_instruction)
         
         Returns:
             Tuple of (contents, system_instruction)
@@ -556,7 +574,7 @@ class GeminiNativeProvider(BaseProvider):
                     # Store for prepending to first user message
                     pending_system_text = system_text
                 else:
-                    # Use as systemInstruction field
+                    # Use as system_instruction field
                     system_instruction = system_text
                 continue
             
@@ -613,8 +631,8 @@ class GeminiNativeProvider(BaseProvider):
                     if match:
                         mime_type, b64_data = match.groups()
                         media_parts.append({
-                            "inlineData": {
-                                "mimeType": mime_type,
+                            "inline_data": {
+                                "mime_type": mime_type,
                                 "data": b64_data
                             }
                         })
@@ -622,8 +640,8 @@ class GeminiNativeProvider(BaseProvider):
                     # Native inline data (audio, etc.)
                     inline = item.get("inline_data", {})
                     media_parts.append({
-                        "inlineData": {
-                            "mimeType": inline.get("mime_type", ""),
+                        "inline_data": {
+                            "mime_type": inline.get("mime_type", ""),
                             "data": inline.get("data", "")
                         }
                     })
@@ -638,8 +656,8 @@ class GeminiNativeProvider(BaseProvider):
                     if match:
                         mime_type, b64_data = match.groups()
                         media_parts.append({
-                            "inlineData": {
-                                "mimeType": mime_type,
+                            "inline_data": {
+                                "mime_type": mime_type,
                                 "data": b64_data
                             }
                         })
@@ -705,7 +723,7 @@ class GeminiNativeProvider(BaseProvider):
         thinking_enabled: bool
     ) -> Dict:
         """Build the full request body"""
-        # Gemma models don't support systemInstruction - prepend to first user message instead
+        # Gemma models don't support system_instruction - prepend to first user message instead
         is_gemma = self._is_gemma(model)
         
         contents, system_instruction = self._convert_messages_to_contents(
@@ -720,10 +738,10 @@ class GeminiNativeProvider(BaseProvider):
         }
         
         if system_instruction and not is_gemma:
-            # systemInstruction is a top-level field - omit "role" (best practice)
+            # system_instruction is a top-level field - omit "role" (best practice)
             # Never use "role": "user" here as it conflicts with system instruction purpose
             # Gemma models don't support this field, so we skip it for them
-            body["systemInstruction"] = {
+            body["system_instruction"] = {
                 "parts": [{"text": system_instruction}]
             }
         
@@ -757,8 +775,11 @@ class GeminiNativeProvider(BaseProvider):
         key_num = self.key_manager.get_key_number()
         timeout = self.config.get("request_timeout", 120)
         
-        url = self._get_url(model, streaming=True, api_key=current_key)
-        headers = {"Content-Type": "application/json"}
+        url = self._get_url(model, streaming=True)
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": current_key
+        }
         body = self._build_request_body(messages, model, params, thinking_enabled)
         
         self.log_request(model, key_num, thinking_enabled, streaming=True, retry=retry_count)
@@ -1013,8 +1034,11 @@ class GeminiNativeProvider(BaseProvider):
         key_num = self.key_manager.get_key_number()
         timeout = self.config.get("request_timeout", 120)
         
-        url = self._get_url(model, streaming=False, api_key=current_key)
-        headers = {"Content-Type": "application/json"}
+        url = self._get_url(model, streaming=False)
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": current_key
+        }
         body = self._build_request_body(messages, model, params, thinking_enabled)
         
         self.log_request(model, key_num, thinking_enabled, streaming=False, retry=retry_count)
@@ -1194,10 +1218,11 @@ class GeminiNativeProvider(BaseProvider):
             return None, "No API key available"
         
         # Request more models per page (default is 50)
-        url = f"{self.base_url}/models?key={current_key}&pageSize=1000"
+        url = f"{self.base_url}/models?pageSize=1000"
+        headers = {"x-goog-api-key": current_key}
         
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, headers=headers, timeout=30)
             
             if response.status_code != 200:
                 return None, f"Failed to fetch models ({response.status_code}): {response.text[:200]}"

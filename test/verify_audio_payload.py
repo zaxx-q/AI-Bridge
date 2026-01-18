@@ -26,12 +26,12 @@ def verify_audio_payload(file_path):
     print(f"Size increase: {((base64_size / raw_size) - 1) * 100:.2f}%")
 
     # 3. Construct payload as it would be sent to Gemini
-    # This matches the 'inlineData' structure in Gemini API
+    # This matches the 'inline_data' structure in Gemini API
     payload = {
         "contents": [{
             "parts": [
                 {
-                    "inlineData": {
+                    "inline_data": {
                         "mimeType": "audio/mp4", # m4a is typically mp4
                         "data": base64_data
                     }
