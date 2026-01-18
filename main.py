@@ -60,7 +60,7 @@ def get_base_url(config, provider):
     elif provider == "openrouter":
         return "openrouter.ai/api/v1"
     elif provider == "google":
-        return "generativelanguage.googleapis.com"
+        return config.get("gemini_endpoint") or "generativelanguage.googleapis.com"
     return "Unknown"
 
 

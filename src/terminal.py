@@ -31,7 +31,12 @@ def get_base_url_for_status(config, provider):
     elif provider == "openrouter":
         return "openrouter.ai/api/v1"
     elif provider == "google":
-        return "generativelanguage.googleapis.com"
+        url = config.get("gemini_endpoint") or "generativelanguage.googleapis.com"
+        if "://" in url:
+            url = url.split("://")[-1]
+        if "/v1beta" in url:
+            url = url.split("/v1beta")[0]
+        return url
     return "Unknown"
 
 

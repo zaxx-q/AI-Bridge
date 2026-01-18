@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     "custom_model": None,
     "openrouter_model": "openai/gpt-oss-120b:free",
     "google_model": "gemma-3-27b-it",
+    "gemini_endpoint": None,
     "max_retries": 3,
     "retry_delay": 5,
     "request_timeout": 120,
@@ -296,6 +297,10 @@ openrouter_model = openai/gpt-oss-120b:free
 
 # Google Gemini model
 google_model = gemma-3-27b-it
+
+# Custom Gemini Endpoint (optional)
+# Override the default Google AI Studio endpoint
+# gemini_endpoint = https://generativelanguage.googleapis.com/v1beta
 
 # Retry settings
 max_retries = 3

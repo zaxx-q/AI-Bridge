@@ -56,6 +56,7 @@ def get_provider_for_type(
         "reasoning_effort": config.get("reasoning_effort", "high"),
         "thinking_budget": config.get("thinking_budget", -1),
         "thinking_level": config.get("thinking_level", "high"),
+        "gemini_endpoint": config.get("gemini_endpoint")
     }
     
     if provider_type == "custom":
@@ -109,12 +110,13 @@ def call_openrouter_api(key_manager, model, messages, ai_params, timeout):
     return response, None
 
 
-def call_google_api(key_manager, model, messages, ai_params, timeout):
+def call_google_api(key_manager, model, messages, ai_params, timeout, config=None):
     """Call Google Gemini API (legacy compatibility - updated safety settings)"""
     current_key = key_manager.get_current_key()
     if not current_key:
         return None, "No API key available"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    base_url = config.get("gemini_endpoint") or "https://generativelanguage.googleapis.com/v1beta"
+    url = f"{base_url}/models/{model}:generateContent"
     headers = {"x-goog-api-key": current_key, "Content-Type": "application/json"}
     
     contents = []

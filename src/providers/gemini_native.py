@@ -99,7 +99,14 @@ class GeminiNativeProvider(BaseProvider):
                 - thinking_budget: Token budget for 2.5 models (-1 = auto)
                 - thinking_level: Level for 3.x models ("high" or "low")
         """
+
         super().__init__("Gemini-Native", key_manager, config)
+        
+        # Use custom endpoint if configured, otherwise default
+        self.base_url = self.config.get("gemini_endpoint")
+        if not self.base_url:
+            self.base_url = GEMINI_BASE_URL
+            
         self._uploaded_files: Dict[str, UploadedFile] = {}  # Cache of uploaded files
     
     # =========================================================================
@@ -155,7 +162,12 @@ class GeminiNativeProvider(BaseProvider):
         
         try:
             # Step 1: Initiate resumable upload
-            init_url = f"{GEMINI_BASE_URL.replace('/v1beta', '')}/upload/v1beta/files"
+            # Handle base URL that might already have /v1beta (strip it for upload)
+            base = self.base_url
+            if base.endswith("/v1beta"):
+                base = base[:-7]
+            
+            init_url = f"{base}/upload/v1beta/files"
             
             init_headers = {
                 "x-goog-api-key": current_key,
@@ -253,7 +265,7 @@ class GeminiNativeProvider(BaseProvider):
         if not current_key:
             return None, "No API key available"
         
-        url = f"{GEMINI_BASE_URL}/{file_name}?key={current_key}"
+        url = f"{self.base_url}/{file_name}?key={current_key}"
         
         try:
             response = requests.get(url, timeout=30)
@@ -283,7 +295,7 @@ class GeminiNativeProvider(BaseProvider):
         if not current_key:
             return False, "No API key available"
         
-        url = f"{GEMINI_BASE_URL}/{file_name}?key={current_key}"
+        url = f"{self.base_url}/{file_name}?key={current_key}"
         
         try:
             response = requests.delete(url, timeout=30)
@@ -314,7 +326,7 @@ class GeminiNativeProvider(BaseProvider):
         if not current_key:
             return None, "No API key available"
         
-        url = f"{GEMINI_BASE_URL}/files?pageSize={page_size}&key={current_key}"
+        url = f"{self.base_url}/files?pageSize={page_size}&key={current_key}"
         
         try:
             response = requests.get(url, timeout=30)
@@ -369,7 +381,7 @@ class GeminiNativeProvider(BaseProvider):
         # Build the request body using the standard helper
         # Ref: gemini-batch-api.md
         
-        url = f"{GEMINI_BASE_URL}/models/{model}:batchGenerateContent?key={current_key}"
+        url = f"{self.base_url}/models/{model}:batchGenerateContent?key={current_key}"
         
         # Build the single GenerateContentRequest
         gen_req_body = self._build_request_body(messages, model, params, thinking_enabled=False)
@@ -405,7 +417,7 @@ class GeminiNativeProvider(BaseProvider):
             return None, "No API keys configured"
         
         current_key = self.key_manager.get_current_key()
-        url = f"{GEMINI_BASE_URL}/{batch_name}?key={current_key}"
+        url = f"{self.base_url}/{batch_name}?key={current_key}"
         
         try:
             response = requests.get(url, timeout=30)
@@ -421,7 +433,7 @@ class GeminiNativeProvider(BaseProvider):
             return None, "No API keys configured"
         
         current_key = self.key_manager.get_current_key()
-        url = f"{GEMINI_BASE_URL}/batches?pageSize={page_size}&key={current_key}"
+        url = f"{self.base_url}/batches?pageSize={page_size}&key={current_key}"
         
         try:
             response = requests.get(url, timeout=30)
@@ -437,7 +449,7 @@ class GeminiNativeProvider(BaseProvider):
             return False, "No API keys configured"
         
         current_key = self.key_manager.get_current_key()
-        url = f"{GEMINI_BASE_URL}/{batch_name}:cancel?key={current_key}"
+        url = f"{self.base_url}/{batch_name}:cancel?key={current_key}"
         
         try:
             response = requests.post(url, timeout=30)
@@ -508,9 +520,9 @@ class GeminiNativeProvider(BaseProvider):
     def _get_url(self, model: str, streaming: bool, api_key: str) -> str:
         """Build the API URL"""
         if streaming:
-            return f"{GEMINI_BASE_URL}/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+            return f"{self.base_url}/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
         else:
-            return f"{GEMINI_BASE_URL}/models/{model}:generateContent?key={api_key}"
+            return f"{self.base_url}/models/{model}:generateContent?key={api_key}"
     
     def _convert_messages_to_contents(
         self,
@@ -1182,7 +1194,7 @@ class GeminiNativeProvider(BaseProvider):
             return None, "No API key available"
         
         # Request more models per page (default is 50)
-        url = f"{GEMINI_BASE_URL}/models?key={current_key}&pageSize=1000"
+        url = f"{self.base_url}/models?key={current_key}&pageSize=1000"
         
         try:
             response = requests.get(url, timeout=30)
