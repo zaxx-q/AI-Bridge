@@ -114,7 +114,7 @@ def _create_voice_clarity_preset() -> AudioPreset:
             ],
             Intensity.HIGH: [
                 AudioEffect("highpass", {"f": 100}, "Remove rumble"),
-                AudioEffect("speechnorm", {"e": 25, "r": 0.0001, "l": 1}, "Strong speech normalization"),
+                AudioEffect("speechnorm", {"e": 20, "r": 0.0001, "l": 1}, "Strong speech normalization"),
                 AudioEffect("equalizer", {"f": 200, "t": "q", "w": 2, "g": -2}, "Reduce mud"),
                 AudioEffect("equalizer", {"f": 3000, "t": "q", "w": 1.5, "g": 4}, "Boost presence"),
                 AudioEffect("equalizer", {"f": 5000, "t": "q", "w": 2, "g": 2}, "Add clarity"),
@@ -204,25 +204,25 @@ def _create_phone_recording_preset() -> AudioPreset:
         category="voice",
         effects_by_intensity={
             Intensity.LOW: [
-                AudioEffect("highpass", {"f": 150}, "Remove phone rumble"),
-                AudioEffect("lowpass", {"f": 7500}, "Remove harsh highs"),
-                AudioEffect("speechnorm", {"e": 12.5, "r": 0.0001, "l": 1}, "Normalize speech"),
+                AudioEffect("highpass", {"f": 80}, "Remove phone rumble"),
+                AudioEffect("lowpass", {"f": 12000}, "Remove ultra-high hiss"),
+                AudioEffect("speechnorm", {"e": 6.25, "r": 0.00001, "l": 1}, "Light speech normalization"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
             Intensity.MEDIUM: [
-                AudioEffect("highpass", {"f": 200}, "Remove phone rumble"),
-                AudioEffect("lowpass", {"f": 6500}, "Remove harsh highs"),
-                AudioEffect("afftdn", {"nr": 12, "nf": -45, "tn": 1}, "Reduce phone noise"),
-                AudioEffect("speechnorm", {"e": 25, "r": 0.0001, "l": 1}, "Normalize speech"),
-                AudioEffect("equalizer", {"f": 2500, "t": "q", "w": 1.5, "g": 3}, "Restore clarity"),
+                AudioEffect("highpass", {"f": 100}, "Remove phone rumble"),
+                AudioEffect("lowpass", {"f": 10000}, "Remove harsh highs"),
+                AudioEffect("afftdn", {"nr": 10, "nf": -45, "tn": 1}, "Reduce phone noise"),
+                AudioEffect("speechnorm", {"e": 12.5, "r": 0.0001, "l": 1}, "Normalize speech"),
+                AudioEffect("equalizer", {"f": 3000, "t": "q", "w": 1.5, "g": 2}, "Restore clarity"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
             Intensity.HIGH: [
-                AudioEffect("highpass", {"f": 250}, "Aggressive rumble removal"),
-                AudioEffect("lowpass", {"f": 5500}, "Remove harsh highs"),
-                AudioEffect("afftdn", {"nr": 20, "nf": -35, "tn": 1}, "Strong noise reduction"),
-                AudioEffect("speechnorm", {"e": 50, "r": 0.0001, "l": 1}, "Aggressive normalization"),
-                AudioEffect("equalizer", {"f": 1500, "t": "q", "w": 2, "g": 2}, "Midrange boost"),
+                AudioEffect("highpass", {"f": 120}, "Aggressive rumble removal"),
+                AudioEffect("lowpass", {"f": 8500}, "Remove harsh highs"),
+                AudioEffect("afftdn", {"nr": 15, "nf": -40, "tn": 1}, "Strong noise reduction"),
+                AudioEffect("speechnorm", {"e": 20, "r": 0.0001, "l": 1}, "Balanced normalization"),
+                AudioEffect("equalizer", {"f": 200, "t": "q", "w": 2, "g": -2}, "Reduce mud"),
                 AudioEffect("equalizer", {"f": 3000, "t": "q", "w": 1.5, "g": 4}, "Restore clarity"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
@@ -263,15 +263,15 @@ def _create_boost_quiet_preset() -> AudioPreset:
         category="volume",
         effects_by_intensity={
             Intensity.LOW: [
-                AudioEffect("speechnorm", {"e": 12.5, "r": 0.00001, "l": 1}, "Speech-aware boost"),
+                AudioEffect("speechnorm", {"e": 6.25, "r": 0.00001, "l": 1}, "Light speech-aware boost"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
             Intensity.MEDIUM: [
-                AudioEffect("speechnorm", {"e": 25, "r": 0.0001, "l": 1}, "Medium speech boost"),
+                AudioEffect("speechnorm", {"e": 12.5, "r": 0.0001, "l": 1}, "Medium speech boost"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
             Intensity.HIGH: [
-                AudioEffect("speechnorm", {"e": 50, "r": 0.0001, "l": 1}, "Strong speech boost"),
+                AudioEffect("speechnorm", {"e": 20, "r": 0.0001, "l": 1}, "Strong speech boost"),
                 AudioEffect("loudnorm", {"I": -14, "LRA": 7, "TP": -1.5}, "Louder target"),
             ],
         }
@@ -287,18 +287,18 @@ def _create_de_ess_preset() -> AudioPreset:
         category="cleanup",
         effects_by_intensity={
             Intensity.LOW: [
-                AudioEffect("equalizer", {"f": 6000, "t": "q", "w": 2, "g": -3}, "Light de-ess"),
+                AudioEffect("equalizer", {"f": 6000, "t": "q", "w": 1, "g": -2}, "Light de-ess"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
             Intensity.MEDIUM: [
-                AudioEffect("equalizer", {"f": 5500, "t": "q", "w": 1.5, "g": -5}, "De-ess lower sibilance"),
-                AudioEffect("equalizer", {"f": 7500, "t": "q", "w": 2, "g": -4}, "De-ess upper sibilance"),
+                AudioEffect("equalizer", {"f": 5500, "t": "q", "w": 1, "g": -3}, "De-ess lower sibilance"),
+                AudioEffect("equalizer", {"f": 7500, "t": "q", "w": 1, "g": -3}, "De-ess upper sibilance"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
             Intensity.HIGH: [
-                AudioEffect("equalizer", {"f": 5000, "t": "q", "w": 1.5, "g": -6}, "Strong de-ess low"),
-                AudioEffect("equalizer", {"f": 6500, "t": "q", "w": 1.5, "g": -7}, "Strong de-ess mid"),
-                AudioEffect("equalizer", {"f": 8000, "t": "q", "w": 2, "g": -5}, "Strong de-ess high"),
+                AudioEffect("equalizer", {"f": 5000, "t": "q", "w": 0.8, "g": -4}, "Strong de-ess low"),
+                AudioEffect("equalizer", {"f": 6500, "t": "q", "w": 0.8, "g": -4}, "Strong de-ess mid"),
+                AudioEffect("equalizer", {"f": 8000, "t": "q", "w": 0.8, "g": -4}, "Strong de-ess high"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
         }
@@ -314,28 +314,28 @@ def _create_room_echo_reduction_preset() -> AudioPreset:
         category="cleanup",
         effects_by_intensity={
             Intensity.LOW: [
-                AudioEffect("highpass", {"f": 100}, "Remove low reverb"),
+                AudioEffect("highpass", {"f": 80}, "Remove low rumble"),
                 AudioEffect("afftdn", {"nr": 5, "nf": -60, "tn": 1}, "Light reverb reduction"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
             Intensity.MEDIUM: [
-                AudioEffect("highpass", {"f": 120}, "Remove low reverb"),
+                AudioEffect("highpass", {"f": 100}, "Remove low reverb"),
                 AudioEffect("afftdn", {"nr": 10, "nf": -50, "tn": 1}, "Reverb reduction"),
                 AudioEffect("compand", {
-                    "attacks": 0.02,
-                    "decays": 0.1,
-                    "points": "-80/-80|-50/-50|-30/-35|-20/-25|0/-10"
-                }, "Gate reverb tails"),
+                    "attacks": 0.05,
+                    "decays": 0.2,
+                    "points": "-80/-80|-45/-45|-30/-32|-20/-22|0/-10"
+                }, "Gentle expansion"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
             Intensity.HIGH: [
-                AudioEffect("highpass", {"f": 150}, "Remove low reverb"),
-                AudioEffect("afftdn", {"nr": 15, "nf": -45, "tn": 1}, "Strong reverb reduction"),
+                AudioEffect("highpass", {"f": 120}, "Remove low reverb"),
+                AudioEffect("afftdn", {"nr": 18, "nf": -45, "tn": 1}, "Strong reverb reduction"),
                 AudioEffect("compand", {
-                    "attacks": 0.01,
-                    "decays": 0.08,
-                    "points": "-80/-800|-60/-60|-40/-45|-25/-30|-15/-20|0/-8"
-                }, "Aggressive gate"),
+                    "attacks": 0.02,
+                    "decays": 0.1,
+                    "points": "-80/-80|-40/-45|-25/-30|-15/-20|0/-8"
+                }, "Medium gate"),
                 AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "Normalize"),
             ],
         }

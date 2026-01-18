@@ -1408,8 +1408,6 @@ class FileProcessor(BaseTool):
         print("       Best for: High-quality voice, music with speech")
         print("  [3] 🎵 Quality (larger) - Mono, 44.1kHz, 96kbps")
         print("       Best for: Music, audio with effects (preserves fidelity)")
-        print("  [4] 📱 Mobile (tiny) - Mono, 16kHz, 32kbps")
-        print("       Best for: Maximum compression, exact same as Voice (smallest)")
         print("  [C] Custom settings...")
         print("  [S] Skip optimization")
         
@@ -1422,7 +1420,6 @@ class FileProcessor(BaseTool):
             "1": OutputOptimization.for_voice_small(),
             "2": OutputOptimization.for_voice_balanced(),
             "3": OutputOptimization.for_voice_quality(),
-            "4": OutputOptimization(convert_to_mono=True, sample_rate=16000, bitrate_kbps=32),
         }
         
         if choice in presets:
