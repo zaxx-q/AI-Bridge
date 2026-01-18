@@ -1473,15 +1473,15 @@ class FileProcessor(BaseTool):
             print(f"  [{i}] {p['icon']} {p['key']}{requires_input}")
             print(f"      {p['description'][:60]}")
         
-        # Display endpoint prompts
-        if endpoint_prompts:
-            print("\n📡 Endpoint Prompts:")
-            for i, p in enumerate(endpoint_prompts, len(tool_prompts) + 1):
-                print(f"  [{i}] {p['icon']} {p['key'].replace('@endpoint:', '')}")
-                print(f"      {p['description'][:60]}")
+        # Display endpoint prompts options
+        has_endpoints = bool(endpoint_prompts)
+        if has_endpoints:
+            print(f"\n  [E] Show Endpoint Prompts ({len(endpoint_prompts)})")
         
-        print("\n  [C] Enter custom prompt")
+        print("  [C] Enter custom prompt")
         print("  [Q] Cancel")
+        
+        showing_endpoints = False
         
         while True:
             try:
@@ -1491,7 +1491,18 @@ class FileProcessor(BaseTool):
             
             if choice == 'q':
                 return None, None
-            
+                
+            if choice == 'e' and has_endpoints:
+                if not showing_endpoints:
+                    print("\n📡 Endpoint Prompts:")
+                    for i, p in enumerate(endpoint_prompts, len(tool_prompts) + 1):
+                        print(f"  [{i}] {p['icon']} {p['key'].replace('@endpoint:', '')}")
+                        print(f"      {p['description'][:60]}")
+                    showing_endpoints = True
+                    continue
+                else:
+                    print_info("Endpoint prompts are already shown above")
+                    continue
             if choice == 'c':
                 # Custom prompt
                 print("\nEnter your custom prompt (end with empty line):")
