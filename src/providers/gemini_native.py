@@ -688,14 +688,24 @@ class GeminiNativeProvider(BaseProvider):
         Per JSON-request-reference.md:
         - Gemini 2.5: thinkingBudget (integer)
         - Gemini 3.x: thinkingLevel ("low" or "high")
+        
+        Optional parameters (only included if explicitly set in config):
+        - max_tokens: Maps to maxOutputTokens
+        - candidate_count: Maps to candidateCount
         """
         config = {
             "temperature": params.get("temperature", 1.0),
             "topP": params.get("top_p", 0.95),
             "topK": params.get("top_k", 0),
-            "maxOutputTokens": params.get("max_tokens", 65536),
-            "candidateCount": 1
         }
+        
+        # Optional: maxOutputTokens (only include if explicitly set)
+        if "max_tokens" in params and params["max_tokens"] is not None:
+            config["maxOutputTokens"] = params["max_tokens"]
+        
+        # Optional: candidateCount (only include if explicitly set)
+        if "candidate_count" in params and params["candidate_count"] is not None:
+            config["candidateCount"] = params["candidate_count"]
         
         if thinking_enabled:
             if self._is_gemini_3(model):
