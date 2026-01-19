@@ -531,7 +531,7 @@ class GeminiNativeProvider(BaseProvider):
         return "gemini" in lower and "2.5" in lower
     
     def _is_gemma(self, model: str) -> bool:
-        """Check if model is Gemma (doesn't support system_instruction)"""
+        """Check if model is Gemma (doesn't support systemInstruction)"""
         lower = model.lower()
         return "gemma" in lower
     
@@ -553,7 +553,7 @@ class GeminiNativeProvider(BaseProvider):
         Args:
             messages: List of messages in OpenAI format
             prepend_system_to_user: If True, prepend system message to first user message
-                                   (for Gemma models that don't support system_instruction)
+                                   (for Gemma models that don't support systemInstruction)
         
         Returns:
             Tuple of (contents, system_instruction)
@@ -574,7 +574,7 @@ class GeminiNativeProvider(BaseProvider):
                     # Store for prepending to first user message
                     pending_system_text = system_text
                 else:
-                    # Use as system_instruction field
+                    # Use as systemInstruction field
                     system_instruction = system_text
                 continue
             
@@ -723,7 +723,7 @@ class GeminiNativeProvider(BaseProvider):
         thinking_enabled: bool
     ) -> Dict:
         """Build the full request body"""
-        # Gemma models don't support system_instruction - prepend to first user message instead
+        # Gemma models don't support systemInstruction - prepend to first user message instead
         is_gemma = self._is_gemma(model)
         
         contents, system_instruction = self._convert_messages_to_contents(
@@ -738,10 +738,10 @@ class GeminiNativeProvider(BaseProvider):
         }
         
         if system_instruction and not is_gemma:
-            # system_instruction is a top-level field - omit "role" (best practice)
+            # systemInstruction is a top-level field - omit "role" (best practice)
             # Never use "role": "user" here as it conflicts with system instruction purpose
             # Gemma models don't support this field, so we skip it for them
-            body["system_instruction"] = {
+            body["systemInstruction"] = {
                 "parts": [{"text": system_instruction}]
             }
         
