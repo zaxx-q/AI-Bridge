@@ -163,7 +163,7 @@ class FileProcessor(BaseTool):
             if exec_settings is None:
                 return ToolResult(success=False, message="Cancelled")
             
-            # Create checkpoint
+            # Create checkpoint (include audio preprocessing settings)
             input_files = [str(f.path) for f in scan_result.files]
             self._current_checkpoint = self.checkpoint_manager.create(
                 input_path=str(scan_result.input_path),
@@ -177,7 +177,8 @@ class FileProcessor(BaseTool):
                 provider=exec_settings["provider"],
                 model=exec_settings["model"],
                 delay=exec_settings["delay"],
-                use_batch=exec_settings.get("use_batch", False)
+                use_batch=exec_settings.get("use_batch", False),
+                audio_preprocessing=self._audio_preprocessing
             )
             
             # Step 5: Execute processing
@@ -1747,6 +1748,7 @@ class FileProcessor(BaseTool):
             return None
         
         self._keyboard_stop_event = threading.Event()
+        self._stop_requested = False  # Track if stop (vs pause) was requested
         
         def keyboard_listener():
             """Listen for keyboard input in background"""
@@ -1765,11 +1767,9 @@ class FileProcessor(BaseTool):
                             self.request_pause()
                             print("\n⏸️  Pause requested... (will pause after current file)")
                         elif key_lower == b's':
-                            self.request_pause()  # Stop is implemented as pause + quit prompt
-                            print("\n⏹️  Stop requested... (saving progress)")
-                        elif key == b'\x1b':  # Escape key
-                            self.request_abort()
-                            print("\n🛑 Abort requested... (stopping immediately)")
+                            self.request_pause()  # Stop is implemented as pause + immediate exit
+                            self._stop_requested = True  # Mark as stop (vs pause)
+                            print("\n⏹️  Stop requested... (saving progress after current file)")
                     
                     # Small sleep to prevent CPU spinning
                     time.sleep(0.05)
@@ -1820,9 +1820,9 @@ class FileProcessor(BaseTool):
             if cp.use_batch:
                 print(f"   Mode:     BATCH API (Async)")
             if HAVE_MSVCRT:
-                print("\n[P] Pause  [S] Stop (saves progress)  [Esc] Abort")
+                print("\n[P] Pause  [S] Stop (saves progress)")
             else:
-                print("\n(Keyboard controls not available - use Ctrl+C to abort)")
+                print("\n(Keyboard controls not available - use Ctrl+C to stop)")
             print("─" * 60)
         
         self.status = ToolStatus.RUNNING
@@ -1834,20 +1834,20 @@ class FileProcessor(BaseTool):
         
         try:
             for i, file_path in enumerate(remaining):
-                # Check for abort/pause
-                if self.check_abort():
-                    self.status = ToolStatus.CANCELLED
-                    self.checkpoint_manager.save(cp)
-                    result.message = "Aborted by user"
-                    result.success = False
-                    break
-                
+                # Check for pause/stop (graceful exit after current file)
                 if not self.check_pause():
-                    # Paused - save and wait
+                    # Paused or stopped - save and wait
                     self.checkpoint_manager.save(cp)
                     
                     # Stop keyboard listener while waiting for input
                     self._stop_keyboard_listener()
+                    
+                    # If stop was requested (not just pause), exit immediately
+                    if getattr(self, '_stop_requested', False):
+                        if interactive:
+                            print("\n⏹️  Stopped. Progress saved.")
+                        result.message = "Stopped by user"
+                        break
                     
                     if interactive:
                         print("\n⏸️  Paused. Press Enter to resume, 'q' to quit...")
@@ -1857,6 +1857,7 @@ class FileProcessor(BaseTool):
                                 result.message = "Stopped by user"
                                 break
                             self.request_resume()
+                            self._stop_requested = False  # Reset stop flag
                             # Restart keyboard listener
                             if HAVE_MSVCRT:
                                 keyboard_thread = self._start_keyboard_listener()
@@ -2070,6 +2071,9 @@ class FileProcessor(BaseTool):
         if not self._current_checkpoint:
             return ToolResult(success=False, message="Failed to load checkpoint")
         
+        # Restore audio preprocessing settings from checkpoint
+        self._audio_preprocessing = self._current_checkpoint.audio_preprocessing
+        
         return self._execute_processing()
     
     def _prompt_retry_failed(self) -> Optional[bool]:
@@ -2120,6 +2124,9 @@ class FileProcessor(BaseTool):
         self._current_checkpoint = self.checkpoint_manager.load_failed()
         if not self._current_checkpoint:
             return ToolResult(success=False, message="Failed to load failed checkpoint")
+        
+        # Restore audio preprocessing settings from checkpoint
+        self._audio_preprocessing = self._current_checkpoint.audio_preprocessing
         
         # Clear the failed checkpoint since we're using it now
         # (A new one will be created if there are still failures)

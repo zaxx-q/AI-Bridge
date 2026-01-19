@@ -48,6 +48,9 @@ class FileProcessorCheckpoint:
     delay_between_requests: float
     use_batch: bool = False
     
+    # Audio processing settings (for resume without re-prompting)
+    audio_preprocessing: Optional[Dict[str, Any]] = None
+    
     # Progress tracking
     completed_files: List[str] = field(default_factory=list)
     failed_files: List[Dict[str, str]] = field(default_factory=list)  # {"path": str, "error": str}
@@ -209,6 +212,7 @@ class FileProcessorCheckpoint:
             model=original.model,
             delay_between_requests=original.delay_between_requests,
             use_batch=original.use_batch,
+            audio_preprocessing=original.audio_preprocessing,  # Preserve audio settings
             completed_files=[],
             failed_files=[],  # Reset - these will be tracked fresh
             current_index=0,
@@ -394,7 +398,8 @@ class CheckpointManager:
         provider: str,
         model: str,
         delay: float,
-        use_batch: bool = False
+        use_batch: bool = False,
+        audio_preprocessing: Optional[Dict[str, Any]] = None
     ) -> FileProcessorCheckpoint:
         """
         Create a new checkpoint.
@@ -412,6 +417,7 @@ class CheckpointManager:
             model: Model name
             delay: Delay between requests in seconds
             use_batch: Whether to use Batch API
+            audio_preprocessing: Audio preprocessing settings (preset, intensity, optimization)
         
         Returns:
             New FileProcessorCheckpoint
@@ -434,6 +440,7 @@ class CheckpointManager:
             model=model,
             delay_between_requests=delay,
             use_batch=use_batch,
+            audio_preprocessing=audio_preprocessing,
             completed_files=[],
             failed_files=[],
             current_index=0,
