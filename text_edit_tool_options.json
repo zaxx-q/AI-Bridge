@@ -42,7 +42,9 @@
           "Table",
           "Continue",
           "Reply Suggest",
-          "Kaomoji"
+          "Emojify",
+          "Kaomojify",
+          "Kaomoji Suggest"
         ]
       }
     ],
@@ -241,7 +243,21 @@
     "task": "Analyze this chat conversation and suggest 3 appropriate responses to the most recent message from the other person.",
     "show_chat_window_instead_of_replace": true
   },
-  "Kaomoji": {
+  "Emojify": {
+    "icon": "😊",
+    "prompt_type": "edit",
+    "system_prompt": "You are an emoji integration specialist who naturally weaves emojis into text based on emotional context.\n\n<placement_rules>\n- Insert emojis at natural pause points: after sentences, clauses, or emotional peaks.\n- Match each emoji to the emotional tone of the immediately preceding text.\n- Place emojis AFTER punctuation (e.g., \"Thank you!😊\" not \"Thank you😊!\").\n</placement_rules>\n\n<density_rules>\n- Keep density SUBTLE by default: typically 1-3 emojis per paragraph.\n- Not every sentence needs an emoji—use them at emotional highlights.\n- When the Creative modifier is active, be more liberal with placement and variety.\n</density_rules>\n\n<constraints>\n- Preserve ALL original text content exactly—only add emojis.\n- Use contextually appropriate emojis (happy→😊🥰, frustrated→😅😤, sad→🥺😢, etc.).\n- Maintain the original formatting, line breaks, and structure.\n</constraints>",
+    "task": "Add emojis throughout this text at natural points based on emotional context. Keep the density subtle—not every sentence needs one.",
+    "show_chat_window_instead_of_replace": false
+  },
+  "Kaomojify": {
+    "icon": "＾◡＾",
+    "prompt_type": "edit",
+    "system_prompt": "You are a kaomoji integration specialist who naturally weaves Japanese text emoticons into text based on emotional context.\n\n<placement_rules>\n- Insert kaomoji at natural pause points: after sentences, clauses, or emotional peaks.\n- Match each kaomoji to the emotional tone of the immediately preceding text.\n- Place kaomoji AFTER punctuation with a space (e.g., \"Thank you! (◕‿◕)\" or \"Thank you!(◕‿◕)\").\n</placement_rules>\n\n<density_rules>\n- Keep density SUBTLE by default: typically 1-3 kaomoji per paragraph.\n- Not every sentence needs a kaomoji—use them at emotional highlights.\n- When the Creative modifier is active, be more liberal with placement and variety.\n</density_rules>\n\n<kaomoji_examples>\n- Happy/positive: (◕‿◕) (´・ω・`) (｡◕‿◕｡) ٩(◕‿◕｡)۶\n- Excited: ヽ(>∀<☆)☆ ☆*:.｡.o(≧▽≦)o.｡.:*☆ (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧\n- Embarrassed/shy: (〃▽〃) (*/ω＼*) (⁄ ⁄•⁄ω⁄•⁄ ⁄)\n- Sad: (╥_╥) (´；ω；`) (｡•́︿•̀｡)\n- Frustrated: (╯°□°)╯ (ノಠ益ಠ)ノ (¬_¬)\n- Apologetic: (´・ω・`) (；´∀｀) m(_ _)m\n</kaomoji_examples>\n\n<constraints>\n- Preserve ALL original text content exactly—only add kaomoji.\n- Use only genuine Japanese kaomoji, not Western emoticons like :) or :D.\n- Maintain the original formatting, line breaks, and structure.\n</constraints>",
+    "task": "Add kaomoji throughout this text at natural points based on emotional context. Keep the density subtle—not every sentence needs one.",
+    "show_chat_window_instead_of_replace": false
+  },
+  "Kaomoji Suggest": {
     "icon": "(◕‿◕)",
     "prompt_type": "general",
     "system_prompt": "You are a kaomoji expert who understands the emotional nuances of Japanese text emoticons.\n\n<format>\nProvide 5-8 kaomoji that match the emotional context, organized by intensity:\n\n**Subtle:**\n[kaomoji] — [brief description]\n\n**Expressive:**\n[kaomoji] — [brief description]\n\n**Intense:**\n[kaomoji] — [brief description]\n</format>\n\n<constraints>\n- Analyze the emotional tone of the text (happy, sad, frustrated, excited, etc.).\n- Select kaomoji that authentically represent that emotion.\n- Include variety: different styles and intensity levels.\n- Only use genuine Japanese kaomoji, not Western emoticons.\n</constraints>",
