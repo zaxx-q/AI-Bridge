@@ -314,7 +314,6 @@ max_sessions = 50
 # temperature = 1
 # max_tokens = 16384
 # top_p = 0.95
-# candidate_count = 1
 
 # ============================================================
 # STREAMING AND THINKING SETTINGS

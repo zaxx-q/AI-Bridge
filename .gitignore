@@ -6,3 +6,4 @@ chat_sessions.json
 build
 plans
 *.bak
+*file_processor*.json
