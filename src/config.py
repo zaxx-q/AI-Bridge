@@ -64,7 +64,7 @@ DEFAULT_CONFIG = {
     "streaming_typing_uncapped": False,
     # Screen Snipping Tool settings
     "screen_snip_enabled": True,
-    "screen_snip_hotkey": "ctrl+shift+s",
+    "screen_snip_hotkey": "ctrl+shift+x",
     # Flask endpoints settings
     # Enable/disable Flask API endpoints for external tools like ShareX
     # When disabled, endpoints from prompts.json are not registered
@@ -343,8 +343,8 @@ streaming_typing_uncapped = false
 # Enable/disable screen snipping feature
 screen_snip_enabled = true
 
-# Hotkey combination (e.g., ctrl+shift+s)
-screen_snip_hotkey = ctrl+shift+s
+# Hotkey combination (e.g., ctrl+shift+x)
+screen_snip_hotkey = ctrl+shift+x
 
 # ============================================================
 # FLASK API ENDPOINTS (Optional)
@@ -394,7 +394,7 @@ ui_force_standard_tk = false
 # ============================================================
 # All prompts are now unified in prompts.json:
 # - text_edit_tool: Text manipulation prompts (Ctrl+Space hotkey)
-# - snip_tool: Screen snipping image analysis prompts (Ctrl+Shift+S)
+# - snip_tool: Screen snipping image analysis prompts (Ctrl+Shift+X)
 # - endpoints: Flask API endpoint prompts (if flask_endpoints_enabled=true)
 #
 # Edit prompts.json directly or use the Prompt Editor

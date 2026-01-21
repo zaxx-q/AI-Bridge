@@ -581,7 +581,7 @@ def main():
     # SnipTool
     snip_tool_result = initialize_snip_tool(config, ai_params)
     if snip_tool_result:
-        snip_hotkey = config.get("screen_snip_hotkey", "ctrl+shift+s")
+        snip_hotkey = config.get("screen_snip_hotkey", "ctrl+shift+x")
     
     if HAVE_RICH:
         console.print()
