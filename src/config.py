@@ -55,6 +55,14 @@ DEFAULT_CONFIG = {
     # Uncap typing speed - type at maximum speed from server stream
     # WARNING: May cause issues with some applications (input lag, missed characters)
     "streaming_typing_uncapped": False,
+    # Screen Snipping Tool settings
+    "screen_snip_enabled": True,
+    "screen_snip_hotkey": "ctrl+shift+s",
+    # Flask endpoints settings
+    # Enable/disable Flask API endpoints for external tools like ShareX
+    # When disabled, endpoints from prompts.json are not registered
+    # Default: False (use built-in screen snipping instead)
+    "flask_endpoints_enabled": False,
     # UI Theme settings
     # Available themes: catppuccin, dracula, nord, gruvbox, onedark, minimal, highcontrast
     "ui_theme": "dracula",
@@ -362,6 +370,23 @@ streaming_typing_uncapped = false
 
 # TextEditTool options are configured in text_edit_tool_options.json
 # including: action prompts, placeholders, and per-action display settings
+
+# ============================================================
+# SCREEN SNIPPING TOOL - Capture screen regions for AI analysis
+# ============================================================
+# Enable/disable screen snipping feature
+screen_snip_enabled = true
+
+# Hotkey combination (e.g., ctrl+shift+s)
+screen_snip_hotkey = ctrl+shift+s
+
+# ============================================================
+# FLASK API ENDPOINTS (Optional)
+# ============================================================
+# Enable Flask endpoints for external tools like ShareX
+# When disabled (default), use built-in screen snipping instead
+# Set to true if you need to integrate with external tools
+flask_endpoints_enabled = false
 
 # ============================================================
 # UI THEME SETTINGS

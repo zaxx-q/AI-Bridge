@@ -5,10 +5,12 @@
 from .platform import HAVE_CTK, ctk
 
 from .text_edit_tool import TextEditToolApp
+from .snip_tool import SnipToolApp
 from .core import (
     show_chat_gui, show_session_browser, get_gui_status, HAVE_GUI,
     show_settings_window, show_prompt_editor, GUICoordinator
 )
+from .prompts import PromptsConfig, get_prompts_config, reload_prompts
 from .themes import (
     ThemeRegistry, ThemeColors,
     get_colors, get_color_scheme, list_themes,
@@ -45,6 +47,7 @@ except ImportError:
 __all__ = [
     # Core exports
     'TextEditToolApp',
+    'SnipToolApp',
     'show_chat_gui',
     'show_session_browser',
     'get_gui_status',
@@ -53,6 +56,11 @@ __all__ = [
     'show_settings_window',
     'show_prompt_editor',
     'GUICoordinator',
+    
+    # Prompts configuration
+    'PromptsConfig',
+    'get_prompts_config',
+    'reload_prompts',
     
     # Theme system
     'ThemeRegistry',

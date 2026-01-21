@@ -22,6 +22,7 @@ class RequestOrigin(Enum):
     CHAT_WINDOW = "chat_window"
     POPUP_INPUT = "popup_input"
     POPUP_PROMPT = "popup_prompt"
+    SNIP_TOOL = "snip_tool"
     ENDPOINT_OCR = "endpoint/ocr"
     ENDPOINT_TRANSLATE = "endpoint/translate"
     ENDPOINT_DESCRIBE = "endpoint/describe"

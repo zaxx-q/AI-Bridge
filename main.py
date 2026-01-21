@@ -46,6 +46,15 @@ except ImportError as e:
     HAVE_TEXT_EDIT_TOOL = False
     # Silent - will show in startup
 
+# SnipTool - screen snipping feature
+SNIP_TOOL_APP = None
+try:
+    from src.gui.snip_tool import SnipToolApp
+    HAVE_SNIP_TOOL = True
+except ImportError as e:
+    HAVE_SNIP_TOOL = False
+    # Silent - will show in startup
+
 
 def get_base_url(config, provider):
     """Get the base URL for a provider"""
@@ -213,9 +222,48 @@ def initialize_text_edit_tool(config, ai_params):
         return None
 
 
+def initialize_snip_tool(config, ai_params):
+    """Initialize SnipTool if enabled"""
+    global SNIP_TOOL_APP
+    
+    if not HAVE_SNIP_TOOL:
+        if HAVE_RICH:
+            console.print("  [red]✗[/red] SnipTool: Not available (missing dependencies)")
+        else:
+            print("  ✗ SnipTool: Not available (missing dependencies)")
+        return None
+    
+    if not config.get("screen_snip_enabled", True):
+        if HAVE_RICH:
+            console.print("  [red]✗[/red] SnipTool: Disabled in config")
+        else:
+            print("  ✗ SnipTool: Disabled in config")
+        return None
+    
+    try:
+        SNIP_TOOL_APP = SnipToolApp(
+            config=config,
+            ai_params=ai_params,
+            key_managers=web_server.KEY_MANAGERS
+        )
+        SNIP_TOOL_APP.start()
+        
+        # Register instance for hot-reload
+        from src.gui.snip_tool import set_instance
+        set_instance(SNIP_TOOL_APP)
+        
+        return SNIP_TOOL_APP
+    except Exception as e:
+        if HAVE_RICH:
+            console.print(f"  [red]✗ SnipTool: Failed to initialize: {e}[/red]")
+        else:
+            print(f"  ✗ SnipTool: Failed to initialize: {e}")
+        return None
+
+
 def cleanup():
     """Cleanup on shutdown"""
-    global TEXT_EDIT_TOOL_APP
+    global TEXT_EDIT_TOOL_APP, SNIP_TOOL_APP
     
     if TEXT_EDIT_TOOL_APP:
         if HAVE_RICH:
@@ -224,13 +272,21 @@ def cleanup():
             print("\nStopping TextEditTool...")
         TEXT_EDIT_TOOL_APP.stop()
         TEXT_EDIT_TOOL_APP = None
+    
+    if SNIP_TOOL_APP:
+        if HAVE_RICH:
+            console.print("Stopping SnipTool...")
+        else:
+            print("Stopping SnipTool...")
+        SNIP_TOOL_APP.stop()
+        SNIP_TOOL_APP = None
 
 
 def signal_handler(signum, frame):
     """Handle interrupt signals"""
     # Check if TextEditTool is currently copying (Ctrl+C simulation)
     # If so, ignore the signal as it's self-inflicted
-    global TEXT_EDIT_TOOL_APP
+    global TEXT_EDIT_TOOL_APP, SNIP_TOOL_APP
     if TEXT_EDIT_TOOL_APP and hasattr(TEXT_EDIT_TOOL_APP, 'is_copying') and TEXT_EDIT_TOOL_APP.is_copying():
         return
 
@@ -496,14 +552,23 @@ def main():
         input()
         sys.exit(1)
     
+    # Show endpoint status based on flask_endpoints_enabled
+    flask_endpoints_enabled = config.get("flask_endpoints_enabled", False)
+    
     if HAVE_RICH:
         console.print(f"[bold green]🚀 Server[/bold green]  [link=http://{host}:{port}]http://{host}:{port}[/link]")
-        console.print(f"   📡  {len(endpoints)} endpoints registered")
+        if flask_endpoints_enabled:
+            console.print(f"   📡  {len(endpoints)} endpoints registered")
+        else:
+            console.print("   📡  Endpoints disabled (use built-in snipping)")
         if HAVE_GUI:
             console.print("   🖥️  GUI available (on-demand)")
     else:
         print(f"🚀 Server: http://{host}:{port}")
-        print(f"   📡  {len(endpoints)} endpoints registered")
+        if flask_endpoints_enabled:
+            print(f"   📡  {len(endpoints)} endpoints registered")
+        else:
+            print("   📡  Endpoints disabled (use built-in snipping)")
         if HAVE_GUI:
             print("   🖥️  GUI available (on-demand)")
     
@@ -511,6 +576,11 @@ def main():
     text_tool_result = initialize_text_edit_tool(config, ai_params)
     if text_tool_result:
         hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
+    
+    # SnipTool
+    snip_tool_result = initialize_snip_tool(config, ai_params)
+    if snip_tool_result:
+        snip_hotkey = config.get("screen_snip_hotkey", "ctrl+shift+s")
     
     if HAVE_RICH:
         console.print()

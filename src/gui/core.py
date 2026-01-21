@@ -232,6 +232,10 @@ class GUICoordinator:
                     self._create_error_popup(request)
                 elif request_type == 'streaming_chat':
                     self._create_streaming_chat_window(request)
+                elif request_type == 'snip_overlay':
+                    self._create_snip_overlay(request)
+                elif request_type == 'snip_popup':
+                    self._create_snip_popup(request)
                 elif request_type == 'callback':
                     # Generic callback execution on GUI thread
                     callback = request.get('callback')
@@ -364,6 +368,33 @@ class GUICoordinator:
             # Signal that window is ready
             callbacks.ready.set()
     
+    def _create_snip_overlay(self, request):
+        """Create a screen snip overlay on the GUI thread"""
+        from .screen_snip import ScreenSnipOverlay
+        
+        on_capture = request.get('on_capture')
+        on_cancel = request.get('on_cancel')
+        
+        if on_capture and on_cancel:
+            ScreenSnipOverlay(self._root, on_capture, on_cancel)
+    
+    def _create_snip_popup(self, request):
+        """Create a snip popup on the GUI thread"""
+        from .snip_popup import create_attached_snip_popup
+        
+        capture_result = request.get('capture_result')
+        prompts_config = request.get('prompts_config')
+        on_action = request.get('on_action')
+        on_close = request.get('on_close')
+        x = request.get('x')
+        y = request.get('y')
+        
+        if capture_result and prompts_config and on_action:
+            create_attached_snip_popup(
+                self._root, capture_result, prompts_config,
+                on_action, on_close, x, y
+            )
+    
     def request_chat_window(self, session, initial_response=None):
         """Request creation of a chat window (thread-safe)"""
         self.ensure_running()
@@ -473,6 +504,40 @@ class GUICoordinator:
         self.ensure_running()
         self._request_queue.put({
             'type': 'prompt_editor'
+        })
+    
+    def request_snip_overlay(
+        self,
+        on_capture,
+        on_cancel
+    ):
+        """Request creation of a screen snip overlay (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'snip_overlay',
+            'on_capture': on_capture,
+            'on_cancel': on_cancel
+        })
+    
+    def request_snip_popup(
+        self,
+        capture_result,
+        prompts_config,
+        on_action,
+        on_close=None,
+        x=None,
+        y=None
+    ):
+        """Request creation of a snip popup (thread-safe)"""
+        self.ensure_running()
+        self._request_queue.put({
+            'type': 'snip_popup',
+            'capture_result': capture_result,
+            'prompts_config': prompts_config,
+            'on_action': on_action,
+            'on_close': on_close,
+            'x': x,
+            'y': y
         })
     
     def get_root(self):

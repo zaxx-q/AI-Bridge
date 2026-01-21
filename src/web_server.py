@@ -261,12 +261,20 @@ def init_web_server(config, ai_params, endpoints, key_managers):
     global CONFIG, AI_PARAMS, ENDPOINTS, KEY_MANAGERS
     CONFIG = config
     AI_PARAMS = ai_params
-    ENDPOINTS = endpoints
     KEY_MANAGERS = key_managers
     
-    # Register dynamic endpoints
-    for endpoint_name, prompt in endpoints.items():
-        handler = create_endpoint_handler(endpoint_name, prompt)
-        app.add_url_rule(f'/{endpoint_name}', endpoint_name, handler, methods=['POST'])
+    # Only register endpoints if flask_endpoints_enabled is true
+    # Default: False (use built-in screen snipping instead)
+    flask_endpoints_enabled = config.get("flask_endpoints_enabled", False)
+    
+    if flask_endpoints_enabled:
+        ENDPOINTS = endpoints
+        # Register dynamic endpoints
+        for endpoint_name, prompt in endpoints.items():
+            handler = create_endpoint_handler(endpoint_name, prompt)
+            app.add_url_rule(f'/{endpoint_name}', endpoint_name, handler, methods=['POST'])
+    else:
+        # No endpoints registered - API available but no custom routes
+        ENDPOINTS = {}
     
     return app
