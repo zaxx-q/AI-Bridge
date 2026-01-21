@@ -2152,8 +2152,8 @@ class PromptEditorWindow:
         messages = [{
             "role": "user",
             "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": data_url}}
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": prompt}
             ]
         }]
         
