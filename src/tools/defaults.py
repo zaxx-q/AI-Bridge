@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""
+Default Tools Configuration
+
+Contains the default tools_config.json content as a Python dictionary.
+This allows the application to create the config file on-demand when
+the user first interacts with tools, rather than requiring it at startup.
+"""
+
+DEFAULT_TOOLS_CONFIG = {
+    "_settings": {
+        "default_delay_between_requests": 1.0,
+        "checkpoint_enabled": True,
+        "checkpoint_file": ".file_processor_checkpoint.json",
+        "warn_on_mixed_file_types": True,
+        "allow_mixed_file_types": False
+    },
+
+    "file_processor": {
+        "prompts": {
+            "OCR (Verbatim)": {
+                "icon": "📝",
+                "description": "Extract text exactly as shown, preserving formatting",
+                "input_types": ["image"],
+                "prompt": "You are tasked with performing a high-fidelity Optical Character Recognition (OCR) and verbatim transcription. The objective is to achieve a perfect, one-to-one textual replication of the source document.\n\nCRITICAL REQUIREMENTS:\n1. Transcribe ALL text exactly as it appears - every character, every space, every line break\n2. Preserve the original formatting including:\n   - Line breaks and paragraph spacing\n   - Indentation and alignment\n   - Bullet points and numbered lists (using plain text equivalents)\n   - Tables (using ASCII/text representation)\n3. Use language context ONLY to resolve common OCR ambiguities (e.g., l vs 1 vs I, O vs 0). \n4. FIDELITY RULE: DO NOT correct spelling, grammar, syntax, or technical terms if the text is clearly visible. Transcribe errors exactly as they appear in the source.\n5. Handle special elements:\n   - If text is unclear, use [unclear] placeholder\n   - If text is partially obscured, transcribe visible parts with [obscured] marker\n   - Preserve any visible symbols, punctuation, and special characters\n\nOUTPUT FORMAT:\n- Provide ONLY the transcribed text\n- No preamble, no explanations, no metadata\n- Begin with the first character of the document\n- End with the last character of the document\n- The output must be ready for immediate copy-paste use without any manual correction",
+                "output_extension": ".txt",
+                "default_naming": "{filename}_ocr"
+            },
+
+            "OCR (to Markdown)": {
+                "icon": "📄",
+                "description": "Extract text and format as Markdown with structure",
+                "input_types": ["image"],
+                "prompt": "You are tasked with performing high-fidelity Optical Character Recognition (OCR) with intelligent Markdown formatting. Extract all text from the image and format it as clean, well-structured Markdown.\n\nEXTRACTION REQUIREMENTS:\n1. Transcribe ALL text with 100% accuracy\n2. PRIORITIZE VISUAL EVIDENCE: Do not 'autocorrect' technical terms, variable names, proper nouns, or specialized jargon even if they appear to be typos.\n3. Use language context ONLY to resolve OCR ambiguities (e.g., l vs 1 vs I, O vs 0, S vs 5).\n4. Handle unclear text with [unclear] markers\n\nMARKDOWN FORMATTING:\n1. Document Structure:\n   - Use # for main titles/headings\n   - Use ## for sections, ### for subsections\n   - Use --- for horizontal rules where visual separators exist\n\n2. Text Formatting:\n   - **Bold** for emphasized or highlighted text\n   - *Italic* for titles of works, emphasis, or styled text\n   - `code` for code snippets, technical terms, or monospace text\n   - > blockquotes for quoted material or callouts\n\n3. Lists:\n   - Use - for unordered lists\n   - Use 1. 2. 3. for numbered/ordered lists\n   - Preserve nesting with proper indentation\n\n4. Tables:\n   - Convert tabular data to Markdown tables\n   - Use | column | format | with proper alignment\n   - Include header row with |---|---| separator\n\n5. Code Blocks:\n   - Use ```language for multi-line code\n   - Detect language when possible (python, javascript, etc.)\n\n6. Links and References:\n   - Format URLs as [text](url) when destination is visible\n   - Format email as [email](mailto:email)\n\nOUTPUT FORMAT:\n- Provide ONLY the formatted Markdown\n- No preamble, explanations, or wrapper text\n- Begin directly with the content\n- Ensure the Markdown is valid and renders correctly",
+                "output_extension": ".md",
+                "default_naming": "{filename}_ocr"
+            },
+
+            "HTR (Handwriting to Markdown)": {
+                "icon": "✍️",
+                "description": "Transcribe handwritten text with Markdown formatting",
+                "input_types": ["image"],
+                "prompt": "You are tasked with performing high-fidelity Handwriting Text Recognition (HTR) and intelligent transcription. The objective is to accurately transcribe handwritten content—including cursive, print, and mixed styles—into clean, well-structured Markdown.\n\nHANDWRITING RECOGNITION GUIDELINES:\n1. **Balance Fidelity and Legibility**:\n   - Use language context ONLY to resolve ambiguous or illegible characters.\n   - Do not 'standardize' or fix errors in clearly written technical terms, proper nouns, or unique notations.\n\n2. **Character Recognition**:\n   - Handle variations in letter formation, slant, and size\n   - Recognize both cursive and print handwriting\n   - Identify connected letters and word boundaries\n   - Use contextual analysis to disambiguate similar characters:\n     * a/o, e/c, n/u, n/h, m/n, r/v, u/v\n     * l/t, f/t, d/cl, b/h\n     * Numbers: 1/7, 4/9, 5/S, 0/O\n\n3. **Word and Sentence Analysis**:\n   - Use surrounding context to infer unclear words\n   - Consider grammar and common phrases ONLY for resolution, not correction.\n   - Preserve intentional abbreviations and shorthand\n   - Handle crossed-out or corrected text appropriately\n\n4. **Document Understanding**:\n   - Identify dates, names, and structured information\n   - Recognize lists, bullet points, and numbered items\n   - Handle margin notes and annotations\n   - Preserve any drawings or symbols with [symbol: description]\n\n5. **Uncertainty Handling**:\n   - Use [unclear: best guess] for uncertain words\n   - Use [illegible] for completely unreadable sections\n   - Use [crossed out: text] for struck-through content\n   - Note any ambiguous readings that may need verification\n\nMARKDOWN FORMATTING:\n1. **Structure**:\n   - Use headings (#, ##, ###) for titles and sections\n   - Preserve natural paragraph breaks\n   - Use --- for page or section dividers\n\n2. **Text Formatting**:\n   - *Italic* for underlined handwritten text\n   - **Bold** for emphasized or circled words\n   - > blockquotes for indented or quoted material\n\n3. **Lists**:\n   - Convert handwritten lists to Markdown format\n   - Use - for bullet points, 1. for numbered lists\n   - Preserve indentation and nesting\n\n4. **Special Elements**:\n   - Tables for any tabular data\n   - `inline code` for technical terms or specific notations\n   - Footnotes for margin notes or additions\n\nOUTPUT FORMAT:\n- Provide ONLY the formatted Markdown transcription\n- No preamble, explanations, or commentary\n- Begin directly with the transcribed content\n- Produce a faithful representation suitable for immediate use",
+                "output_extension": ".md",
+                "default_naming": "{filename}_htr"
+            },
+
+            "HTR (Smart Cleanup, robust prompt)": {
+                "icon": "🧹",
+                "description": "Transcribe messy handwriting with intelligent cleanup and reconstruction",
+                "input_types": ["image"],
+                "prompt": "You are tasked with performing intelligent Handwriting Text Recognition (HTR) with active reconstruction. The objective is to transform messy, abbreviated, or fragmented handwritten notes into clean, readable text.\n\nRECONSTRUCTION APPROACH:\nThis mode PRIORITIZES READABILITY over strict fidelity. You should actively:\n- Expand abbreviations and shorthand\n- Complete truncated words\n- Fix obvious spelling errors\n- Infer missing words from context\n- Reconstruct fragmented thoughts into coherent sentences\n\nLANGUAGE HANDLING:\n- Input may be in ANY language—detect and transcribe accordingly\n- Apply language-appropriate grammar, spelling, and punctuation conventions\n- Expand abbreviations using the source language (e.g., Spanish: 'tb' → 'también', 'q' → 'que')\n- For mixed-language content, preserve code-switching naturally\n- Output in the same language(s) as the source material\n\nHANDWRITING RECOGNITION GUIDELINES:\n1. **Character Recognition**:\n   - Handle sloppy, rushed handwriting\n   - Recognize both cursive and print, including mixed styles\n   - Use aggressive contextual analysis to resolve ambiguous characters\n   - Trust language patterns over visual uncertainty\n   - Account for language-specific character variations and diacritics\n\n2. **Word Reconstruction**:\n   - Expand common abbreviations: w/ → with, b/c → because, govt → government, etc.\n   - Complete truncated words: info → information, approx → approximately\n   - Expand domain shorthand based on context (e.g., tech, medical, legal jargon)\n   - Fix transposed letters and common spelling mistakes\n   - Infer skipped articles (a, an, the) and prepositions\n\n3. **Sentence Reconstruction**:\n   - Convert fragments into complete sentences where intent is clear\n   - Add implied punctuation for readability\n   - Connect related bullet points or fragments into coherent thoughts\n   - Preserve the original meaning while improving clarity\n   - Do not invent new content—add clarity, not substance\n\n4. **Uncertainty Handling**:\n   - Make your best guess for unclear words—avoid markers when possible\n   - Use [?] inline for low-confidence interpretations: \"meeting on Tuesday [?]\"\n   - Use [illegible] ONLY for completely unreadable sections with no context clues\n   - Prefer a reasonable interpretation over marking as unclear\n\n5. **Document Understanding**:\n   - Identify the document type (meeting notes, to-do list, brainstorm, etc.)\n   - Use document context to inform word choices\n   - Recognize lists, action items, and structured information\n   - Handle margin notes and annotations by integrating them logically\n\nMARKDOWN FORMATTING:\n1. **Structure**:\n   - Use headings (#, ##, ###) for clear sections\n   - Organize fragmented notes into logical sections\n   - Use --- for page or topic dividers\n\n2. **Text Formatting**:\n   - *Italic* for reconstructed text that required significant inference\n   - **Bold** for emphasized or important items\n   - > blockquotes for key takeaways or highlighted content\n\n3. **Lists**:\n   - Convert scattered items into organized lists\n   - Use - for bullet points, 1. for numbered/sequential items\n   - Use - [ ] for action items or to-dos\n\n4. **Special Elements**:\n   - Tables for any tabular or comparative data\n   - `inline code` for technical terms, commands, or specific values\n   - Group related notes under appropriate headings\n\nOUTPUT FORMAT:\n- Provide ONLY the cleaned, formatted Markdown\n- No preamble or explanations\n- Begin directly with the reconstructed content\n- Produce a polished, immediately usable document\n- The output should read as if the notes were carefully written, not hastily jotted",
+                "output_extension": ".md",
+                "default_naming": "{filename}_htr_clean"
+            },
+
+            "Transcribe Audio": {
+                "icon": "🎙️",
+                "description": "Transcribe speech from audio files",
+                "input_types": ["audio"],
+                "prompt": "You are tasked with performing high-fidelity audio transcription. Generate an accurate, verbatim transcript of all speech in the audio.\n\nTRANSCRIPTION GUIDELINES:\n1. **Accuracy and Fidelity**:\n   - Transcribe speech EXACTLY as spoken.\n   - Use language context ONLY to resolve phonetic ambiguities (homophones like their/there).\n   - DO NOT standardize, correct, or 'clean up' the speech. Preserve non-standard grammar, dialects, and verbal errors.\n   - Preserve filler words (um, uh, like) if present.\n   - Maintain speaker distinctions if multiple speakers.\n\n2. **Speaker Identification**:\n   - If multiple speakers, use labels: Speaker 1:, Speaker 2:, etc.\n   - If speaker names are mentioned, use those names\n   - Note speaker changes with clear line breaks\n\n3. **Non-Speech Elements**:\n   - Note significant sounds: [laughter], [applause], [music]\n   - Indicate pauses: [pause] or [long pause]\n   - Mark unclear sections: [inaudible] or [unclear: best guess]\n\n4. **Formatting**:\n   - Use natural paragraph breaks at topic changes\n   - Preserve sentence structure and punctuation\n   - Include timestamps at regular intervals if helpful: [00:30]\n\nOUTPUT FORMAT:\n- Provide ONLY the transcript text\n- No preamble, summaries, or explanations\n- Begin directly with the transcribed content\n- End with the final spoken words",
+                "output_extension": ".txt",
+                "default_naming": "{filename}_transcript"
+            },
+
+            "Transcribe Audio (to Markdown)": {
+                "icon": "🎧",
+                "description": "Transcribe audio with Markdown formatting and structure",
+                "input_types": ["audio"],
+                "prompt": "You are tasked with performing high-fidelity audio transcription with intelligent Markdown formatting. Generate an accurate transcript formatted as clean, well-structured Markdown.\n\nTRANSCRIPTION GUIDELINES:\n1. **Fidelity and Accuracy**:\n   - Transcribe speech EXACTLY as spoken.\n   - Use language context ONLY to resolve phonetic ambiguities (homophones).\n   - DO NOT 'clean up' or fix grammar/speech errors. \n   - Maintain strict fidelity to the original content.\n\n2. **Speaker Handling**:\n   - Use **bold** for speaker labels: **Speaker 1:** or **John:**\n   - Create clear visual separation between speakers\n   - Use blockquotes for notable statements\n\n3. **Non-Speech Elements**:\n   - Use *italics* for annotations: *[laughter]*, *[music playing]*\n   - Mark unclear sections: *[inaudible]* or *[unclear: guess]*\n   - Note significant audio events in italics\n\nMARKDOWN FORMATTING:\n1. **Document Structure**:\n   - Use # for title (if audio has a clear title/topic)\n   - Use ## for major sections or topic changes\n   - Use --- for significant breaks or scene changes\n\n2. **Content Formatting**:\n   - Natural paragraph breaks at topic transitions\n   - > blockquotes for emphasized or quoted statements\n   - Bulleted lists if content includes enumerated points\n   - `code formatting` for technical terms or specific terminology\n\n3. **Timestamps**:\n   - Include timestamps as subheadings: ### [00:00] Introduction\n   - Or inline: **[02:30]** if marking specific moments\n\n4. **Special Content**:\n   - Tables for any discussed data or comparisons\n   - Numbered lists for sequential instructions\n   - Links if URLs are mentioned: [text](url)\n\nOUTPUT FORMAT:\n- Provide ONLY the formatted Markdown transcript\n- No preamble, explanations, or commentary\n- Begin directly with the content\n- Produce a document ready for immediate use",
+                "output_extension": ".md",
+                "default_naming": "{filename}_transcript"
+            },
+
+            "Describe Audio": {
+                "icon": "🔊",
+                "description": "Describe and analyze audio content",
+                "input_types": ["audio"],
+                "prompt": "Analyze and describe this audio in comprehensive detail.\n\n## Analysis Areas:\n\n### 1. Content Overview\n- What is the main subject or purpose of this audio?\n- What type of audio is this? (speech, music, podcast, meeting, etc.)\n\n### 2. Speech Content (if applicable)\n- Who is speaking? How many speakers?\n- What topics are discussed?\n- What is the tone and style?\n\n### 3. Audio Characteristics\n- Sound quality and clarity\n- Background sounds or music\n- Notable audio elements or effects\n\n### 4. Key Information\n- Main points or messages conveyed\n- Important names, dates, or figures mentioned\n- Any calls to action or conclusions\n\n### 5. Summary\n- Brief overall summary of the audio content\n- Most important takeaways\n\nProvide a thorough, objective description using Markdown formatting.",
+                "output_extension": ".md",
+                "default_naming": "{filename}_description"
+            },
+
+            "Describe Image": {
+                "icon": "🖼️",
+                "description": "Detailed description of image contents",
+                "input_types": ["image"],
+                "prompt": "Describe this image in comprehensive detail. Include:\n\n1. **Main Subject**: What is the primary focus or subject of the image?\n\n2. **Visual Elements**:\n   - Colors, lighting, and composition\n   - Text, symbols, or graphics visible\n   - Style (photograph, illustration, screenshot, etc.)\n\n3. **Context**:\n   - What is happening in the image?\n   - What is the setting or environment?\n   - Any notable details or elements\n\n4. **Purpose/Intent**:\n   - What appears to be the purpose of this image?\n   - What message or information does it convey?\n\nProvide a thorough, objective description that would allow someone to understand the image without seeing it. Use Markdown formatting for clarity.",
+                "output_extension": ".md",
+                "default_naming": "{filename}_description"
+            },
+
+            "Summarize Content": {
+                "icon": "📋",
+                "description": "Summarize text or document content",
+                "input_types": ["image", "text"],
+                "prompt": "Analyze and summarize the content provided. Create a clear, concise summary that captures:\n\n1. **Main Points**: The key information or arguments\n2. **Key Details**: Important facts, figures, or specifics\n3. **Conclusions**: Any conclusions or takeaways\n\nDATA INTEGRITY RULE: Maintain strict fidelity to original terminology. Do not 'correct' or normalize domain-specific terms, technical jargon, proper nouns, or identifiers.\n\nFormat your summary using Markdown:\n- Use bullet points for multiple items\n- Bold key terms or concepts\n- Keep the summary to approximately 20-30% of the original length\n\nProvide only the summary without preamble.",
+                "output_extension": ".md",
+                "default_naming": "{filename}_summary"
+            },
+
+            "Extract Data": {
+                "icon": "📊",
+                "description": "Extract structured data (tables, lists, key-value pairs)",
+                "input_types": ["image", "text"],
+                "prompt": "Extract all structured data from this content and format it clearly.\n\nDATA INTEGRITY RULE: Maintain strict fidelity to original terminology. Do not 'correct' or normalize domain-specific terms, codes, or identifiers. Preserve proper nouns and technical jargon exactly as found.\n\n**For Tables:**\n- Convert to Markdown table format\n- Preserve column headers and alignment\n- Maintain row relationships\n\n**For Lists:**\n- Use proper Markdown list formatting\n- Preserve hierarchy and nesting\n- Maintain numbering if present\n\n**For Key-Value Pairs:**\n- Format as `**Key**: Value`\n- Group related items\n- Preserve any units or qualifiers\n\n**For Mixed Content:**\n- Organize by data type\n- Use appropriate Markdown structures\n- Add section headers if needed\n\nOutput only the extracted data in clean Markdown format.",
+                "output_extension": ".md",
+                "default_naming": "{filename}_data"
+            },
+
+            "Code Review": {
+                "icon": "🔍",
+                "description": "Review code for issues, improvements, and best practices",
+                "input_types": ["code", "text", "image"],
+                "prompt": "Review the provided code and provide a comprehensive analysis.\n\n## Analysis Areas:\n\n### 1. Code Quality\n- Readability and maintainability\n- Naming conventions\n- Code organization\n\n### 2. Potential Issues\n- Bugs or logic errors\n- Edge cases not handled\n- Security vulnerabilities\n- Performance concerns\n\n### 3. Best Practices\n- Language-specific conventions\n- Design patterns\n- Error handling\n\n### 4. Suggestions\n- Specific improvements with code examples\n- Refactoring opportunities\n- Documentation needs\n\nProvide actionable feedback with specific line references where applicable. Format using Markdown with code blocks for examples.",
+                "output_extension": ".md",
+                "default_naming": "{filename}_review"
+            },
+
+            "Translate to English": {
+                "icon": "🌐",
+                "description": "Translate content to English",
+                "input_types": ["image", "text"],
+                "prompt": "Translate all text content to English.\n\nGuidelines:\n1. Maintain the original formatting and structure\n2. Preserve any proper nouns, brand names, or technical terms that shouldn't be translated\n3. Handle idioms and cultural references appropriately\n4. If the source language is unclear, identify it first\n5. Preserve any Markdown formatting present\n\nProvide only the translated content without additional commentary.",
+                "output_extension": ".txt",
+                "default_naming": "{filename}_en"
+            },
+
+            "Convert to JSON": {
+                "icon": "📦",
+                "description": "Extract and convert content to JSON format",
+                "input_types": ["image", "text"],
+                "prompt": "Extract the information from this content and convert it to a well-structured JSON format.\n\nGuidelines:\n1. Identify the logical structure of the data\n2. Use appropriate data types (strings, numbers, booleans, arrays, objects)\n3. Create meaningful key names in camelCase\n4. Preserve relationships between data elements\n5. Handle nested structures appropriately\n\nOutput only valid JSON with proper indentation. No explanation or wrapper text.",
+                "output_extension": ".json",
+                "default_naming": "{filename}_data"
+            },
+
+            "Custom Prompt": {
+                "icon": "⚡",
+                "description": "Enter a custom prompt for processing",
+                "input_types": ["image", "text", "code", "audio"],
+                "prompt": "",
+                "output_extension": ".txt",
+                "default_naming": "{filename}_processed",
+                "requires_input": True
+            }
+        },
+
+        "output_modes": {
+            "individual": {
+                "description": "Create one output file per input file",
+                "naming_template": "{filename}{suffix}{extension}",
+                "available_vars": ["filename", "suffix", "extension", "date", "time", "index"]
+            },
+            "combined": {
+                "description": "Append all outputs to a single file",
+                "naming_template": "batch_output_{date}_{time}{extension}",
+                "separator": "\n\n---\n\n## {original_filename}\n\n"
+            }
+        },
+
+        "file_type_mappings": {
+            "image": [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"],
+            "audio": [".mp3", ".wav", ".aiff", ".aac", ".ogg", ".flac", ".m4a", ".wma"],
+            "text": [".txt", ".md", ".rst", ".log", ".csv"],
+            "code": [
+                ".py", ".js", ".ts", ".jsx", ".tsx",
+                ".java", ".kt", ".scala",
+                ".c", ".cpp", ".h", ".hpp", ".cc",
+                ".go", ".rs", ".rb", ".php",
+                ".cs", ".swift", ".m",
+                ".html", ".css", ".scss", ".sass", ".less",
+                ".json", ".xml", ".yaml", ".yml", ".toml", ".ini",
+                ".sql", ".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd",
+                ".vue", ".svelte", ".astro"
+            ]
+        }
+    }
+}

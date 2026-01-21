@@ -8,3 +8,4 @@ plans
 *.bak
 *file_processor*.json
 prompts.json
+tools_config.json

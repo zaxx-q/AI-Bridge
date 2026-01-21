@@ -20,6 +20,8 @@ from .config import (
     get_setting,
     list_available_prompts,
     resolve_endpoint_prompt,
+    ensure_tools_config,
+    get_default_config,
     TOOLS_CONFIG_FILE,
 )
 from .audio_processor import (
@@ -92,6 +94,8 @@ __all__ = [
     "get_setting",
     "list_available_prompts",
     "resolve_endpoint_prompt",
+    "ensure_tools_config",
+    "get_default_config",
     "TOOLS_CONFIG_FILE",
     # File Processor
     "FileProcessor",

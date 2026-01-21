@@ -3,21 +3,62 @@
 Tools Configuration Loader
 
 Loads and manages tools_config.json configuration.
+Creates the config file on-demand when user first interacts with tools.
 """
 
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
+from .defaults import DEFAULT_TOOLS_CONFIG
+
 TOOLS_CONFIG_FILE = "tools_config.json"
 
 
-def load_tools_config(filepath: str = TOOLS_CONFIG_FILE) -> Dict[str, Any]:
+def get_default_config() -> Dict[str, Any]:
+    """
+    Get default tools configuration.
+    
+    Returns:
+        Default configuration dictionary from defaults.py
+    """
+    return DEFAULT_TOOLS_CONFIG.copy()
+
+
+def ensure_tools_config(filepath: str = TOOLS_CONFIG_FILE) -> Path:
+    """
+    Ensure tools_config.json exists, creating it from defaults if needed.
+    
+    This should be called when user first interacts with tools,
+    NOT at application startup.
+    
+    Args:
+        filepath: Path to tools_config.json
+    
+    Returns:
+        Path to the config file
+    """
+    path = Path(filepath)
+    
+    if not path.exists():
+        print(f"[Info] Creating default tools config: {filepath}")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_TOOLS_CONFIG, f, indent=2, ensure_ascii=False)
+            print(f"[Success] Created {filepath}")
+        except IOError as e:
+            print(f"[Error] Failed to create tools config: {e}")
+    
+    return path
+
+
+def load_tools_config(filepath: str = TOOLS_CONFIG_FILE, create_if_missing: bool = True) -> Dict[str, Any]:
     """
     Load tools configuration from JSON file.
     
     Args:
         filepath: Path to tools_config.json
+        create_if_missing: If True, create the file from defaults when missing
     
     Returns:
         Configuration dictionary
@@ -25,7 +66,13 @@ def load_tools_config(filepath: str = TOOLS_CONFIG_FILE) -> Dict[str, Any]:
     path = Path(filepath)
     
     if not path.exists():
-        print(f"[Warning] Tools config file '{filepath}' not found. Using defaults.")
+        if create_if_missing:
+            ensure_tools_config(filepath)
+        else:
+            return get_default_config()
+    
+    # Re-check after potential creation
+    if not path.exists():
         return get_default_config()
     
     try:
@@ -34,35 +81,6 @@ def load_tools_config(filepath: str = TOOLS_CONFIG_FILE) -> Dict[str, Any]:
     except (json.JSONDecodeError, IOError) as e:
         print(f"[Error] Failed to load tools config: {e}")
         return get_default_config()
-
-
-def get_default_config() -> Dict[str, Any]:
-    """Get default tools configuration"""
-    return {
-        "_settings": {
-            "default_delay_between_requests": 1.0,
-            "checkpoint_enabled": True,
-            "checkpoint_file": ".file_processor_checkpoint.json",
-            "warn_on_mixed_file_types": True,
-            "allow_mixed_file_types": False
-        },
-        "file_processor": {
-            "prompts": {},
-            "output_modes": {
-                "individual": {
-                    "description": "Create one output file per input file"
-                },
-                "combined": {
-                    "description": "Append all outputs to a single file"
-                }
-            },
-            "file_type_mappings": {
-                "image": [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"],
-                "text": [".txt", ".md", ".rst", ".log"],
-                "code": [".py", ".js", ".ts", ".java", ".c", ".cpp", ".go", ".rs"]
-            }
-        }
-    }
 
 
 def get_file_processor_prompts(config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
