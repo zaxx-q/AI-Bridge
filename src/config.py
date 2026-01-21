@@ -11,6 +11,13 @@ from pathlib import Path
 CONFIG_FILE = "config.ini"
 SESSIONS_FILE = "chat_sessions.json"
 
+# Import endpoint prompts from unified prompts module
+# This avoids circular imports by using a late import pattern
+def _get_default_endpoints():
+    """Get default endpoints from prompts module."""
+    from src.gui.prompts import DEFAULT_ENDPOINTS
+    return dict(DEFAULT_ENDPOINTS)
+
 # Default configuration
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
@@ -73,16 +80,6 @@ DEFAULT_CONFIG = {
     "ui_force_standard_tk": False,
 }
 
-# Default endpoint definitions
-DEFAULT_ENDPOINTS = {
-    "ocr": "Extract the text from this image. Preserve the original formatting, including line breaks, spacing, and layout, as accurately as possible. Return only the extracted text.",
-    "ocr_translate": "Extract all text from this image and translate it to {lang}. Preserve the original formatting as much as possible. Return only the translated text.",
-    "translate": "Translate all text in this image to English. Preserve the original formatting as much as possible. Return only the translated text.",
-    "summarize": "Summarize the content shown in this image concisely. Focus on the main points.",
-    "describe": "Describe this image in detail, including all visible elements, text, and context.",
-    "code": "Extract any code from this image. Preserve exact formatting, indentation, and syntax. Return only the code.",
-}
-
 # API URLs
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -112,7 +109,7 @@ def load_config(filepath=CONFIG_FILE):
     """Load configuration from .ini file"""
     config = dict(DEFAULT_CONFIG)
     ai_params = {}
-    endpoints = dict(DEFAULT_ENDPOINTS)
+    endpoints = _get_default_endpoints()
     keys = {"custom": [], "openrouter": [], "google": []}
     
     if not Path(filepath).exists():
@@ -135,10 +132,7 @@ def load_config(filepath=CONFIG_FILE):
                 continue
             
             if stripped.startswith('[') and stripped.endswith(']'):
-                if multiline_key and current_section == 'endpoints':
-                    endpoints[multiline_key] = ' '.join(multiline_value)
-                    multiline_key = None
-                    multiline_value = []
+                # Legacy endpoint section handling removed
                 current_section = stripped[1:-1].lower()
                 continue
             
@@ -152,31 +146,7 @@ def load_config(filepath=CONFIG_FILE):
                     elif value is not None:
                         ai_params[key] = value
             
-            elif current_section == 'endpoints':
-                if '=' in stripped:
-                    if multiline_key:
-                        endpoints[multiline_key] = ' '.join(multiline_value)
-                    endpoint_name, prompt = stripped.split('=', 1)
-                    endpoint_name = endpoint_name.strip().lower()
-                    prompt = prompt.strip()
-                    if (prompt.startswith('"') and prompt.endswith('"')) or \
-                       (prompt.startswith("'") and prompt.endswith("'")):
-                        prompt = prompt[1:-1]
-                    if prompt.endswith('\\'):
-                        multiline_key = endpoint_name
-                        multiline_value = [prompt[:-1].strip()]
-                    else:
-                        endpoints[endpoint_name] = prompt
-                        multiline_key = None
-                        multiline_value = []
-                elif multiline_key:
-                    if stripped.endswith('\\'):
-                        multiline_value.append(stripped[:-1].strip())
-                    else:
-                        multiline_value.append(stripped)
-                        endpoints[multiline_key] = ' '.join(multiline_value)
-                        multiline_key = None
-                        multiline_value = []
+            # Legacy [endpoints] section parsing removed - prompts now in prompts.json
             
             elif current_section in keys:
                 if stripped and not stripped.startswith('#'):
@@ -191,8 +161,7 @@ def load_config(filepath=CONFIG_FILE):
                     if key_part:
                         keys[current_section].append(key_part)
         
-        if multiline_key and current_section == 'endpoints':
-            endpoints[multiline_key] = ' '.join(multiline_value)
+        # Legacy multiline handling removed
         
         # Load from environment variables if not in config
         if not keys["google"] and os.getenv("GEMINI_API_KEY"):
@@ -368,9 +337,6 @@ streaming_typing_delay = 5
 # (input lag, missed characters, application freezing). Use with caution!
 streaming_typing_uncapped = false
 
-# TextEditTool options are configured in text_edit_tool_options.json
-# including: action prompts, placeholders, and per-action display settings
-
 # ============================================================
 # SCREEN SNIPPING TOOL - Capture screen regions for AI analysis
 # ============================================================
@@ -386,6 +352,7 @@ screen_snip_hotkey = ctrl+shift+s
 # Enable Flask endpoints for external tools like ShareX
 # When disabled (default), use built-in screen snipping instead
 # Set to true if you need to integrate with external tools
+# Endpoint prompts are defined in prompts.json (endpoints section)
 flask_endpoints_enabled = false
 
 # ============================================================
@@ -422,49 +389,15 @@ ui_force_standard_tk = false
 # Get keys at: https://aistudio.google.com/app/apikey
 # AIzaSyXXXXXXXXXXXXXXXXXXXXXXX
 
-[endpoints]
 # ============================================================
-# ENDPOINTS - Define your custom endpoints and prompts
-# Format: endpoint_name = prompt text
-# Access via: POST http://host:port/endpoint_name
+# PROMPTS CONFIGURATION
 # ============================================================
-
-# Use {lang} placeholder for dynamic language - pass ?lang=Japanese, ?lang=Indonesian, etc.
-ocr = Extract the text from this image. Preserve the original formatting, including line breaks, spacing, and layout, as accurately as possible. Return only the extracted text.
-
-ocr_translate = Extract all text from this image and translate it to {lang}. Preserve the original formatting as much as possible. Return only the translated text.
-
-translate = Translate all text in this image to English. Preserve the original formatting as much as possible. Return only the translated text.
-
-translate_ja = Translate all Japanese text in this image to English. Maintain the original structure and formatting. Return only the translation.
-
-translate_zh = Translate all Chinese text in this image to English. Maintain the original structure and formatting. Return only the translation.
-
-translate_ko = Translate all Korean text in this image to English. Maintain the original structure and formatting. Return only the translation.
-
-summarize = Summarize the content shown in this image concisely. Focus on the main points and key information.
-
-describe = Describe this image in detail, including all visible elements, text, colors, and context.
-
-code = Extract any code from this image. Preserve exact formatting, indentation, and syntax. Return only the code without any explanation.
-
-explain = Analyze and explain what is shown in this image. Provide context and insights.
-
-explain_code = Extract and explain any code shown in this image. First show the code, then explain what it does.
-
-latex = Convert any mathematical equations or formulas in this image to LaTeX format. Return only the LaTeX code.
-
-markdown = Convert the content of this image to Markdown format. Preserve the structure, headings, lists, and formatting.
-
-proofread = Extract the text from this image and proofread it. Fix any spelling, grammar, or punctuation errors. Return the corrected text.
-
-caption = Generate a short, descriptive caption for this image suitable for social media or alt text.
-
-analyze = Analyze this image and provide insights about its content, context, and any notable elements.
-
-extract_data = Extract any structured data (tables, lists, key-value pairs) from this image and format it clearly.
-
-handwriting = Transcribe any handwritten text in this image as accurately as possible.
+# All prompts are now unified in prompts.json:
+# - text_edit_tool: Text manipulation prompts (Ctrl+Space hotkey)
+# - snip_tool: Screen snipping image analysis prompts (Ctrl+Shift+S)
+# - endpoints: Flask API endpoint prompts (if flask_endpoints_enabled=true)
+#
+# Edit prompts.json directly or use the Prompt Editor (press E in terminal)
 '''
 
 

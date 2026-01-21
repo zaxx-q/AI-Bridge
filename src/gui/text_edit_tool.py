@@ -20,7 +20,7 @@ from typing import Optional, Dict
 from .hotkey import HotkeyListener
 from .text_handler import TextHandler
 from .popups import InputPopup, PromptSelectionPopup
-from .options import DEFAULT_OPTIONS, SETTINGS_KEY, DEFAULT_SETTINGS
+from .prompts import SETTINGS_KEY, DEFAULT_TEXT_EDIT_SETTINGS, DEFAULT_TEXT_EDIT_ACTIONS, get_prompts_config
 
 # Import API client directly (no wrapper needed)
 from ..api_client import call_api_with_retry
@@ -36,8 +36,7 @@ class TextEditToolApp:
         self,
         config: Dict,
         ai_params: Dict,
-        key_managers: Dict,
-        options_file: str = "text_edit_tool_options.json"
+        key_managers: Dict
     ):
         """
         Initialize the TextEditTool application.
@@ -46,14 +45,12 @@ class TextEditToolApp:
             config: Main configuration dictionary
             ai_params: AI parameters dictionary
             key_managers: Dictionary of KeyManager instances
-            options_file: Path to the options JSON file
         """
         self.config = config
         self.ai_params = ai_params
         self.key_managers = key_managers
-        self.options_file = options_file
         
-        # Load options
+        # Load options (TextEditTool specific section)
         self.options = self._load_options()
         
         # Get TextEditTool-specific config
@@ -83,41 +80,25 @@ class TextEditToolApp:
         logging.debug('TextEditToolApp initialized')
     
     def _load_options(self) -> Dict:
-        """Load options from JSON file or use defaults."""
-        options_path = Path(self.options_file)
+        """Load TextEditTool options from unified PromptsConfig."""
+        # Use the centralized config manager which handles migration and structure
+        prompts = get_prompts_config()
+        # Ensure we're up to date
+        prompts.reload()
         
-        if options_path.exists():
-            try:
-                with open(options_path, 'r', encoding='utf-8') as f:
-                    options = json.load(f)
-                    logging.debug(f'Loaded options from {options_path}')
-                    return options
-            except Exception as e:
-                logging.error(f'Failed to load options file: {e}')
-        
-        # Use defaults and save them
-        logging.debug('Using default options')
-        default_with_settings = {SETTINGS_KEY: DEFAULT_SETTINGS.copy(), **DEFAULT_OPTIONS}
-        self._save_options(default_with_settings)
-        return default_with_settings
+        # Return only the Text Edit Tool section for compatibility
+        return prompts.get_text_edit_tool()
     
     def _get_setting(self, key: str, default=None):
         """Get a setting from the _settings section of options."""
+        # Use PromptsConfig helper if available, or fallback to current dictionary
+        # Note: self.options here is just the dict snapshot we loaded
         settings = self.options.get(SETTINGS_KEY, {})
-        return settings.get(key, DEFAULT_SETTINGS.get(key, default))
+        return settings.get(key, DEFAULT_TEXT_EDIT_SETTINGS.get(key, default))
     
     def _get_action_options(self) -> Dict:
         """Get action options (excluding _settings)."""
         return {k: v for k, v in self.options.items() if k != SETTINGS_KEY}
-    
-    def _save_options(self, options: Dict):
-        """Save options to JSON file."""
-        try:
-            with open(self.options_file, 'w', encoding='utf-8') as f:
-                json.dump(options, f, indent=2)
-                logging.debug(f'Saved options to {self.options_file}')
-        except Exception as e:
-            logging.error(f'Failed to save options file: {e}')
     
     def start(self):
         """Start the TextEditTool application."""
@@ -1225,7 +1206,7 @@ class TextEditToolApp:
         """
         logging.info("Reloading TextEditTool options...")
         self.options = self._load_options()
-        print(f"[TextEditTool] Reloaded options from {self.options_file}")
+        print("[TextEditTool] Reloaded options from PromptsConfig")
 
 
 # Global reference for hot-reload

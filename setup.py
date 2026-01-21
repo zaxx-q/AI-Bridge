@@ -99,7 +99,6 @@ build_exe_options = {
     # Files to include
     "include_files": [
         ("icon.ico", "icon.ico"),
-        ("text_edit_tool_options.json", "text_edit_tool_options.json"),
         (os.path.dirname(customtkinter.__file__), "lib/customtkinter"),
         # Emoji assets for color emoji support in GUI
         ("assets/emojis.zip", "assets/emojis.zip"),

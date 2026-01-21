@@ -205,7 +205,7 @@ def initialize_text_edit_tool(config, ai_params):
             config=config,
             ai_params=ai_params,
             key_managers=web_server.KEY_MANAGERS,
-            options_file="text_edit_tool_options.json"
+            options_file="prompts.json"
         )
         TEXT_EDIT_TOOL_APP.start()
         

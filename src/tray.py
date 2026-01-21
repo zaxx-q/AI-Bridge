@@ -494,15 +494,15 @@ class TrayApp:
             print(f"[Error] Config file not found: {config_path}")
     
     def _on_edit_options(self, systray):
-        """Open text_edit_tool_options.json in default editor"""
+        """Open prompts.json in default editor"""
         if getattr(sys, 'frozen', False):
-            options_path = Path(sys.executable).parent / "text_edit_tool_options.json"
+            options_path = Path(sys.executable).parent / "prompts.json"
         else:
-            options_path = Path(__file__).parent.parent / "text_edit_tool_options.json"
+            options_path = Path(__file__).parent.parent / "prompts.json"
         
         # Try CWD fallback if standard paths fail
         if not options_path.exists():
-            cwd_path = Path.cwd() / "text_edit_tool_options.json"
+            cwd_path = Path.cwd() / "prompts.json"
             if cwd_path.exists():
                 options_path = cwd_path
                 
