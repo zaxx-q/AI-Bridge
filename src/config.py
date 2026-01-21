@@ -236,7 +236,7 @@ def save_config_value(key: str, value, filepath=CONFIG_FILE):
 def generate_example_config():
     """Generate example configuration file content"""
     return '''# ============================================================
-# AIPromptBridge - Multi-modal AI Assistant Server Configuration
+# AIPromptBridge - AI Desktop Tools & Integration Bridge
 # ============================================================
 
 [config]
@@ -397,7 +397,7 @@ ui_force_standard_tk = false
 # - snip_tool: Screen snipping image analysis prompts (Ctrl+Shift+S)
 # - endpoints: Flask API endpoint prompts (if flask_endpoints_enabled=true)
 #
-# Edit prompts.json directly or use the Prompt Editor (press E in terminal)
+# Edit prompts.json directly or use the Prompt Editor
 '''
 
 

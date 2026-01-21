@@ -23,6 +23,7 @@ Text Edit Tool _settings:
   - text_delimiter: Delimiter placed before the target text (opening tag)
   - text_delimiter_close: Delimiter placed after the target text (closing tag)
   - custom_task_template: Template for Custom action's task (uses {custom_input})
+  - ask_task_template: Template for custom ask (uses {custom_input})
   - popup_items_per_page: Number of action buttons per page in popup (default: 6)
   - popup_use_groups: Whether to use grouped button display (default: True)
   - popup_groups: List of group definitions with name and items
@@ -412,8 +413,7 @@ DEFAULT_SNIP_ACTIONS = {
 # =============================================================================
 
 DEFAULT_ENDPOINTS_SETTINGS = {
-    "enabled": False,
-    "description": "Flask API endpoints for external tools like ShareX. Disabled by default - use built-in screen snipping instead."
+    "description": "Flask API endpoints for external tools like ShareX. Enabled via flask_endpoints_enabled in config.ini."
 }
 
 DEFAULT_ENDPOINTS = {
@@ -610,11 +610,6 @@ class PromptsConfig:
         endpoints = self.get_endpoints()
         return {k: v for k, v in endpoints.items() if k != "_settings"}
     
-    def are_endpoints_enabled(self) -> bool:
-        """Check if Flask endpoints are enabled."""
-        endpoints = self.get_endpoints()
-        settings = endpoints.get("_settings", {})
-        return settings.get("enabled", False)
     
     # No legacy migration support needed for fresh install
 

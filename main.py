@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AIPromptBridge - Multi-modal AI Assistant Server
+AIPromptBridge - AI Desktop Tools & Integration Bridge
 Main entry point
 
 Usage:
@@ -80,7 +80,7 @@ def initialize():
     if HAVE_RICH:
         console.print()
         print_panel(
-            "[bold cyan]🌉 AIPromptBridge[/bold cyan]\n[dim]Multi-modal AI Assistant Server[/dim]",
+            "[bold cyan]🌉 AIPromptBridge[/bold cyan]\n[dim]AI Desktop Tools & Integration Bridge[/dim]",
             border_style="cyan"
         )
         console.print()
@@ -88,7 +88,7 @@ def initialize():
         print()
         print("┌" + "─" * 62 + "┐")
         print("│  🌉 AIPromptBridge                                            │")
-        print("│  Multi-modal AI Assistant Server                              │")
+        print("│  AI Desktop Tools & Integration Bridge                        │")
         print("└" + "─" * 62 + "┘")
         print()
     
@@ -204,8 +204,7 @@ def initialize_text_edit_tool(config, ai_params):
         TEXT_EDIT_TOOL_APP = TextEditToolApp(
             config=config,
             ai_params=ai_params,
-            key_managers=web_server.KEY_MANAGERS,
-            options_file="prompts.json"
+            key_managers=web_server.KEY_MANAGERS
         )
         TEXT_EDIT_TOOL_APP.start()
         
@@ -302,7 +301,7 @@ def signal_handler(signum, frame):
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
-        description="AIPromptBridge - Multi-modal AI Assistant Server",
+        description="AIPromptBridge - AI Desktop Tools & Integration Bridge",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -556,18 +555,20 @@ def main():
     flask_endpoints_enabled = config.get("flask_endpoints_enabled", False)
     
     if HAVE_RICH:
-        console.print(f"[bold green]🚀 Server[/bold green]  [link=http://{host}:{port}]http://{host}:{port}[/link]")
         if flask_endpoints_enabled:
+            console.print(f"[bold green]🚀 API Server Active[/bold green]: [link=http://{host}:{port}]http://{host}:{port}[/link]")
             console.print(f"   📡  {len(endpoints)} endpoints registered")
         else:
+            console.print(f"[dim]ℹ️  Internal Server Running locally (API endpoints disabled)[/dim]")
             console.print("   📡  Endpoints disabled (use built-in snipping)")
         if HAVE_GUI:
             console.print("   🖥️  GUI available (on-demand)")
     else:
-        print(f"🚀 Server: http://{host}:{port}")
         if flask_endpoints_enabled:
+            print(f"🚀 API Server Active: http://{host}:{port}")
             print(f"   📡  {len(endpoints)} endpoints registered")
         else:
+            print("ℹ️ Internal Server Running locally (API endpoints disabled)")
             print("   📡  Endpoints disabled (use built-in snipping)")
         if HAVE_GUI:
             print("   🖥️  GUI available (on-demand)")
