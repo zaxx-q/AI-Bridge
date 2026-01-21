@@ -430,13 +430,13 @@ def setup_working_directory():
         current_cwd = os.getcwd()
         
         # Log directory diagnosis for debugging
-        print(f"[Debug] Launch CWD: {current_cwd}")
-        print(f"[Debug] App Path:   {application_path}")
+        # print(f"[Debug] Launch CWD: {current_cwd}")
+        # print(f"[Debug] App Path:   {application_path}")
         
         if os.path.normpath(current_cwd).lower() != os.path.normpath(application_path).lower():
-            print(f"[Debug] CWD mismatch detected. Switching to App Path...")
+            # print(f"[Debug] CWD mismatch detected. Switching to App Path...")
             os.chdir(application_path)
-            print(f"[Debug] New CWD:    {os.getcwd()}")
+            # print(f"[Debug] New CWD:    {os.getcwd()}")
             
     except Exception as e:
         print(f"Warning: Failed to set working directory: {e}")
@@ -491,6 +491,20 @@ def main():
             print_success(f"Created '{CONFIG_FILE}'")
         else:
             print(f"✅ Created '{CONFIG_FILE}'")
+    
+    # Check for prompts.json creation notification
+    from src.gui.prompts import PROMPTS_FILE, PromptsConfig
+    if not Path(PROMPTS_FILE).exists():
+        if HAVE_RICH:
+            console.print("Creating default prompts configuration...")
+        else:
+            print("Creating default prompts configuration...")
+        # Accessing instance forces creation from defaults if file is missing
+        PromptsConfig.get_instance()
+        if HAVE_RICH:
+            print_success(f"Created '{PROMPTS_FILE}'")
+        else:
+            print(f"✅ Created '{PROMPTS_FILE}'")
     
     # Initialize (new compact output)
     config, ai_params, endpoints = initialize()

@@ -389,6 +389,8 @@ ui_force_standard_tk = false
 # Get keys at: https://aistudio.google.com/app/apikey
 # AIzaSyXXXXXXXXXXXXXXXXXXXXXXX
 
+
+
 # ============================================================
 # PROMPTS CONFIGURATION
 # ============================================================
