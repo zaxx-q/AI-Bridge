@@ -514,7 +514,7 @@ class SettingsWindow:
                 found = False
                 # List of known tabs with emojis
                 known_tabs = ["⚙️ General", "🌐 Provider", "⚡ Streaming",
-                             "✏️ TextEditTool", "🔑 API Keys", "🔗 Endpoints", "🎨 Theme"]
+                             "🔧 Tools", "🔑 API Keys", "🔗 Endpoints", "🎨 Theme"]
                 
                 for tab_name in known_tabs:
                     # Check for suffix match or containment
@@ -683,7 +683,7 @@ class SettingsWindow:
             self.tabview.add("⚙️ General")
             self.tabview.add("🌐 Provider")
             self.tabview.add("⚡ Streaming")
-            self.tabview.add("✏️ TextEditTool")
+            self.tabview.add("🔧 Tools")
             self.tabview.add("🔑 API Keys")
             self.tabview.add("🔗 Endpoints")
             self.tabview.add("🎨 Theme")
@@ -694,7 +694,7 @@ class SettingsWindow:
             self._create_general_tab(self.tabview.tab("⚙️ General"))
             self._create_provider_tab(self.tabview.tab("🌐 Provider"))
             self._create_streaming_tab(self.tabview.tab("⚡ Streaming"))
-            self._create_textedit_tab(self.tabview.tab("✏️ TextEditTool"))
+            self._create_tools_tab(self.tabview.tab("🔧 Tools"))
             self._create_keys_tab(self.tabview.tab("🔑 API Keys"))
             self._create_endpoints_tab(self.tabview.tab("🔗 Endpoints"))
             self._create_theme_tab(self.tabview.tab("🎨 Theme"))
@@ -705,7 +705,7 @@ class SettingsWindow:
             self.tabview = ttk.Notebook(parent)
             self.tabview.pack(fill="both", expand=True, pady=(0, 2))
             
-            tabs = ["General", "Provider", "Streaming", "TextEditTool", "API Keys", "Endpoints", "Theme"]
+            tabs = ["General", "Provider", "Streaming", "Tools", "API Keys", "Endpoints", "Theme"]
             frames = {}
             for tab_name in tabs:
                 frame = tk.Frame(self.tabview, bg=self.colors.bg)
@@ -715,7 +715,7 @@ class SettingsWindow:
             self._create_general_tab(frames["General"])
             self._create_provider_tab(frames["Provider"])
             self._create_streaming_tab(frames["Streaming"])
-            self._create_textedit_tab(frames["TextEditTool"])
+            self._create_tools_tab(frames["Tools"])
             self._create_keys_tab(frames["API Keys"])
             self._create_endpoints_tab(frames["Endpoints"])
             self._create_theme_tab(frames["Theme"])
@@ -979,15 +979,15 @@ class SettingsWindow:
              tk.Label(row, text="For Gemini 3 models", font=("Segoe UI", 9),
                      bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
     
-    def _create_textedit_tab(self, frame):
-        """Create the TextEditTool settings tab."""
+    def _create_tools_tab(self, frame):
+        """Create the Tools settings tab (TextEditTool + ScreenSnip)."""
         if self.use_ctk:
             scroll_frame = ctk.CTkScrollableFrame(frame, fg_color="transparent")
         else:
             scroll_frame = tk.Frame(frame, bg=self.colors.bg)
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # Enable/Disable section
+        # TextEditTool section
         create_section_header(scroll_frame, "✏️ TextEditTool", self.colors)
         
         self._add_toggle_field(scroll_frame, "text_edit_tool_enabled",
@@ -995,15 +995,24 @@ class SettingsWindow:
                               self.config_data.config.get("text_edit_tool_enabled", True),
                               hint="⚠️ Restart required")
         
-        # Hotkeys section
-        create_section_header(scroll_frame, "⌨️ Hotkeys", self.colors, top_padding=20)
-        
         self._add_entry_field(scroll_frame, "text_edit_tool_hotkey", "Activation hotkey:",
                              self.config_data.config.get("text_edit_tool_hotkey", "ctrl+space"),
                              width=200, hint="⚠️ Restart required")
         
         self._add_entry_field(scroll_frame, "text_edit_tool_abort_hotkey", "Abort hotkey:",
                              self.config_data.config.get("text_edit_tool_abort_hotkey", "escape"),
+                             width=200, hint="⚠️ Restart required")
+        
+        # ScreenSnip section
+        create_section_header(scroll_frame, "📸 ScreenSnip", self.colors, top_padding=20)
+        
+        self._add_toggle_field(scroll_frame, "screen_snip_enabled",
+                              "Enable ScreenSnip",
+                              self.config_data.config.get("screen_snip_enabled", True),
+                              hint="⚠️ Restart required")
+        
+        self._add_entry_field(scroll_frame, "screen_snip_hotkey", "ScreenSnip hotkey:",
+                             self.config_data.config.get("screen_snip_hotkey", "ctrl+shift+x"),
                              width=200, hint="⚠️ Restart required")
         
         # Typing settings section
@@ -1496,18 +1505,50 @@ class SettingsWindow:
                         bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(10, 0))
     
     def _create_endpoints_tab(self, frame):
-        """Create the Endpoints settings tab."""
-        container = ctk.CTkFrame(frame, fg_color="transparent") if self.use_ctk else tk.Frame(frame, bg=self.colors.bg)
-        container.pack(fill="both", expand=True, padx=15, pady=15)
+        """Create the Endpoints settings tab with prompts.json support."""
+        # Load endpoint prompts from prompts.json
+        from .prompts import PromptsConfig
+        self._prompts_config = PromptsConfig.get_instance()
+        self._endpoint_prompts = dict(self._prompts_config.get_endpoint_prompts())
+        
+        if self.use_ctk:
+            scroll_frame = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        else:
+            scroll_frame = tk.Frame(frame, bg=self.colors.bg)
+        scroll_frame.pack(fill="both", expand=True, padx=15, pady=15)
+        
+        # Flask Endpoints Enable toggle at top
+        create_section_header(scroll_frame, "🔧 Flask Endpoints", self.colors)
+        
+        self._add_toggle_field(scroll_frame, "flask_endpoints_enabled",
+                              "Enable Flask API Endpoints",
+                              self.config_data.config.get("flask_endpoints_enabled", True),
+                              hint="⚠️ Restart required. Enable/disable all Flask API endpoints.")
+        
+        # Main container for endpoint editor
+        container = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        container.pack(fill="both", expand=True, pady=(15, 0))
         
         # Left: endpoint list
         left_panel = ctk.CTkFrame(container, fg_color="transparent", width=240) if self.use_ctk else tk.Frame(container, bg=self.colors.bg, width=240)
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
-        create_section_header(left_panel, "🔗 Endpoints", self.colors)
+        create_section_header(left_panel, "🔗 Endpoint Prompts", self.colors)
         
-        # Endpoints List - Replace tk.Listbox with ScrollableButtonList
+        if self.use_ctk:
+            ctk.CTkLabel(
+                left_panel,
+                text="Edit prompts from prompts.json",
+                font=get_ctk_font(11),
+                **get_ctk_label_colors(self.colors, muted=True)
+            ).pack(anchor="w", pady=(0, 8))
+        else:
+            tk.Label(left_panel, text="Edit prompts from prompts.json",
+                    font=("Segoe UI", 9), bg=self.colors.bg,
+                    fg=self.colors.blockquote).pack(anchor="w", pady=(0, 8))
+        
+        # Endpoints List
         if self.use_ctk:
             self.endpoint_listbox = ScrollableButtonList(
                 left_panel, self.colors, command=self._on_endpoint_select,
@@ -1517,8 +1558,8 @@ class SettingsWindow:
             self.endpoint_listbox = ScrollableButtonList(left_panel, self.colors, command=self._on_endpoint_select, bg=self.colors.input_bg)
         self.endpoint_listbox.pack(fill="both", expand=True)
         
-        # Populate endpoints
-        for name in sorted(self.config_data.endpoints.keys()):
+        # Populate endpoints from prompts.json
+        for name in sorted(self._endpoint_prompts.keys()):
             self.endpoint_listbox.add_item(name, name, "🔗")
         
         # Right: prompt editor
@@ -1530,7 +1571,7 @@ class SettingsWindow:
                         text_color=self.colors.accent).pack(anchor="w", pady=(0, 12))
             
             self.endpoint_text = ctk.CTkTextbox(
-                right_panel, font=get_ctk_font(12),
+                right_panel, font=get_ctk_font(12), height=300,
                 **get_ctk_textbox_colors(self.colors)
             )
         else:
@@ -1538,7 +1579,7 @@ class SettingsWindow:
                     bg=self.colors.bg, fg=self.colors.accent).pack(anchor="w", pady=(0, 10))
             
             self.endpoint_text = tk.Text(
-                right_panel, font=("Segoe UI", 10),
+                right_panel, font=("Segoe UI", 10), height=15,
                 bg=self.colors.input_bg, fg=self.colors.fg, wrap="word"
             )
         self.endpoint_text.pack(fill="both", expand=True, pady=(0, 10))
@@ -1567,7 +1608,8 @@ class SettingsWindow:
     def _on_endpoint_select(self, name):
         """Handle endpoint selection."""
         if name:
-            prompt = self.config_data.endpoints.get(name, "")
+            # Load from our local copy of endpoint prompts
+            prompt = self._endpoint_prompts.get(name, "")
             if self.use_ctk:
                 self.endpoint_text.delete("0.0", "end")
                 self.endpoint_text.insert("0.0", prompt)
@@ -1576,18 +1618,80 @@ class SettingsWindow:
                 self.endpoint_text.insert("1.0", prompt)
     
     def _save_endpoint(self):
-        """Save the currently edited endpoint."""
+        """Save the currently edited endpoint to prompts.json."""
         name = self.endpoint_listbox.get_selected()
         if name:
             if self.use_ctk:
                 prompt = self.endpoint_text.get("0.0", "end").strip()
             else:
                 prompt = self.endpoint_text.get("1.0", "end").strip()
-            self.config_data.endpoints[name] = prompt
-            if self.use_ctk:
-                self.endpoint_status.configure(text=f"✅ Saved '{name}'", text_color=self.colors.accent_green)
+            
+            # Update local copy
+            self._endpoint_prompts[name] = prompt
+            
+            # Save to prompts.json (only endpoints section)
+            if self._save_endpoint_prompts():
+                if self.use_ctk:
+                    self.endpoint_status.configure(text=f"✅ Saved '{name}'", text_color=self.colors.accent_green)
+                else:
+                    self.endpoint_status.configure(text=f"✅ Saved '{name}'", fg=self.colors.accent_green)
             else:
-                self.endpoint_status.configure(text=f"✅ Saved '{name}'", fg=self.colors.accent_green)
+                if self.use_ctk:
+                    self.endpoint_status.configure(text=f"❌ Failed to save", text_color=self.colors.accent_red)
+                else:
+                    self.endpoint_status.configure(text=f"❌ Failed to save", fg=self.colors.accent_red)
+    
+    def _save_endpoint_prompts(self) -> bool:
+        """Save endpoint prompts to prompts.json (only endpoints section)."""
+        import json
+        from pathlib import Path
+        
+        prompts_file = Path("prompts.json")
+        
+        try:
+            # Load existing prompts.json
+            if prompts_file.exists():
+                with open(prompts_file, 'r', encoding='utf-8') as f:
+                    prompts_data = json.load(f)
+            else:
+                prompts_data = {}
+            
+            # Preserve _settings if it exists
+            existing_settings = {}
+            if "endpoints" in prompts_data and "_settings" in prompts_data["endpoints"]:
+                existing_settings = prompts_data["endpoints"]["_settings"]
+            
+            # Update only the endpoints section
+            prompts_data["endpoints"] = {
+                "_settings": existing_settings,
+                **self._endpoint_prompts
+            }
+            
+            # Create backup
+            if prompts_file.exists():
+                import shutil
+                shutil.copy2(prompts_file, prompts_file.with_suffix('.json.bak'))
+            
+            # Write back
+            with open(prompts_file, 'w', encoding='utf-8') as f:
+                json.dump(prompts_data, f, indent=2, ensure_ascii=False)
+            
+            # Reload PromptsConfig to pick up changes
+            self._prompts_config.reload()
+            
+            # Also update web_server ENDPOINTS if available
+            try:
+                from .. import web_server
+                for endpoint_name, prompt in self._endpoint_prompts.items():
+                    web_server.ENDPOINTS[endpoint_name] = prompt
+                print(f"[Settings] Reloaded {len(self._endpoint_prompts)} endpoint prompt(s)")
+            except (ImportError, AttributeError):
+                pass
+            
+            return True
+        except Exception as e:
+            print(f"[Settings] Error saving endpoint prompts: {e}")
+            return False
     
     def _create_theme_tab(self, frame):
         """Create the Theme settings tab."""
