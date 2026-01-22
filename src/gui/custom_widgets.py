@@ -34,8 +34,42 @@ class ScrollableButtonList(ctk.CTkScrollableFrame if HAVE_CTK else tk.Frame):
         self.selected_id: Optional[str] = None
         self.items: List[str] = [] # ordered list of IDs
         
-        # Configure grid
-        self.grid_columnconfigure(0, weight=1)
+        # Determine strict inner frame for buttons
+        if HAVE_CTK:
+            self.inner_frame = self
+            self.grid_columnconfigure(0, weight=1)
+        else:
+            # Setup scrolling for standard Tk
+            self.canvas = tk.Canvas(self, bg=colors.bg, highlightthickness=0)
+            self.scrollbar = tk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+            self.inner_frame = tk.Frame(self.canvas, bg=colors.bg)
+            
+            self.inner_frame.bind(
+                "<Configure>",
+                lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            )
+            
+            self.canvas_window = self.canvas.create_window((0, 0), window=self.inner_frame, anchor="nw")
+            
+            # Allow inner frame to expand to canvas width
+            self.canvas.bind(
+                "<Configure>",
+                lambda e: self.canvas.itemconfig(self.canvas_window, width=e.width)
+            )
+            
+            self.canvas.configure(yscrollcommand=self.scrollbar.set)
+            
+            self.scrollbar.pack(side="right", fill="y")
+            self.canvas.pack(side="left", fill="both", expand=True)
+            
+            # Mousewheel scrolling
+            self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+            self.inner_frame.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _on_mousewheel(self, event):
+        """Handle mousewheel scrolling for standard Tk."""
+        if not HAVE_CTK:
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
     
     def add_item(self, item_id: str, text: str, icon: str = None, font_weight: str = "normal"):
         """Add an item to the list."""
@@ -76,13 +110,13 @@ class ScrollableButtonList(ctk.CTkScrollableFrame if HAVE_CTK else tk.Frame):
                 btn_kwargs["image"] = img
                 btn_kwargs["compound"] = "left"
                 
-            btn = ctk.CTkButton(self, **btn_kwargs)
+            btn = ctk.CTkButton(self.inner_frame, **btn_kwargs)
             btn.grid(row=len(self.items)-1, column=0, sticky="ew", padx=2, pady=2)
             self.buttons[item_id] = btn
         else:
             # Fallback for standard tk
             btn = tk.Button(
-                self,
+                self.inner_frame,
                 text=display_text,
                 anchor="w",
                 command=lambda id=item_id: self.select(id),
