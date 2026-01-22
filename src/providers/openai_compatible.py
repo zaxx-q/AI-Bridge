@@ -180,23 +180,31 @@ class OpenAICompatibleProvider(BaseProvider):
             # Non-OpenRouter: preserve original order
             return content
         
-        # OpenRouter: Text First, Media Last
-        text_items = []
-        media_items = []
-        
+        # Count media items
+        media_count = 0
         for item in content:
             item_type = item.get("type", "")
-            # Text types
-            if item_type == "text":
-                text_items.append(item)
-            # Media types: images, audio, files, etc.
-            elif item_type in ("image_url", "input_audio", "audio", "file", "inline_data", "file_data"):
-                media_items.append(item)
-            else:
-                # Unknown types - treat as media (safer for OpenRouter)
-                media_items.append(item)
+            if item_type != "text":
+                media_count += 1
         
-        return text_items + media_items
+        # OpenRouter Logic:
+        # If exactly ONE media item, move it to the end (Text First).
+        # This prevents middleware parsing errors for simple cases.
+        # If multiple media items (e.g. interleaved document), preserve original order.
+        if media_count == 1:
+            text_items = []
+            media_items = []
+            
+            for item in content:
+                item_type = item.get("type", "")
+                if item_type == "text":
+                    text_items.append(item)
+                else:
+                    media_items.append(item)
+            
+            return text_items + media_items
+        
+        return content
     
     def _process_messages(self, messages: List[Dict]) -> List[Dict]:
         """

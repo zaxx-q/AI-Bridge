@@ -618,33 +618,38 @@ class GeminiNativeProvider(BaseProvider):
             return [{"text": content}]
         
         if isinstance(content, list):
-            text_parts = []
-            media_parts = []
+            all_parts = []
+            media_count = 0
             
             for item in content:
+                part = None
+                is_media = False
+                
                 if item.get("type") == "text":
-                    text_parts.append({"text": item.get("text", "")})
+                    part = {"text": item.get("text", "")}
                 elif item.get("type") == "image_url":
                     image_url = item.get("image_url", {}).get("url", "")
                     # Parse data URL
                     match = re.match(r"data:([^;]+);base64,(.+)", image_url)
                     if match:
                         mime_type, b64_data = match.groups()
-                        media_parts.append({
+                        part = {
                             "inline_data": {
                                 "mime_type": mime_type,
                                 "data": b64_data
                             }
-                        })
+                        }
+                        is_media = True
                 elif item.get("type") == "inline_data":
                     # Native inline data (audio, etc.)
                     inline = item.get("inline_data", {})
-                    media_parts.append({
+                    part = {
                         "inline_data": {
                             "mime_type": inline.get("mime_type", ""),
                             "data": inline.get("data", "")
                         }
-                    })
+                    }
+                    is_media = True
                 elif item.get("type") == "file":
                     # Generic file type (PDF, etc.)
                     # Can be nested {"file": {"url": ...}} or flat {"url": ...}
@@ -655,27 +660,40 @@ class GeminiNativeProvider(BaseProvider):
                     match = re.match(r"data:([^;]+);base64,(.+)", url)
                     if match:
                         mime_type, b64_data = match.groups()
-                        media_parts.append({
+                        part = {
                             "inline_data": {
                                 "mime_type": mime_type,
                                 "data": b64_data
                             }
-                        })
+                        }
+                        is_media = True
                 elif item.get("type") == "file_data":
                     # File uploaded via Files API
                     file_data = item.get("file_data", {})
-                    media_parts.append({
+                    part = {
                         "fileData": {
                             "mimeType": file_data.get("mime_type", ""),
                             "fileUri": file_data.get("file_uri", "")
                         }
-                    })
+                    }
+                    is_media = True
+                
+                if part:
+                    all_parts.append(part)
+                    if is_media:
+                        media_count += 1
             
-            # Gemini Native: Media First, Text Last
-            # This optimizes for Context Caching and reduces recency bias,
-            # ensuring the model pays more attention to the text instructions
-            # which appear at the end of the content.
-            return media_parts + text_parts
+            # Gemini Native Reordering Logic:
+            # If exactly ONE media item, move it to the start (Media First).
+            # This optimizes for Context Caching and reduces recency bias for simple queries
+            # by placing the single image/file before the text instructions.
+            # If multiple media items (e.g. interleaved document), preserve original order.
+            if media_count == 1:
+                media_parts = [p for p in all_parts if "text" not in p]
+                text_parts = [p for p in all_parts if "text" in p]
+                return media_parts + text_parts
+            
+            return all_parts
         
         return [{"text": str(content)}]
     

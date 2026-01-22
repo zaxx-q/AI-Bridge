@@ -254,15 +254,15 @@ class SnipToolApp:
         Format follows OpenAI multimodal message structure which is
         compatible with both OpenAI-compatible and Gemini Native providers.
         
-        Note: text content is placed BEFORE image_url for best compatibility.
+        Note: image_url is placed BEFORE text content (Context -> Question).
         """
         data_url = f"data:{mime_type};base64,{image_b64}"
         
         return [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": [
-                {"type": "text", "text": task},
-                {"type": "image_url", "image_url": {"url": data_url}}
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": task}
             ]}
         ]
     
