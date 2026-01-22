@@ -1833,7 +1833,7 @@ class PromptEditorWindow:
             else:
                 sys_prompt = self.editor_widgets["system_prompt"].get("1.0", "end").strip()
         else:
-            sys_prompt = action_data.get("system_prompt", action_data.get("instruction", ""))
+            sys_prompt = action_data.get("system_prompt", "")
             
         if sys_prompt:
             system_parts.append(sys_prompt)
@@ -1873,7 +1873,7 @@ class PromptEditorWindow:
             if self.current_action == action_name:
                 task = self.editor_widgets["task_var"].get()
             else:
-                task = action_data.get("task", action_data.get("prefix", ""))
+                task = action_data.get("task", "")
                 
             # Handle {input} placeholder for other actions if they use it
             if "{input}" in task and custom_input:

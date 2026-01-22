@@ -36,9 +36,6 @@ Per-Action Options (new structure):
   - show_chat_window_instead_of_replace: Whether to show result in chat window
   - icon: Icon to display in the popup (optional)
 
-Legacy keys (still supported for backward compatibility):
-  - prefix: Old name for task instruction (deprecated)
-  - instruction: Old name for system_prompt (deprecated)
 """
 
 import json
@@ -340,7 +337,7 @@ DEFAULT_TEXT_EDIT_ACTIONS = {
 # =============================================================================
 
 DEFAULT_SNIP_SETTINGS = {
-    "system_instruction": "You are an AI assistant specialized in analyzing images.",
+    "chat_window_system_instruction": "You are an AI assistant specialized in analyzing images.",
     "popup_groups": [
         {"name": "Analysis", "items": ["Describe", "Summarize", "Extract Text"]},
         {"name": "Code", "items": ["Explain Code", "Debug", "Convert"]},

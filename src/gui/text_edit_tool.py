@@ -738,11 +738,10 @@ class TextEditToolApp:
             else:  # "default" - use the action's setting
                 show_in_chat_window = option.get("show_chat_window_instead_of_replace", False)
             
-            # Build prompt using new structure with backwards compatibility
-            # New keys: system_prompt, task, prompt_type
-            # Legacy keys: instruction, prefix
-            system_prompt = option.get("system_prompt") or option.get("instruction", "")
-            task = option.get("task") or option.get("prefix", "")
+            # Build prompt using new structure
+            # Keys: system_prompt, task, prompt_type
+            system_prompt = option.get("system_prompt", "")
+            task = option.get("task", "")
             
             # Inject modifier prompts into system prompt
             if active_modifiers:
@@ -750,7 +749,7 @@ class TextEditToolApp:
                 if modifier_injections:
                     system_prompt = system_prompt + "\n\n" + modifier_injections
             
-            # Get prompt type (default to "edit" for backward compatibility)
+            # Get prompt type (default to "edit")
             # "edit" prompts use base_output_rules_edit (strict, no explanations)
             # "general" prompts use base_output_rules_general (more permissive)
             prompt_type = option.get("prompt_type", "edit")

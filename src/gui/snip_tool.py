@@ -308,7 +308,7 @@ class SnipToolApp:
         # Set system instruction for follow-ups
         snip_settings = self.prompts.get_snip_tool().get("_settings", {})
         session.system_instruction = snip_settings.get(
-            "system_instruction",
+            "chat_window_system_instruction",
             "You are an AI assistant analyzing images."
         )
         
