@@ -671,8 +671,11 @@ class GeminiNativeProvider(BaseProvider):
                         }
                     })
             
-            # Recommendation: Send text prompt first, then attachments
-            return text_parts + media_parts
+            # Gemini Native: Media First, Text Last
+            # This optimizes for Context Caching and reduces recency bias,
+            # ensuring the model pays more attention to the text instructions
+            # which appear at the end of the content.
+            return media_parts + text_parts
         
         return [{"text": str(content)}]
     

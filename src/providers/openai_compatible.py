@@ -162,6 +162,42 @@ class OpenAICompatibleProvider(BaseProvider):
             
         return headers
     
+    def _is_openrouter_endpoint(self) -> bool:
+        """
+        Check if this is an OpenRouter endpoint.
+        
+        OpenRouter requires Text First, Media Last ordering per their documentation
+        to prevent parsing errors in their middleware.
+        """
+        if self.endpoint_type == self.ENDPOINT_OPENROUTER:
+            return True
+        
+        url_lower = self.base_url.lower()
+        return "openrouter.ai" in url_lower or "openrouter" in url_lower
+    
+    def _reorder_content_for_provider(self, content: List[Dict]) -> List[Dict]:
+        if not self._is_openrouter_endpoint():
+            # Non-OpenRouter: preserve original order
+            return content
+        
+        # OpenRouter: Text First, Media Last
+        text_items = []
+        media_items = []
+        
+        for item in content:
+            item_type = item.get("type", "")
+            # Text types
+            if item_type == "text":
+                text_items.append(item)
+            # Media types: images, audio, files, etc.
+            elif item_type in ("image_url", "input_audio", "audio", "file", "inline_data", "file_data"):
+                media_items.append(item)
+            else:
+                # Unknown types - treat as media (safer for OpenRouter)
+                media_items.append(item)
+        
+        return text_items + media_items
+    
     def _process_messages(self, messages: List[Dict]) -> List[Dict]:
         """
         Process messages to handle specific content types like audio and files.
@@ -169,6 +205,9 @@ class OpenAICompatibleProvider(BaseProvider):
         Transforms:
         - Audio data URLs -> OpenAI 'input_audio' format
         - PDF files -> OpenRouter 'file' format
+        
+        Also applies provider-specific content ordering:
+        - OpenRouter: Text First, Media Last (per their documentation)
         """
         processed = []
         
@@ -276,6 +315,10 @@ class OpenAICompatibleProvider(BaseProvider):
                 
                 else:
                     new_content.append(item)
+            
+            # Apply provider-specific content ordering
+            # OpenRouter: Text First, Media Last (per their documentation)
+            new_content = self._reorder_content_for_provider(new_content)
             
             # Create new message with processed content
             new_msg = msg.copy()
