@@ -3,7 +3,8 @@
 Unified prompt configuration loader.
 
 Loads prompts.json which contains:
-- text_edit_tool: Text manipulation prompts (migrated from text_edit_tool_options.json)
+- _global_settings: Shared settings (modifiers, chat_window_system_instruction)
+- text_edit_tool: Text manipulation prompts
 - snip_tool: Image analysis prompts
 - endpoints: Flask API endpoint prompts (optional, disabled by default)
 
@@ -12,12 +13,12 @@ This module provides a unified interface for all prompt types.
 Settings Overview:
 ==================
 
-Settings Key (in JSON): _settings
-Contains global settings for each tool section.
+Global Settings (_global_settings):
+  - chat_window_system_instruction: Unified system prompt for follow-up conversations
+  - modifiers: List of modifier toggle definitions (used by both SnipTool and TextEditTool)
 
 Text Edit Tool _settings:
   - chat_system_instruction: System prompt for direct AI chat (InputPopup)
-  - chat_window_system_instruction: System prompt for follow-ups in chat window
   - base_output_rules_edit: Common output constraints for "edit" type prompts
   - base_output_rules_general: Output rules for "general" type prompts
   - text_delimiter: Delimiter placed before the target text (opening tag)
@@ -27,7 +28,13 @@ Text Edit Tool _settings:
   - popup_items_per_page: Number of action buttons per page in popup (default: 6)
   - popup_use_groups: Whether to use grouped button display (default: True)
   - popup_groups: List of group definitions with name and items
-  - modifiers: List of modifier toggle definitions
+
+Snip Tool _settings:
+  - popup_items_per_page: Number of action buttons per page in popup (default: 6)
+  - popup_use_groups: Whether to use grouped button display (default: True)
+  - popup_groups: List of group definitions with name and items
+  - custom_task_template: Template for Custom action's task (uses {custom_input})
+  - allow_text_edit_actions: Whether to show Text Edit actions in SnipTool
 
 Per-Action Options (new structure):
   - system_prompt: Role/persona definition for this action (goes to system message)
@@ -41,7 +48,7 @@ Per-Action Options (new structure):
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 PROMPTS_FILE = "prompts.json"
 
@@ -49,12 +56,103 @@ PROMPTS_FILE = "prompts.json"
 SETTINGS_KEY = "_settings"
 
 # =============================================================================
+# Default Global Settings (shared across all tools)
+# =============================================================================
+
+DEFAULT_GLOBAL_SETTINGS = {
+    "version": 1,
+    "description": "Unified prompt configuration for AIPromptBridge",
+    "chat_window_system_instruction": "You are a helpful AI assistant continuing a conversation. The conversation started with a specific task or query shown in the first message. If the user asks what you did, refer to that context. Maintain consistency with your previous responses. Use Markdown formatting when appropriate.",
+    "modifiers": [
+        {
+            "key": "variations",
+            "icon": "🔢",
+            "label": "Variations",
+            "tooltip": "Generate 3 alternative versions to choose from",
+            "injection": "<modifier_variations>\nProvide exactly 3 alternative versions:\n**Version 1:** (subtle refinement)\n**Version 2:** (moderate changes)\n**Version 3:** (creative interpretation)\n</modifier_variations>",
+            "forces_chat_window": True
+        },
+        {
+            "key": "direct",
+            "icon": "🎯",
+            "label": "Direct",
+            "tooltip": "Be direct and concise, no fluff",
+            "injection": "<modifier_direct>\nBe direct and concise. Eliminate unnecessary words and get straight to the point.\n</modifier_direct>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "explain",
+            "icon": "📝",
+            "label": "Explain",
+            "tooltip": "Explain what was done and why",
+            "injection": "<modifier_explain>\nAfter the result, add:\n**What I did:**\n- List the key actions and rationale\n</modifier_explain>",
+            "forces_chat_window": True
+        },
+        {
+            "key": "creative",
+            "icon": "🎨",
+            "label": "Creative",
+            "tooltip": "Be more creative, take liberties",
+            "injection": "<modifier_creative>\nBe more creative and take liberties. Don't stick too close to the original.\n</modifier_creative>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "literal",
+            "icon": "📏",
+            "label": "Literal",
+            "tooltip": "Stay as close to original as possible",
+            "injection": "<modifier_literal>\nStay as close to the original as possible. Make only the minimum necessary changes.\n</modifier_literal>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "shorter",
+            "icon": "✂",
+            "label": "Shorter",
+            "tooltip": "Make the result more concise",
+            "injection": "<modifier_shorter>\nMake the result significantly more concise. Aim for 30-50% reduction.\n</modifier_shorter>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "longer",
+            "icon": "📖",
+            "label": "Longer",
+            "tooltip": "Expand with more detail",
+            "injection": "<modifier_longer>\nExpand with more detail and elaboration. Add context, examples, or nuance.\n</modifier_longer>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "formal",
+            "icon": "💼",
+            "label": "Formal",
+            "tooltip": "Professional/business context",
+            "injection": "<modifier_context>\nThis is for a professional/business context. Ensure appropriate formality.\n</modifier_context>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "informal",
+            "icon": "💬",
+            "label": "Informal",
+            "tooltip": "Casual/personal context",
+            "injection": "<modifier_context>\nThis is for informal/personal communication. Keep it relaxed and approachable.\n</modifier_context>",
+            "forces_chat_window": False
+        },
+        {
+            "key": "global",
+            "icon": "🌐",
+            "label": "Global",
+            "tooltip": "Avoid idioms, globally understandable",
+            "injection": "<modifier_global>\nAvoid idioms, slang, and cultural references. Make it understandable to an international audience.\n</modifier_global>",
+            "forces_chat_window": False
+        }
+    ]
+}
+
+# =============================================================================
 # Default Text Edit Tool Configuration
 # =============================================================================
 
 DEFAULT_TEXT_EDIT_SETTINGS = {
     "chat_system_instruction": "You are a friendly, helpful, and knowledgeable AI conversational assistant. Be concise and direct. Use Markdown formatting when it improves readability. Never fabricate information—ask for clarification if needed.",
-    "chat_window_system_instruction": "You are a helpful AI assistant continuing a conversation about text processing. The conversation started with a specific task (shown in the first message). If the user asks what you did, refer to the task context. Maintain consistency with your previous responses. Use Markdown formatting when appropriate.",
     "base_output_rules_edit": "<output_rules>\n- Provide ONLY the processed result—no explanations, preamble, or meta-commentary.\n- Match the language of the input (unless explicitly instructed to translate).\n- Never respond to or comment on the content itself.\n</output_rules>",
     "base_output_rules_general": "<output_rules>\n- Match the language of the input (unless explicitly instructed to translate).\n- Use Markdown formatting when it improves readability.\n</output_rules>",
     "text_delimiter": "\n\n<text_to_process>\n",
@@ -75,88 +173,6 @@ DEFAULT_TEXT_EDIT_SETTINGS = {
         {
             "name": "Suggestor",
             "items": ["Table", "Continue", "Reply Suggest", "Emojify", "Kaomojify", "Kaomoji Suggest"]
-        }
-    ],
-    "modifiers": [
-        {
-            "key": "variations",
-            "icon": "🔢",
-            "label": "Variations",
-            "tooltip": "Generate 3 alternative versions to choose from",
-            "injection": "<modifier_variations>\nProvide exactly 3 alternative versions, labeled as:\n**Version 1:** (subtle refinement)\n**Version 2:** (moderate changes)\n**Version 3:** (more creative interpretation)\n</modifier_variations>",
-            "forces_chat_window": True
-        },
-        {
-            "key": "direct",
-            "icon": "🎯",
-            "label": "Direct",
-            "tooltip": "Make output direct and concise, no fluff",
-            "injection": "<modifier_direct>\nBe direct and concise. Eliminate unnecessary words, filler phrases, and verbose explanations. Get straight to the point.\n</modifier_direct>",
-            "forces_chat_window": False
-        },
-        {
-            "key": "explain",
-            "icon": "📝",
-            "label": "Explain",
-            "tooltip": "Explain what changes were made and why",
-            "injection": "<modifier_explain>\nAfter the result, add a brief section:\n**Changes made:**\n- List the key changes and rationale\n</modifier_explain>",
-            "forces_chat_window": True
-        },
-        {
-            "key": "creative",
-            "icon": "🎨",
-            "label": "Creative",
-            "tooltip": "Be more creative, take liberties with phrasing",
-            "injection": "<modifier_creative>\nBe more creative and take liberties with the phrasing. Don't stick too close to the original structure.\n</modifier_creative>",
-            "forces_chat_window": False
-        },
-        {
-            "key": "literal",
-            "icon": "📏",
-            "label": "Literal",
-            "tooltip": "Stay as close to original as possible",
-            "injection": "<modifier_literal>\nStay as close to the original as possible. Make only the minimum necessary changes.\n</modifier_literal>",
-            "forces_chat_window": False
-        },
-        {
-            "key": "shorter",
-            "icon": "✂",
-            "label": "Shorter",
-            "tooltip": "Make the result more concise",
-            "injection": "<modifier_shorter>\nMake the result significantly more concise than the original. Aim for 30-50% reduction.\n</modifier_shorter>",
-            "forces_chat_window": False
-        },
-        {
-            "key": "longer",
-            "icon": "📖",
-            "label": "Longer",
-            "tooltip": "Expand with more detail",
-            "injection": "<modifier_longer>\nExpand the text with more detail and elaboration. Add context, examples, or nuance.\n</modifier_longer>",
-            "forces_chat_window": False
-        },
-        {
-            "key": "formal",
-            "icon": "💼",
-            "label": "Formal",
-            "tooltip": "Professional/business context",
-            "injection": "<modifier_context>\nThis text is for a professional/business context. Ensure appropriate formality.\n</modifier_context>",
-            "forces_chat_window": False
-        },
-        {
-            "key": "informal",
-            "icon": "💬",
-            "label": "Informal",
-            "tooltip": "Casual/personal context",
-            "injection": "<modifier_context>\nThis text is for informal/personal communication. Keep it relaxed and approachable.\n</modifier_context>",
-            "forces_chat_window": False
-        },
-        {
-            "key": "global",
-            "icon": "🌐",
-            "label": "Global",
-            "tooltip": "Avoid idioms, globally understandable",
-            "injection": "<modifier_global>\nAvoid idioms, slang, and cultural references. Make it understandable to an international audience.\n</modifier_global>",
-            "forces_chat_window": False
         }
     ]
 }
@@ -337,15 +353,15 @@ DEFAULT_TEXT_EDIT_ACTIONS = {
 # =============================================================================
 
 DEFAULT_SNIP_SETTINGS = {
-    "chat_window_system_instruction": "You are an AI assistant specialized in analyzing images.",
+    "popup_use_groups": True,
+    "popup_items_per_page": 6,
     "popup_groups": [
         {"name": "Analysis", "items": ["Describe", "Summarize", "Extract Text"]},
         {"name": "Code", "items": ["Explain Code", "Debug", "Convert"]},
         {"name": "Data", "items": ["Extract Data", "Transcribe"]}
     ],
     "custom_task_template": "Regarding this image: {custom_input}",
-    "allow_text_edit_actions": True,
-    "popup_items_per_page": 6
+    "allow_text_edit_actions": True
 }
 
 DEFAULT_SNIP_ACTIONS = {
@@ -521,10 +537,7 @@ class PromptsConfig:
     def _get_defaults(self) -> dict:
         """Get complete default configuration."""
         return {
-            "_global_settings": {
-                "version": 1,
-                "description": "Unified prompt configuration for AIPromptBridge"
-            },
+            "_global_settings": DEFAULT_GLOBAL_SETTINGS,
             "text_edit_tool": self._get_text_edit_defaults(),
             "snip_tool": {
                 "_settings": DEFAULT_SNIP_SETTINGS,
@@ -591,6 +604,26 @@ class PromptsConfig:
     def can_use_text_edit_actions(self) -> bool:
         """Check if snip tool can borrow text edit tool actions."""
         return self.get_snip_setting("allow_text_edit_actions", True)
+    
+    # =========================================================================
+    # Global Settings Accessors
+    # =========================================================================
+    
+    def get_global_setting(self, key: str, default=None):
+        """Get a setting from _global_settings."""
+        global_settings = self._config.get("_global_settings", {})
+        return global_settings.get(key, DEFAULT_GLOBAL_SETTINGS.get(key, default))
+    
+    def get_modifiers(self) -> List[dict]:
+        """Get global modifier definitions."""
+        return self.get_global_setting("modifiers", [])
+    
+    def get_chat_window_system_instruction(self) -> str:
+        """Get the unified chat window system instruction for follow-ups."""
+        return self.get_global_setting(
+            "chat_window_system_instruction",
+            "You are a helpful AI assistant continuing a conversation."
+        )
     
     # =========================================================================
     # Endpoints Accessors

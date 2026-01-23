@@ -2130,9 +2130,9 @@ class AttachedPromptPopup:
             )
             self.response_toggle.pack(anchor="center")
             
-            # Modifier bar
-            settings = self.options.get("_settings", {})
-            modifiers = settings.get("modifiers", [])
+            # Modifier bar - get from global settings
+            from .prompts import get_prompts_config
+            modifiers = get_prompts_config().get_modifiers()
             if modifiers:
                 self.modifier_bar = ModifierBar(
                     content_frame,
@@ -2310,9 +2310,9 @@ class AttachedPromptPopup:
             )
             self.response_toggle.pack(anchor=tk.CENTER)
             
-            # Modifier bar (if modifiers defined)
-            settings = self.options.get("_settings", {})
-            modifiers = settings.get("modifiers", [])
+            # Modifier bar - get from global settings
+            from .prompts import get_prompts_config
+            modifiers = get_prompts_config().get_modifiers()
             if modifiers:
                 self.modifier_bar = ModifierBar(
                     content_frame,
@@ -2659,8 +2659,9 @@ class AttachedPromptPopup:
         user_mode = self.response_toggle.get() if self.response_toggle else "default"
         
         if self.active_modifiers:
-            settings = self.options.get("_settings", {})
-            modifiers = settings.get("modifiers", [])
+            # Get modifiers from global settings
+            from .prompts import get_prompts_config
+            modifiers = get_prompts_config().get_modifiers()
             for mod in modifiers:
                 if mod.get("key") in self.active_modifiers:
                     if mod.get("forces_chat_window", False):

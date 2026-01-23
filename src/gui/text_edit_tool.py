@@ -721,8 +721,8 @@ class TextEditToolApp:
             action_options = self._get_action_options()
             option = action_options.get(option_key, {})
             
-            # Get modifier definitions
-            modifier_defs = self._get_setting("modifiers", [])
+            # Get modifier definitions from global settings
+            modifier_defs = get_prompts_config().get_modifiers()
             
             # Check if any active modifier forces chat window
             forces_chat_window = self._modifiers_force_chat_window(active_modifiers, modifier_defs)
@@ -808,11 +808,8 @@ class TextEditToolApp:
                 if streaming_enabled:
                     # Streaming mode: open window immediately and stream content into it
                     # For popup buttons (ELI5, etc.), the initial request uses the button's
-                    # system_prompt, but follow-ups use chat_window_system_instruction
-                    chat_window_system_instruction = self._get_setting(
-                        "chat_window_system_instruction",
-                        "You are a helpful AI assistant continuing a conversation."
-                    )
+                    # system_prompt, but follow-ups use the global chat_window_system_instruction
+                    chat_window_system_instruction = get_prompts_config().get_chat_window_system_instruction()
                     self._stream_to_chat_window(
                         messages=messages,
                         window_title=f"{option_key} Result",
@@ -845,11 +842,8 @@ class TextEditToolApp:
                         return
                     
                     # Pass task context for better follow-up context
-                    # For popup buttons, use chat_window_system_instruction for follow-ups
-                    chat_window_system_instruction = self._get_setting(
-                        "chat_window_system_instruction",
-                        "You are a helpful AI assistant continuing a conversation."
-                    )
+                    # For popup buttons, use the global chat_window_system_instruction for follow-ups
+                    chat_window_system_instruction = get_prompts_config().get_chat_window_system_instruction()
                     self._show_chat_window(f"{option_key} Result", response, selected_text, task_context=task,
                                          followup_system_instruction=chat_window_system_instruction)
                 
@@ -1091,11 +1085,8 @@ class TextEditToolApp:
         if followup_system_instruction:
             session.system_instruction = followup_system_instruction
         else:
-            # Fallback to chat_window_system_instruction
-            session.system_instruction = self._get_setting(
-                "chat_window_system_instruction",
-                "You are a helpful AI assistant continuing a conversation."
-            )
+            # Fallback to global chat_window_system_instruction
+            session.system_instruction = get_prompts_config().get_chat_window_system_instruction()
         
         # Finalize: add the complete message to session
         response_text = ''.join(full_response) or ctx.response_text or ""
@@ -1161,11 +1152,8 @@ class TextEditToolApp:
         if followup_system_instruction:
             session.system_instruction = followup_system_instruction
         else:
-            # Fallback to chat_window_system_instruction
-            session.system_instruction = self._get_setting(
-                "chat_window_system_instruction",
-                "You are a helpful AI assistant continuing a conversation."
-            )
+            # Fallback to global chat_window_system_instruction
+            session.system_instruction = get_prompts_config().get_chat_window_system_instruction()
         
         # Show the chat window
         show_chat_gui(session, initial_response=response)

@@ -35,9 +35,11 @@ from .utils import hide_from_taskbar
 from .custom_widgets import create_emoji_button
 from .popups import (
     Tooltip, GroupedButtonList, CarouselButtonList,
-    setup_transparent_popup, TRANSPARENCY_COLOR
+    setup_transparent_popup, TRANSPARENCY_COLOR,
+    ModifierBar
 )
 from .screen_snip import CaptureResult
+from .prompts import get_prompts_config
 
 
 class AttachedSnipPopup:
@@ -68,7 +70,7 @@ class AttachedSnipPopup:
         parent_root: tk.Tk,
         capture_result: CaptureResult,
         prompts_config: Dict[str, Any],
-        on_action: Callable[[str, str, Optional[str]], None],
+        on_action: Callable[[str, str, Optional[str], List[str]], None],
         on_close: Optional[Callable[[], None]] = None,
         x: Optional[int] = None,
         y: Optional[int] = None
@@ -80,10 +82,11 @@ class AttachedSnipPopup:
             parent_root: Parent Tk root (from GUICoordinator)
             capture_result: The captured image data
             prompts_config: Combined prompts config with snip_tool and optionally text_edit_tool
-            on_action: Callback(source, action_key, custom_input) when action is selected
+            on_action: Callback(source, action_key, custom_input, active_modifiers) when action is selected
                 source: "snip" or "text_edit"
                 action_key: The action name (e.g., "Describe", "Proofread")
                 custom_input: Custom question text (if any)
+                active_modifiers: List of active modifier keys
             on_close: Callback when popup is closed
             x, y: Position coordinates (optional, defaults to cursor position)
         """
@@ -106,6 +109,10 @@ class AttachedSnipPopup:
         self.input_entry = None
         self.actions_frame = None
         self.carousel = None
+        self.modifier_bar = None
+        
+        # Active modifiers
+        self.active_modifiers: List[str] = []
         
         # Thumbnail
         self.thumbnail_photo = None
@@ -294,6 +301,16 @@ class AttachedSnipPopup:
         
         Tooltip(send_btn, "Ask a question about this image")
         
+        # Modifier bar (get from global settings)
+        global_modifiers = get_prompts_config().get_modifiers()
+        if global_modifiers:
+            self.modifier_bar = ModifierBar(
+                content,
+                modifiers=global_modifiers,
+                on_change=self._on_modifiers_changed
+            )
+            self.modifier_bar.pack(fill="x", pady=(0, 8))
+        
         # Actions area
         self.actions_frame = ctk.CTkFrame(content, fg_color="transparent")
         self.actions_frame.pack(fill="both", expand=True)
@@ -442,6 +459,16 @@ class AttachedSnipPopup:
         send_btn.bind('<Enter>', lambda e: send_btn.config(bg=self.colors.lavender))
         send_btn.bind('<Leave>', lambda e: send_btn.config(bg=self.colors.blue))
         
+        # Modifier bar (get from global settings) - tk version
+        global_modifiers = get_prompts_config().get_modifiers()
+        if global_modifiers:
+            self.modifier_bar = ModifierBar(
+                content,
+                modifiers=global_modifiers,
+                on_change=self._on_modifiers_changed
+            )
+            self.modifier_bar.pack(fill=tk.X, pady=(10, 0))
+        
         # Actions area
         self.actions_frame = tk.Frame(content, bg=self.colors.base)
         self.actions_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
@@ -523,37 +550,37 @@ class AttachedSnipPopup:
         
         settings = config.get("_settings", {})
         use_groups = settings.get("popup_use_groups", True)
+        popup_groups = settings.get("popup_groups", [])
         
-        if use_groups:
-            popup_groups = settings.get("popup_groups", [])
-            if popup_groups:
-                groups = []
-                for group_def in popup_groups:
-                    group_name = group_def.get("name", "")
-                    item_keys = group_def.get("items", [])
-                    
-                    items = []
-                    for key in item_keys:
-                        action = config.get(key)
-                        if action and not key.startswith("_"):
-                            icon = action.get("icon", "")
-                            tooltip = action.get("task", "")
-                            items.append((key, key, icon, tooltip))
-                    
-                    if items:
-                        groups.append({"name": group_name, "items": items})
+        # Only use groups if popup_use_groups is True AND groups are defined
+        if use_groups and popup_groups:
+            groups = []
+            for group_def in popup_groups:
+                group_name = group_def.get("name", "")
+                item_keys = group_def.get("items", [])
                 
-                if groups:
-                    self.carousel = GroupedButtonList(
-                        self.actions_frame,
-                        groups=groups,
-                        on_click=self._on_action_click,
-                        on_group_changed=self._reposition_window
-                    )
-                    self.carousel.pack(fill="both" if HAVE_CTK else tk.BOTH, expand=True)
-                    return
+                items = []
+                for key in item_keys:
+                    action = config.get(key)
+                    if action and not key.startswith("_"):
+                        icon = action.get("icon", "")
+                        tooltip = action.get("task", "")
+                        items.append((key, key, icon, tooltip))
+                
+                if items:
+                    groups.append({"name": group_name, "items": items})
+            
+            if groups:
+                self.carousel = GroupedButtonList(
+                    self.actions_frame,
+                    groups=groups,
+                    on_click=self._on_action_click,
+                    on_group_changed=self._reposition_window
+                )
+                self.carousel.pack(fill="both" if HAVE_CTK else tk.BOTH, expand=True)
+                return
         
-        # Fallback: flat carousel
+        # Flat carousel (when popup_use_groups is False or no groups defined)
         items_per_page = settings.get("popup_items_per_page", 6)
         items = []
         
@@ -598,10 +625,14 @@ class AttachedSnipPopup:
         self._create_action_buttons()
         self._reposition_window()
     
+    def _on_modifiers_changed(self, active_modifiers: List[str]):
+        """Handle modifier toggle changes."""
+        self.active_modifiers = active_modifiers
+    
     def _on_action_click(self, action_key: str):
         """Handle action button click."""
         self._close()
-        self.on_action(self.action_source, action_key, None)
+        self.on_action(self.action_source, action_key, None, self.active_modifiers)
     
     def _on_custom_submit(self):
         """Handle custom question submission."""
@@ -614,7 +645,7 @@ class AttachedSnipPopup:
             return
         
         self._close()
-        self.on_action(self.action_source, "_Custom", text)
+        self.on_action(self.action_source, "_Custom", text, self.active_modifiers)
     
     def _on_input_focus_in(self, event):
         """Handle input focus in (tk fallback)."""
@@ -712,7 +743,7 @@ def create_attached_snip_popup(
     parent_root: tk.Tk,
     capture_result: CaptureResult,
     prompts_config: Dict[str, Any],
-    on_action: Callable[[str, str, Optional[str]], None],
+    on_action: Callable[[str, str, Optional[str], List[str]], None],
     on_close: Optional[Callable[[], None]] = None,
     x: Optional[int] = None,
     y: Optional[int] = None
@@ -724,7 +755,7 @@ def create_attached_snip_popup(
         parent_root: Parent Tk root
         capture_result: Captured image data
         prompts_config: Combined prompts configuration
-        on_action: Callback for action selection
+        on_action: Callback for action selection (source, action_key, custom_input, active_modifiers)
         on_close: Callback when popup closes
         x, y: Position coordinates
         
