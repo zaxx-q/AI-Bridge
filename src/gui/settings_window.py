@@ -772,6 +772,48 @@ class SettingsWindow:
         self._add_spinbox_field(scroll_frame, "request_timeout", "Request timeout (s):",
                                self.config_data.config.get("request_timeout", 120),
                                10, 600, hint="Timeout for API requests")
+
+        # Image Storage section
+        create_section_header(scroll_frame, "🖼️ Session Images", self.colors, top_padding=20)
+        
+        # Image Format
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=8)
+        
+        self.vars["session_image_format"] = tk.StringVar(
+            master=self.root, value=self.config_data.config.get("session_image_format", "webp"))
+            
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Image format:", font=get_ctk_font(13), width=180, anchor="w",
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+            self.widgets["session_image_format"] = ctk.CTkComboBox(
+                row, variable=self.vars["session_image_format"],
+                values=["webp", "png", "jpg", "avif"],
+                width=120, height=34, state="readonly", font=get_ctk_font(13),
+                **get_ctk_combobox_colors(self.colors)
+            )
+            self.widgets["session_image_format"].pack(side="left", padx=(12, 0))
+            
+            ctk.CTkLabel(row, text="Storage format for chat attachments", font=get_ctk_font(11),
+                        **get_ctk_label_colors(self.colors, muted=True)).pack(side="left", padx=(15, 0))
+        else:
+            from tkinter import ttk
+            tk.Label(row, text="Image format:", font=("Segoe UI", 10), width=18, anchor="w",
+                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+            self.widgets["session_image_format"] = ttk.Combobox(
+                row, textvariable=self.vars["session_image_format"],
+                values=["webp", "png", "jpg", "avif"],
+                state="readonly", width=12
+            )
+            self.widgets["session_image_format"].pack(side="left", padx=(10, 0))
+            
+            tk.Label(row, text="Storage format for chat attachments", font=("Segoe UI", 9),
+                    bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left", padx=(15, 0))
+
+        # Image Quality
+        self._add_spinbox_field(scroll_frame, "session_image_quality", "Quality (1-100):",
+                               self.config_data.config.get("session_image_quality", 85),
+                               1, 100, hint="Compression level for webp/jpg/avif")
     
     def _create_provider_tab(self, frame):
         """Create the Provider settings tab."""
