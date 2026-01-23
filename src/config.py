@@ -78,6 +78,11 @@ DEFAULT_CONFIG = {
     # UI Framework settings
     # Force use of standard Tkinter even if CustomTkinter is available (fallback mode)
     "ui_force_standard_tk": False,
+    # Session attachment settings
+    # Image format for saving session attachments: png, jpg, webp (default), avif
+    "session_image_format": "webp",
+    # Image quality for lossy formats (jpg, webp, avif): 1-100
+    "session_image_quality": 85,
 }
 
 # API URLs
@@ -368,6 +373,17 @@ ui_theme_mode = auto
 # Force use of standard Tkinter even if CustomTkinter is available (fallback mode)
 # Useful for debugging or low-resource environments
 ui_force_standard_tk = false
+
+# ============================================================
+# SESSION ATTACHMENT SETTINGS
+# ============================================================
+# Image format for saving session attachments
+# Options: png, jpg, webp (default), avif
+session_image_format = webp
+
+# Image quality for lossy formats (1-100)
+# Higher = better quality but larger file size
+session_image_quality = 85
 
 
 # ============================================================

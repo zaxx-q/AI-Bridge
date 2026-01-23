@@ -38,21 +38,39 @@ class ChatSession:
         self.endpoint = endpoint or "chat"
         self.created_at = datetime.now().isoformat()
         self.updated_at = self.created_at
+        
+        # Legacy in-memory image (for backward compatibility)
+        # New code should use attachments instead
         self.image_base64 = image_base64
         self.mime_type = mime_type or "image/png"
+        
+        # Session-level attachments (paths to external files)
+        # Structure: [{"path": "session_attachments/5/0_img.webp", "mime_type": "image/webp"}]
+        self.attachments = []
+        
         self.messages = []
         self.title = None
         # System instruction for follow-up messages in chat window
         # Not persisted, only used for active sessions
         self.system_instruction = None
     
-    def add_message(self, role, content):
-        """Add a message to the session"""
-        self.messages.append({
+    def add_message(self, role, content, attachments=None):
+        """
+        Add a message to the session.
+        
+        Args:
+            role: "user" or "assistant"
+            content: Text content
+            attachments: Optional list of attachment dicts [{"path": "...", "mime_type": "..."}]
+        """
+        message = {
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat()
-        })
+        }
+        if attachments:
+            message["attachments"] = attachments
+        self.messages.append(message)
         self.updated_at = datetime.now().isoformat()
         if not self.title and role == "user":
             self.title = content[:50] + ("..." if len(content) > 50 else "")
@@ -74,16 +92,36 @@ class ChatSession:
         for i, msg in enumerate(self.messages):
             role = msg["role"]
             content = msg["content"]
+            msg_attachments = msg.get("attachments", [])
             
             if role == "user":
-                # Check if we need to include an image for this user message
-                needs_image = i == 0 and include_image and self.image_base64
+                # Check if we need to include images for this user message
+                # 1. Session-level image (legacy, on first message only)
+                needs_session_image = i == 0 and include_image and self.image_base64
+                # 2. Per-message attachments
+                has_attachments = bool(msg_attachments) and include_image
                 
-                if needs_image:
-                    # Use array format with image and text
+                if needs_session_image or has_attachments:
+                    # Use array format with images and text
                     content_parts = []
-                    data_url = f"data:{self.mime_type};base64,{self.image_base64}"
-                    content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+                    
+                    # Add session-level image first (legacy backward compat)
+                    if needs_session_image:
+                        data_url = f"data:{self.mime_type};base64,{self.image_base64}"
+                        content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+                    
+                    # Add per-message attachments
+                    if has_attachments:
+                        from .attachment_manager import AttachmentManager
+                        for attach in msg_attachments:
+                            attach_path = attach.get("path", "")
+                            if attach_path:
+                                b64, mime = AttachmentManager.load_image(attach_path)
+                                if b64:
+                                    data_url = f"data:{mime};base64,{b64}"
+                                    content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+                    
+                    # Add text content last (context -> question ordering)
                     content_parts.append({"type": "text", "text": content})
                     messages.append({"role": "user", "content": content_parts})
                 else:
@@ -97,16 +135,41 @@ class ChatSession:
     
     def to_dict(self):
         """Convert session to dictionary for serialization"""
+        # Save any in-memory image to file first (migration)
+        if self.image_base64 and not self.attachments:
+            self._migrate_inline_image()
+        
         return {
             "session_id": self.session_id,
             "endpoint": self.endpoint,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "title": self.title,
-            "messages": self.messages,
-            "has_image": bool(self.image_base64),
+            "messages": self.messages,  # Now includes attachments per-message
+            "attachments": self.attachments,  # Session-level attachments
+            "has_image": bool(self.image_base64) or bool(self.attachments),
             "mime_type": self.mime_type
         }
+    
+    def _migrate_inline_image(self):
+        """Migrate in-memory base64 image to external file storage."""
+        if not self.image_base64:
+            return
+        
+        try:
+            from .attachment_manager import AttachmentManager
+            path = AttachmentManager.save_image(
+                session_id=self.session_id,
+                image_base64=self.image_base64,
+                mime_type=self.mime_type,
+                message_index=0
+            )
+            if path:
+                self.attachments = [{"path": path, "mime_type": self.mime_type}]
+                # Keep image_base64 in memory for immediate use, but don't serialize it
+        except Exception as e:
+            import logging
+            logging.warning(f"[ChatSession] Failed to migrate image: {e}")
     
     @classmethod
     def from_dict(cls, data):
@@ -128,7 +191,26 @@ class ChatSession:
         session.title = data.get("title")
         session.messages = data.get("messages", [])
         session.mime_type = data.get("mime_type", "image/png")
-        session.image_base64 = None
+        
+        # Load attachments
+        session.attachments = data.get("attachments", [])
+        
+        # Load first attachment into memory for backward compatibility
+        if session.attachments:
+            try:
+                from .attachment_manager import AttachmentManager
+                first_attach = session.attachments[0]
+                b64, mime = AttachmentManager.load_image(first_attach.get("path", ""))
+                if b64:
+                    session.image_base64 = b64
+                    session.mime_type = mime
+                else:
+                    session.image_base64 = None
+            except Exception:
+                session.image_base64 = None
+        else:
+            session.image_base64 = None
+        
         return session
 
 
@@ -233,30 +315,44 @@ def list_sessions():
 
 def delete_session(session_id):
     """Delete a session by ID (handles both string and int IDs)"""
+    deleted_id = None
+    
     with SESSION_LOCK:
         # Try direct lookup first
         if session_id in CHAT_SESSIONS:
+            deleted_id = session_id
             del CHAT_SESSIONS[session_id]
-            return True
         
         # Try converting string to int
-        if isinstance(session_id, str):
+        elif isinstance(session_id, str):
             try:
                 int_id = int(session_id)
                 if int_id in CHAT_SESSIONS:
+                    deleted_id = int_id
                     del CHAT_SESSIONS[int_id]
-                    return True
             except ValueError:
                 pass
         
         # Try converting int to string for old UUID format
-        if isinstance(session_id, int):
+        elif isinstance(session_id, int):
             str_id = str(session_id)
             if str_id in CHAT_SESSIONS:
+                deleted_id = str_id
                 del CHAT_SESSIONS[str_id]
-                return True
-        
-        return False
+    
+    # Clean up attachments outside of lock
+    if deleted_id is not None:
+        try:
+            from .attachment_manager import delete_session_attachments
+            # Use the numeric ID for attachment cleanup
+            numeric_id = int(deleted_id) if isinstance(deleted_id, str) and deleted_id.isdigit() else deleted_id
+            if isinstance(numeric_id, int):
+                delete_session_attachments(numeric_id)
+        except Exception:
+            pass  # Attachment cleanup is best-effort
+        return True
+    
+    return False
 
 
 def clear_all_sessions():

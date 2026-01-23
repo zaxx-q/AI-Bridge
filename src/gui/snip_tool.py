@@ -157,7 +157,7 @@ class SnipToolApp:
         # Keep capture for potential re-opening? Or clear?
         # For now, keep it - user might want to try again
     
-    def _on_action_selected(self, source: str, action_key: str, custom_input: Optional[str]):
+    def _on_action_selected(self, source: str, action_key: str, custom_input: Optional[str], active_modifiers: List[str] = None):
         """
         Handle action selection from popup.
         
@@ -165,8 +165,12 @@ class SnipToolApp:
             source: "snip" or "text_edit"
             action_key: The action name (e.g., "Describe", "Proofread")
             custom_input: Custom question text (if any)
+            active_modifiers: List of active modifier keys
         """
-        logging.debug(f'Action selected: source={source}, key={action_key}, custom={bool(custom_input)}')
+        if active_modifiers is None:
+            active_modifiers = []
+        
+        logging.debug(f'Action selected: source={source}, key={action_key}, custom={bool(custom_input)}, modifiers={active_modifiers}')
         
         if not self.current_capture:
             logging.error('No capture available for action')
@@ -177,12 +181,34 @@ class SnipToolApp:
         # Process in background thread
         threading.Thread(
             target=self._process_action,
-            args=(source, action_key, custom_input),
+            args=(source, action_key, custom_input, active_modifiers),
             daemon=True
         ).start()
     
-    def _process_action(self, source: str, action_key: str, custom_input: Optional[str]):
+    def _build_modifier_injections(self, active_modifiers: List[str]) -> str:
+        """Build modifier injection text to append to system prompt."""
+        modifier_defs = self.prompts.get_modifiers()
+        injections = []
+        for mod in modifier_defs:
+            if mod.get("key") in active_modifiers:
+                injection = mod.get("injection", "")
+                if injection:
+                    injections.append(injection)
+        return "\n".join(injections)
+    
+    def _modifiers_force_chat_window(self, active_modifiers: List[str]) -> bool:
+        """Check if any active modifier forces chat window display."""
+        modifier_defs = self.prompts.get_modifiers()
+        for mod in modifier_defs:
+            if mod.get("key") in active_modifiers and mod.get("forces_chat_window", False):
+                return True
+        return False
+    
+    def _process_action(self, source: str, action_key: str, custom_input: Optional[str], active_modifiers: List[str] = None):
         """Process the selected action with image context."""
+        if active_modifiers is None:
+            active_modifiers = []
+        
         try:
             # Get action config based on source
             if source == "text_edit":
@@ -206,6 +232,12 @@ class SnipToolApp:
                 )
                 task = template.format(custom_input=custom_input)
             
+            # Apply modifier injections to system prompt
+            if active_modifiers:
+                modifier_injections = self._build_modifier_injections(active_modifiers)
+                if modifier_injections:
+                    system_prompt = system_prompt + "\n\n" + modifier_injections
+            
             # Build multimodal message
             messages = self._build_image_message(
                 image_b64=self.current_capture.image_base64,
@@ -218,6 +250,8 @@ class SnipToolApp:
             print(f"\n{'─'*60}")
             print(f"[SnipTool] Processing: {action_key}")
             print(f"[SnipTool] Image: {self.current_capture.width}x{self.current_capture.height}")
+            if active_modifiers:
+                print(f"[SnipTool] Modifiers: {', '.join(active_modifiers)}")
             
             # Always stream to chat window for image results
             from ..request_pipeline import RequestOrigin
@@ -282,6 +316,7 @@ class SnipToolApp:
         """
         from .core import GUICoordinator
         from ..session_manager import ChatSession
+        from ..attachment_manager import AttachmentManager
         from ..request_pipeline import RequestPipeline, RequestContext, StreamCallback
         
         # Create session with image attached
@@ -291,6 +326,16 @@ class SnipToolApp:
             mime_type=self.current_capture.mime_type
         )
         session.title = window_title
+        
+        # Save image to external file for persistence
+        attachment_path = AttachmentManager.save_image(
+            session_id=session.session_id,
+            image_base64=self.current_capture.image_base64,
+            mime_type=self.current_capture.mime_type,
+            message_index=0
+        )
+        if attachment_path:
+            session.attachments = [{"path": attachment_path, "mime_type": self.current_capture.mime_type}]
         
         # Add user message (just the task text, image is in session)
         # Extract text from multimodal message
@@ -305,12 +350,8 @@ class SnipToolApp:
         
         session.add_message("user", task_text)
         
-        # Set system instruction for follow-ups
-        snip_settings = self.prompts.get_snip_tool().get("_settings", {})
-        session.system_instruction = snip_settings.get(
-            "chat_window_system_instruction",
-            "You are an AI assistant analyzing images."
-        )
+        # Set system instruction for follow-ups (use global setting)
+        session.system_instruction = self.prompts.get_chat_window_system_instruction()
         
         # Check if streaming is enabled
         streaming_enabled = self.config.get("streaming_enabled", True)
