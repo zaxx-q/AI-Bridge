@@ -30,7 +30,7 @@ import pyperclip
 import threading
 
 from .platform import HAVE_CTK, ctk
-
+from .prompts import PROMPTS_FILE, reload_prompts
 
 # Note: For class definitions that inherit from ctk or tk, we use HAVE_CTK
 # since inheritance is determined at import time. For runtime widget creation,
@@ -58,22 +58,18 @@ except ImportError:
 # JSON Parser/Writer
 # =============================================================================
 
-OPTIONS_FILE = "text_edit_tool_options.json"
+OPTIONS_FILE = PROMPTS_FILE
 
 
-def load_options(filepath: str = OPTIONS_FILE) -> Dict:
+def load_options(filepath: str = PROMPTS_FILE) -> Dict:
     """
     Load and parse options JSON.
-    
-    Returns:
-        Dict with all options, or empty dict on error
+    Uses centralized PromptsConfig which handles defaults if file is missing.
     """
+    from .prompts import get_prompts_config
     try:
-        if not Path(filepath).exists():
-            return {}
-        
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        # Simply get the config from PromptsConfig which handles loading/defaults
+        return get_prompts_config()._config
     except Exception as e:
         print(f"[PromptEditor] Error loading options: {e}")
         return {}
@@ -95,6 +91,9 @@ def save_options(data: Dict, filepath: str = OPTIONS_FILE) -> bool:
         
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        # Reload prompts in the main app
+        reload_prompts()
         
         return True
     except Exception as e:
@@ -489,6 +488,7 @@ class PromptEditorWindow:
         
         # Data
         self.options_data: Dict = {}
+        self.current_tool: str = "text_edit_tool"  # Default tool
         self.current_action: Optional[str] = None
         
         # Playground image data
@@ -720,21 +720,52 @@ class PromptEditorWindow:
             self._create_playground_tab(playground_frame)
     
     def _refresh_action_list(self):
-        """Refresh the action scrollable list."""
+        """Refresh the action scrollable list based on current tool."""
         if not self.action_listbox:
             return
             
         selected = self.action_listbox.get_selected()
         self.action_listbox.clear()
         
-        for name in self.options_data.keys():
+        tool_data = self.options_data.get(self.current_tool, {})
+        
+        for name in tool_data.keys():
             if name == "_settings":
                 continue
-            icon = self.options_data[name].get("icon", "")
+            icon = tool_data[name].get("icon", "")
             self.action_listbox.add_item(name, name, icon)
             
-        if selected:
+        if selected and selected in tool_data:
             self.action_listbox.select(selected)
+        else:
+            self.editor_widgets["name"].configure(text="(select an action)")
+            self._clear_editor()
+
+    def _clear_editor(self):
+        """Clear the editor fields."""
+        if not hasattr(self, 'editor_widgets') or not self.editor_widgets:
+            return
+            
+        self.editor_widgets["icon_var"].set("")
+        self.editor_widgets["prompt_type_var"].set("edit")
+        self.editor_widgets["task_var"].set("")
+        self.editor_widgets["show_chat_var"].set(False)
+        
+        if self.use_ctk:
+            self.editor_widgets["system_prompt"].delete("0.0", "end")
+        else:
+            self.editor_widgets["system_prompt"].delete("1.0", "end")
+
+    def _on_tool_switch(self, value):
+        """Handle tool switching."""
+        if value == "Text Edit Tool":
+            self.current_tool = "text_edit_tool"
+        else:
+            self.current_tool = "snip_tool"
+        
+        # Clear current selection and refresh list
+        self.current_action = None
+        self._refresh_action_list()
 
     def _create_actions_tab(self, frame):
         """Create the Actions editing tab."""
@@ -749,6 +780,24 @@ class PromptEditorWindow:
         
         create_section_header(left_panel, "Actions", self.colors, "⚡")
         
+        # Tool Switcher
+        if self.use_ctk:
+            self.tool_switcher = ctk.CTkSegmentedButton(
+                left_panel,
+                values=["Text Edit Tool", "Snip Tool"],
+                command=self._on_tool_switch,
+                font=get_ctk_font(12, "bold"),
+                fg_color=self.colors.bg,
+                selected_color=self.colors.accent,
+                selected_hover_color=self.colors.accent,
+                unselected_color=self.colors.surface0,
+                unselected_hover_color=self.colors.surface1,
+                text_color=self.colors.fg,
+                text_color_disabled=self.colors.surface2
+            )
+            self.tool_switcher.set("Text Edit Tool")
+            self.tool_switcher.pack(fill="x", pady=(0, 10))
+        
         # List container - using ScrollableButtonList
         if self.use_ctk:
             self.action_listbox = ScrollableButtonList(
@@ -762,8 +811,7 @@ class PromptEditorWindow:
             )
         self.action_listbox.pack(fill="both", expand=True)
         
-        # Populate action list
-        self._refresh_action_list()
+        # Populate action list moved to end
         
         # Action buttons
         btn_frame = ctk.CTkFrame(left_panel, fg_color="transparent") if self.use_ctk else tk.Frame(left_panel, bg=self.colors.bg)
@@ -892,7 +940,7 @@ class PromptEditorWindow:
         if self.use_ctk:
             ctk.CTkLabel(row_frame, text="Task:", font=get_ctk_font(13), width=120, anchor="w",
                         **get_ctk_label_colors(self.colors)).pack(side="left")
-            self.editor_widgets["task_var"] = tk.StringVar(master=self.root)
+            self.editor_widgets["task_var"] = tk.StringVar()
             self.editor_widgets["task"] = ctk.CTkEntry(
                 row_frame, textvariable=self.editor_widgets["task_var"],
                 font=get_ctk_font(13), height=34, **get_ctk_entry_colors(self.colors)
@@ -901,7 +949,7 @@ class PromptEditorWindow:
         else:
             tk.Label(row_frame, text="Task:", font=("Segoe UI", 10), width=12, anchor="w",
                     bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
-            self.editor_widgets["task_var"] = tk.StringVar(master=self.root)
+            self.editor_widgets["task_var"] = tk.StringVar()
             self.editor_widgets["task"] = tk.Entry(
                 row_frame, textvariable=self.editor_widgets["task_var"],
                 font=("Segoe UI", 10), bg=self.colors.input_bg, fg=self.colors.fg
@@ -912,13 +960,13 @@ class PromptEditorWindow:
         row_frame = ctk.CTkFrame(editor_scroll, fg_color="transparent") if self.use_ctk else tk.Frame(editor_scroll, bg=self.colors.bg)
         row_frame.pack(fill="x", pady=10)
         
-        self.editor_widgets["show_chat_var"] = tk.BooleanVar(master=self.root)
+        self.editor_widgets["show_chat_var"] = tk.BooleanVar()
         if self.use_ctk:
             self.editor_widgets["show_chat"] = ctk.CTkCheckBox(
                 row_frame, text="Show response in chat window instead of replacing text",
                 variable=self.editor_widgets["show_chat_var"],
                 font=get_ctk_font(13), text_color=self.colors.fg,
-                fg_color=self.colors.accent, hover_color=self.colors.lavender
+                fg_color=self.colors.accent
             )
         else:
             self.editor_widgets["show_chat"] = tk.Checkbutton(
@@ -948,6 +996,9 @@ class PromptEditorWindow:
                 bg=self.colors.bg, fg=self.colors.accent_green
             )
         self.editor_widgets["save_status"].pack(side="left", padx=15)
+        
+        # Populate action list after widgets are created
+        self._refresh_action_list()
     
     def _create_settings_tab(self, frame):
         """Create the Settings tab for _settings object."""
@@ -957,25 +1008,10 @@ class PromptEditorWindow:
             scroll_frame = tk.Frame(frame, bg=self.colors.bg)
         scroll_frame.pack(fill="both", expand=True, padx=15, pady=15)
         
-        settings = self.options_data.get("_settings", {})
         self.settings_widgets = {}
         
-        # Section: Global Settings
-        create_section_header(scroll_frame, "Global Settings", self.colors, "🌍")
-        
-        # Text fields from settings
-        text_fields = [
-            ("chat_system_instruction", "Chat System Instruction", True),
-            ("chat_window_system_instruction", "Chat Window System Instruction", True),
-            ("base_output_rules_edit", "Base Output Rules (Edit)", True),
-            ("base_output_rules_general", "Base Output Rules (General)", True),
-            ("text_delimiter", "Text Delimiter", False),
-            ("text_delimiter_close", "Text Delimiter Close", False),
-            ("custom_task_template", "Custom Task Template", False),
-            ("ask_task_template", "Ask Task Template", False),
-        ]
-        
-        for key, label, multiline in text_fields:
+        # --- Helper for creating settings rows ---
+        def add_setting_row(section_key, key, label, multiline=False, override_val=None):
             row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
             row.pack(fill="x", pady=8)
             
@@ -986,6 +1022,17 @@ class PromptEditorWindow:
                 tk.Label(row, text=f"{label}:", font=("Segoe UI", 10),
                         bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w")
             
+            # Get value
+            if section_key == "global":
+                val = self.options_data.get("_global_settings", {}).get(key, "")
+            else:
+                val = self.options_data.get(section_key, {}).get("_settings", {}).get(key, "")
+            
+            if override_val is not None:
+                val = override_val
+
+            widget_key = f"{section_key}:{key}"
+
             if multiline:
                 if self.use_ctk:
                     widget = ctk.CTkTextbox(row, height=100, font=get_ctk_font(12),
@@ -994,13 +1041,14 @@ class PromptEditorWindow:
                     widget = tk.Text(row, height=4, font=("Consolas", 9),
                                     bg=self.colors.input_bg, fg=self.colors.fg, wrap="word")
                 widget.pack(fill="x", pady=(2, 0))
+                
                 if self.use_ctk:
-                    widget.insert("0.0", settings.get(key, ""))
+                    widget.insert("0.0", str(val))
                 else:
-                    widget.insert("1.0", settings.get(key, ""))
-                self.settings_widgets[key] = ("text", widget)
+                    widget.insert("1.0", str(val))
+                self.settings_widgets[widget_key] = ("text", widget)
             else:
-                var = tk.StringVar(master=scroll_frame, value=settings.get(key, ""))
+                var = tk.StringVar(master=scroll_frame, value=str(val))
                 if self.use_ctk:
                     widget = ctk.CTkEntry(row, textvariable=var, font=get_ctk_font(12), height=34,
                                          **get_ctk_entry_colors(self.colors))
@@ -1008,64 +1056,137 @@ class PromptEditorWindow:
                     widget = tk.Entry(row, textvariable=var, font=("Segoe UI", 10),
                                      bg=self.colors.input_bg, fg=self.colors.fg)
                 widget.pack(fill="x", pady=(2, 0))
-                self.settings_widgets[key] = ("entry", var)
+                self.settings_widgets[widget_key] = ("entry", var)
+
+        # =====================================================================
+        # Global Settings
+        # =====================================================================
+        create_section_header(scroll_frame, "Global Settings", self.colors, "🌍")
         
-        # Section: Popup Settings
+        add_setting_row("global", "chat_window_system_instruction", "Chat Window System Instruction", True)
+
+        # =====================================================================
+        # Text Edit Tool Settings
+        # =====================================================================
+        if self.use_ctk: ctk.CTkFrame(scroll_frame, height=20, fg_color="transparent").pack()
+        create_section_header(scroll_frame, "Text Edit Tool", self.colors, "✏️")
+        
+        tet_fields = [
+            ("chat_system_instruction", "Chat System Instruction (Direct)", True),
+            ("base_output_rules_edit", "Base Output Rules (Edit)", True),
+            ("base_output_rules_general", "Base Output Rules (General)", True),
+            ("text_delimiter", "Text Delimiter", False),
+            ("text_delimiter_close", "Text Delimiter Close", False),
+            ("custom_task_template", "Custom Task Template", False),
+            ("ask_task_template", "Ask Task Template", False),
+        ]
+        for k, l, m in tet_fields:
+            add_setting_row("text_edit_tool", k, l, m)
+            
+        # Popup settings for Text Edit
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=(8, 0))
         if self.use_ctk:
-            # Add extra padding for second section
-            ctk.CTkFrame(scroll_frame, fg_color="transparent", height=15).pack()
-        create_section_header(scroll_frame, "Popup Settings", self.colors, "🪟")
-        
+            ctk.CTkLabel(row, text="Popup Layout:", font=get_ctk_font(12, "bold"),
+                        **get_ctk_label_colors(self.colors)).pack(anchor="w")
+        else:
+            tk.Label(row, text="Popup Layout:", font=("Segoe UI", 9, "bold"),
+                    bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w")
+
         # Items per page
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=4)
+        if self.use_ctk:
+             ctk.CTkLabel(row, text="Items per page:", font=get_ctk_font(12),
+                        **get_ctk_label_colors(self.colors)).pack(side="left")
+        else:
+             tk.Label(row, text="Items per page:", font=("Segoe UI", 10),
+                     bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+        
+        tet_val = self.options_data.get("text_edit_tool", {}).get("_settings", {}).get("popup_items_per_page", 6)
+        tet_items_var = tk.IntVar(master=scroll_frame, value=tet_val)
+        if self.use_ctk:
+             ctk.CTkEntry(row, textvariable=tet_items_var, width=60, font=get_ctk_font(12),
+                        **get_ctk_entry_colors(self.colors)).pack(side="left", padx=10)
+        else:
+             tk.Entry(row, textvariable=tet_items_var, width=5).pack(side="left", padx=10)
+        self.settings_widgets["text_edit_tool:popup_items_per_page"] = ("int", tet_items_var)
+
+        # Use groups
+        tet_grp_val = self.options_data.get("text_edit_tool", {}).get("_settings", {}).get("popup_use_groups", True)
+        tet_grp_var = tk.BooleanVar(master=scroll_frame, value=tet_grp_val)
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=4)
+        if self.use_ctk:
+            ctk.CTkCheckBox(row, text="Use Groups", variable=tet_grp_var, font=get_ctk_font(12),
+                           text_color=self.colors.fg, fg_color=self.colors.accent).pack(anchor="w")
+        else:
+            tk.Checkbutton(row, text="Use Groups", variable=tet_grp_var).pack(anchor="w")
+        self.settings_widgets["text_edit_tool:popup_use_groups"] = ("bool", tet_grp_var)
+
+
+        # =====================================================================
+        # Snip Tool Settings
+        # =====================================================================
+        if self.use_ctk: ctk.CTkFrame(scroll_frame, height=20, fg_color="transparent").pack()
+        create_section_header(scroll_frame, "Snip Tool", self.colors, "✂️")
+
+        add_setting_row("snip_tool", "custom_task_template", "Custom Task Template", False)
+        
+        # Allow Text Edit Actions
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
         row.pack(fill="x", pady=8)
         
+        allow_val = self.options_data.get("snip_tool", {}).get("_settings", {}).get("allow_text_edit_actions", True)
+        allow_var = tk.BooleanVar(master=scroll_frame, value=allow_val)
         if self.use_ctk:
-            ctk.CTkLabel(row, text="Items per page:", font=get_ctk_font(13),
+            ctk.CTkSwitch(row, text="Allow Text Edit Actions (show in Snip popup)", variable=allow_var,
+                         font=get_ctk_font(12), fg_color=self.colors.surface2, progress_color=self.colors.accent,
+                         text_color=self.colors.fg).pack(anchor="w")
+        else:
+            tk.Checkbutton(row, text="Allow Text Edit Actions", variable=allow_var).pack(anchor="w")
+        self.settings_widgets["snip_tool:allow_text_edit_actions"] = ("bool", allow_var)
+        
+        # Popup settings for Snip
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=(8, 0))
+        if self.use_ctk:
+            ctk.CTkLabel(row, text="Popup Layout:", font=get_ctk_font(12, "bold"),
+                        **get_ctk_label_colors(self.colors)).pack(anchor="w")
+        else:
+            tk.Label(row, text="Popup Layout:", font=("Segoe UI", 9, "bold"),
+                    bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w")
+
+        # Items per page
+        row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
+        row.pack(fill="x", pady=4)
+        if self.use_ctk:
+             ctk.CTkLabel(row, text="Items per page:", font=get_ctk_font(12),
                         **get_ctk_label_colors(self.colors)).pack(side="left")
         else:
-            tk.Label(row, text="Items per page:", font=("Segoe UI", 10),
-                    bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
+             tk.Label(row, text="Items per page:", font=("Segoe UI", 10),
+                     bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
         
-        items_var = tk.IntVar(master=scroll_frame, value=settings.get("popup_items_per_page", 6))
+        snip_val = self.options_data.get("snip_tool", {}).get("_settings", {}).get("popup_items_per_page", 6)
+        snip_items_var = tk.IntVar(master=scroll_frame, value=snip_val)
         if self.use_ctk:
-            items_entry = ctk.CTkEntry(row, textvariable=items_var, width=100, height=34, font=get_ctk_font(13),
-                                      **get_ctk_entry_colors(self.colors))
+             ctk.CTkEntry(row, textvariable=snip_items_var, width=60, font=get_ctk_font(12),
+                        **get_ctk_entry_colors(self.colors)).pack(side="left", padx=10)
         else:
-            from tkinter import ttk
-            items_entry = ttk.Spinbox(row, textvariable=items_var, from_=3, to=20, width=10)
-        items_entry.pack(side="left", padx=(12, 18))
-        
-        if self.use_ctk:
-            ctk.CTkLabel(row, text="(Only applies when 'Use groups' is OFF)", font=get_ctk_font(11),
-                        **get_ctk_label_colors(self.colors, muted=True)).pack(side="left")
-        else:
-            tk.Label(row, text="(Only applies when 'Use groups' is OFF)", font=("Segoe UI", 9),
-                    bg=self.colors.bg, fg=self.colors.blockquote).pack(side="left")
-        
-        self.settings_widgets["popup_items_per_page"] = ("int", items_var)
-        
-        # Use groups toggle
+             tk.Entry(row, textvariable=snip_items_var, width=5).pack(side="left", padx=10)
+        self.settings_widgets["snip_tool:popup_items_per_page"] = ("int", snip_items_var)
+
+        # Use groups
+        snip_grp_val = self.options_data.get("snip_tool", {}).get("_settings", {}).get("popup_use_groups", True)
+        snip_grp_var = tk.BooleanVar(master=scroll_frame, value=snip_grp_val)
         row = ctk.CTkFrame(scroll_frame, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_frame, bg=self.colors.bg)
-        row.pack(fill="x", pady=10)
-        
-        groups_var = tk.BooleanVar(master=scroll_frame, value=settings.get("popup_use_groups", True))
+        row.pack(fill="x", pady=4)
         if self.use_ctk:
-            ctk.CTkSwitch(
-                row, text="Use groups for popup organization",
-                variable=groups_var, font=get_ctk_font(13),
-                fg_color=self.colors.surface2,
-                progress_color=self.colors.accent,
-                button_color="#ffffff",
-                button_hover_color="#f0f0f0"
-            ).pack(anchor="w")
+            ctk.CTkCheckBox(row, text="Use Groups", variable=snip_grp_var, font=get_ctk_font(12),
+                           text_color=self.colors.fg, fg_color=self.colors.accent).pack(anchor="w")
         else:
-            tk.Checkbutton(row, text="Use groups for popup organization",
-                          variable=groups_var, font=("Segoe UI", 10),
-                          bg=self.colors.bg, fg=self.colors.fg,
-                          selectcolor=self.colors.input_bg).pack(anchor="w")
-        
-        self.settings_widgets["popup_use_groups"] = ("bool", groups_var)
+            tk.Checkbutton(row, text="Use Groups", variable=snip_grp_var).pack(anchor="w")
+        self.settings_widgets["snip_tool:popup_use_groups"] = ("bool", snip_grp_var)
     
     def _create_modifiers_tab(self, frame):
         """Create the Modifiers editing tab."""
@@ -1093,7 +1214,7 @@ class PromptEditorWindow:
         self.modifier_listbox.pack(fill="both", expand=True)
         
         # Populate modifiers
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get("_global_settings", {})
         modifiers = settings.get("modifiers", [])
         for i, mod in enumerate(modifiers):
             icon = mod.get('icon', '')
@@ -1169,7 +1290,7 @@ class PromptEditorWindow:
         row = ctk.CTkFrame(right_panel, fg_color="transparent") if self.use_ctk else tk.Frame(right_panel, bg=self.colors.bg)
         row.pack(fill="x", pady=8)
         
-        self.modifier_widgets["forces_chat_var"] = tk.BooleanVar(master=self.root)
+        self.modifier_widgets["forces_chat_var"] = tk.BooleanVar()
         if self.use_ctk:
             ctk.CTkCheckBox(row, text="Forces chat window",
                            variable=self.modifier_widgets["forces_chat_var"],
@@ -1186,6 +1307,47 @@ class PromptEditorWindow:
             right_panel, "Save Modifier", "💾", self.colors, "success", 160, 40, self._save_current_modifier
         ).pack(anchor="w", pady=(18, 0))
     
+    def _refresh_group_list(self):
+        """Refresh the group list based on current tool."""
+        if not self.group_listbox:
+            return
+            
+        selected = self.group_listbox.get_selected()
+        self.group_listbox.clear()
+
+        # Get groups for current tool
+        tool_data = self.options_data.get(self.current_tool, {})
+        settings = tool_data.get("_settings", {})
+        groups = settings.get("popup_groups", [])
+
+        for i, grp in enumerate(groups):
+            name = grp.get("name", "Unnamed")
+            self.group_listbox.add_item(str(i), name, None)
+            
+        if selected:
+             # Try to restore selection if index valid
+             try:
+                 idx = int(selected)
+                 if idx < len(groups):
+                     self.group_listbox.select(selected)
+             except ValueError:
+                 pass
+
+    def _on_group_tool_switch(self, value):
+        """Handle tool switching in Groups tab."""
+        if value == "Text Edit Tool":
+            self.current_tool = "text_edit_tool"
+        else:
+            self.current_tool = "snip_tool"
+        
+        self._refresh_group_list()
+        # Clear editor fields
+        self.group_widgets["name_var"].set("")
+        if self.use_ctk:
+            self.group_widgets["items"].delete("0.0", "end")
+        else:
+            self.group_widgets["items"].delete("1.0", "end")
+
     def _create_groups_tab(self, frame):
         """Create the Groups editing tab."""
         container = ctk.CTkFrame(frame, fg_color="transparent") if self.use_ctk else tk.Frame(frame, bg=self.colors.bg)
@@ -1198,6 +1360,26 @@ class PromptEditorWindow:
         
         create_section_header(left_panel, "Groups", self.colors, "📁")
         
+        # Tool Switcher for Groups
+        if self.use_ctk:
+            self.group_tool_switcher = ctk.CTkSegmentedButton(
+                left_panel,
+                values=["Text Edit Tool", "Snip Tool"],
+                command=self._on_group_tool_switch,
+                font=get_ctk_font(12, "bold"),
+                fg_color=self.colors.bg,
+                selected_color=self.colors.accent,
+                selected_hover_color=self.colors.accent,
+                unselected_color=self.colors.surface0,
+                unselected_hover_color=self.colors.surface1,
+                text_color=self.colors.fg,
+                text_color_disabled=self.colors.surface2
+            )
+            # Sync with current tool if possible, defaulting to Text Edit
+            current_val = "Text Edit Tool" if self.current_tool == "text_edit_tool" else "Snip Tool"
+            self.group_tool_switcher.set(current_val)
+            self.group_tool_switcher.pack(fill="x", pady=(0, 10))
+
         # Group List - using ScrollableButtonList
         if self.use_ctk:
             self.group_listbox = ScrollableButtonList(
@@ -1212,12 +1394,7 @@ class PromptEditorWindow:
         self.group_listbox.pack(fill="both", expand=True)
         
         # Populate groups
-        settings = self.options_data.get("_settings", {})
-        groups = settings.get("popup_groups", [])
-        for i, grp in enumerate(groups):
-            name = grp.get("name", "Unnamed")
-            # Use index as ID for mapping back
-            self.group_listbox.add_item(str(i), name, None)
+        self._refresh_group_list()
         
         # Buttons
         btn_frame = ctk.CTkFrame(left_panel, fg_color="transparent") if self.use_ctk else tk.Frame(left_panel, bg=self.colors.bg)
@@ -1250,7 +1427,7 @@ class PromptEditorWindow:
         else:
             tk.Label(row, text="Name:", font=("Segoe UI", 10), width=10, anchor="w",
                     bg=self.colors.bg, fg=self.colors.fg).pack(side="left")
-            self.group_widgets["name_var"] = tk.StringVar(master=self.root)
+            self.group_widgets["name_var"] = tk.StringVar()
             tk.Entry(row, textvariable=self.group_widgets["name_var"],
                     font=("Segoe UI", 10), width=25,
                     bg=self.colors.input_bg, fg=self.colors.fg).pack(side="left", padx=(10, 0))
@@ -1286,7 +1463,7 @@ class PromptEditorWindow:
         container.pack(fill="both", expand=True, padx=15, pady=15)
         
         # Left panel: Configuration
-        left_panel = ctk.CTkFrame(container, fg_color="transparent", width=400) if self.use_ctk else tk.Frame(container, bg=self.colors.bg, width=400)
+        left_panel = ctk.CTkFrame(container, fg_color="transparent", width=450) if self.use_ctk else tk.Frame(container, bg=self.colors.bg, width=450)
         left_panel.pack(side="left", fill="y", padx=(0, 15))
         left_panel.pack_propagate(False)
         
@@ -1299,27 +1476,36 @@ class PromptEditorWindow:
         # Mode selector
         create_section_header(scroll_left, "Mode", self.colors, "🎯")
         
-        self.playground_mode_var = tk.StringVar(master=self.root, value="action")
+        self.playground_mode_var = tk.StringVar(master=self.root, value="action_text")
         mode_frame = ctk.CTkFrame(scroll_left, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_left, bg=self.colors.bg)
         mode_frame.pack(anchor="w", pady=(0, 15))
         
         if self.use_ctk:
-            ctk.CTkRadioButton(mode_frame, text="TextEditTool Action",
-                              variable=self.playground_mode_var, value="action",
+            ctk.CTkRadioButton(mode_frame, text="Text Action",
+                              variable=self.playground_mode_var, value="action_text",
                               font=get_ctk_font(13), text_color=self.colors.fg,
                               fg_color=self.colors.accent,
-                              command=self._on_playground_mode_change).pack(side="left", padx=(0, 20))
-            ctk.CTkRadioButton(mode_frame, text="API Endpoint",
+                              command=self._on_playground_mode_change).pack(side="left", padx=(0, 15))
+            ctk.CTkRadioButton(mode_frame, text="Snip Action",
+                              variable=self.playground_mode_var, value="action_snip",
+                              font=get_ctk_font(13), text_color=self.colors.fg,
+                              fg_color=self.colors.accent,
+                              command=self._on_playground_mode_change).pack(side="left", padx=(0, 15))
+            ctk.CTkRadioButton(mode_frame, text="Endpoint",
                               variable=self.playground_mode_var, value="endpoint",
                               font=get_ctk_font(13), text_color=self.colors.fg,
                               fg_color=self.colors.accent,
                               command=self._on_playground_mode_change).pack(side="left")
         else:
-            tk.Radiobutton(mode_frame, text="TextEditTool Action",
-                          variable=self.playground_mode_var, value="action",
+            tk.Radiobutton(mode_frame, text="Text Action",
+                          variable=self.playground_mode_var, value="action_text",
                           font=("Segoe UI", 10), bg=self.colors.bg, fg=self.colors.fg,
                           command=self._on_playground_mode_change).pack(side="left", padx=(0, 15))
-            tk.Radiobutton(mode_frame, text="API Endpoint",
+            tk.Radiobutton(mode_frame, text="Snip Action",
+                          variable=self.playground_mode_var, value="action_snip",
+                          font=("Segoe UI", 10), bg=self.colors.bg, fg=self.colors.fg,
+                          command=self._on_playground_mode_change).pack(side="left", padx=(0, 15))
+            tk.Radiobutton(mode_frame, text="Endpoint",
                           variable=self.playground_mode_var, value="endpoint",
                           font=("Segoe UI", 10), bg=self.colors.bg, fg=self.colors.fg,
                           command=self._on_playground_mode_change).pack(side="left")
@@ -1335,13 +1521,13 @@ class PromptEditorWindow:
             tk.Label(self.action_config_frame, text="Select Action:", font=("Segoe UI", 10),
                     bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w", pady=(0, 5))
         
-        self.playground_action_var = tk.StringVar(master=self.root)
-        action_names = [name for name in sorted(self.options_data.keys()) if name != "_settings"]
+        self.playground_action_var = tk.StringVar()
+        # Populated dynamically
         
         if self.use_ctk:
             self.playground_action_combo = ctk.CTkComboBox(
                 self.action_config_frame, variable=self.playground_action_var,
-                values=action_names, width=340, height=34, state="readonly", font=get_ctk_font(13),
+                values=[], width=340, height=34, state="readonly", font=get_ctk_font(13),
                 **get_ctk_combobox_colors(self.colors),
                 command=lambda x: self._on_playground_action_change()
             )
@@ -1349,11 +1535,36 @@ class PromptEditorWindow:
             from tkinter import ttk
             self.playground_action_combo = ttk.Combobox(
                 self.action_config_frame, textvariable=self.playground_action_var,
-                values=action_names, state="readonly", width=35
+                values=[], state="readonly", width=35
             )
             self.playground_action_combo.bind('<<ComboboxSelected>>', self._on_playground_action_change)
         self.playground_action_combo.pack(anchor="w", pady=(0, 10))
         
+        # Custom input (for custom actions)
+        self.custom_input_frame = ctk.CTkFrame(self.action_config_frame, fg_color="transparent") if self.use_ctk else tk.Frame(self.action_config_frame, bg=self.colors.bg)
+        # Initially hidden
+        
+        if self.use_ctk:
+            ctk.CTkLabel(self.custom_input_frame, text="Custom Prompt:", font=get_ctk_font(12),
+                        **get_ctk_label_colors(self.colors)).pack(anchor="w", pady=(0, 2))
+            self.playground_custom_var = tk.StringVar()
+            self.playground_custom_entry = ctk.CTkEntry(
+                self.custom_input_frame, textvariable=self.playground_custom_var,
+                font=get_ctk_font(12), height=32, **get_ctk_entry_colors(self.colors)
+            )
+            self.playground_custom_entry.pack(fill="x")
+            self.playground_custom_entry.bind('<KeyRelease>', lambda e: self._update_playground_preview())
+        else:
+            tk.Label(self.custom_input_frame, text="Custom Prompt:", font=("Segoe UI", 10),
+                    bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w", pady=(0, 2))
+            self.playground_custom_var = tk.StringVar()
+            self.playground_custom_entry = tk.Entry(
+                self.custom_input_frame, textvariable=self.playground_custom_var,
+                font=("Segoe UI", 10), bg=self.colors.input_bg, fg=self.colors.fg
+            )
+            self.playground_custom_entry.pack(fill="x")
+            self.playground_custom_entry.bind('<KeyRelease>', lambda e: self._update_playground_preview())
+
         # Modifiers section
         if self.use_ctk:
             # Header with emoji image
@@ -1376,79 +1587,38 @@ class PromptEditorWindow:
             )
         else:
             tk.Label(self.action_config_frame, text="🎛️ Modifiers:", font=("Segoe UI", 10),
-                    bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w", pady=(5, 5))
+                    bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w", pady=(8, 5))
             self.playground_mod_scroll = tk.Frame(self.action_config_frame, bg=self.colors.bg)
             
-        self.playground_mod_scroll.pack(fill="x", pady=(0, 10))
+        self.playground_mod_scroll.pack(fill="x")
         
-        # Populate modifiers
+        # Populate modifier checkboxes
         self.playground_modifier_vars = {}
-        modifiers = self.options_data.get("_settings", {}).get("modifiers", [])
+        settings = self.options_data.get("_global_settings", {})
+        modifiers = settings.get("modifiers", [])
         
         for mod in modifiers:
             key = mod.get("key")
-            var = tk.BooleanVar(value=False)
-            self.playground_modifier_vars[key] = var
-            label = f"{mod.get('icon', '')} {mod.get('label', key)}"
-            
-            if self.use_ctk:
-                ctk.CTkCheckBox(
-                    self.playground_mod_scroll, text=label, variable=var,
-                    font=get_ctk_font(12), text_color=self.colors.fg,
-                    fg_color=self.colors.accent, hover_color=self.colors.lavender,
-                    command=self._update_playground_preview
-                ).pack(anchor="w", pady=3)
-            else:
-                tk.Checkbutton(
-                    self.playground_mod_scroll, text=label, variable=var,
-                    font=("Segoe UI", 9), bg=self.colors.bg, fg=self.colors.fg,
-                    selectcolor=self.colors.input_bg,
-                    command=self._update_playground_preview
-                ).pack(anchor="w", pady=2)
-
-        # Custom Input (for _Custom / _Ask)
-        self.custom_input_frame = ctk.CTkFrame(self.action_config_frame, fg_color="transparent") if self.use_ctk else tk.Frame(self.action_config_frame, bg=self.colors.bg)
-        # Not packed initially - shown only when needed
-        
-        if self.use_ctk:
-            # Header with emoji image
-            kwargs = {
-                "text": " Custom Input:",
-                "font": get_ctk_font(13),
-                **get_ctk_label_colors(self.colors)
-            }
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                img = renderer.get_ctk_image("✏️", size=18)
-                if img:
-                    kwargs["image"] = img
-                    kwargs["compound"] = "left"
-            
-            ctk.CTkLabel(self.custom_input_frame, **kwargs).pack(anchor="w", pady=(0, 8))
-            self.playground_custom_var = tk.StringVar()
-            self.playground_custom_entry = ctk.CTkEntry(
-                self.custom_input_frame, textvariable=self.playground_custom_var,
-                font=get_ctk_font(13), height=34, **get_ctk_entry_colors(self.colors)
-            )
-            self.playground_custom_entry.pack(fill="x")
-            self.playground_custom_entry.bind('<KeyRelease>', lambda e: self._update_playground_preview())
-        else:
-            tk.Label(self.custom_input_frame, text="✏️ Custom Input:", font=("Segoe UI", 10),
-                    bg=self.colors.bg, fg=self.colors.fg).pack(anchor="w", pady=(0, 5))
-            self.playground_custom_var = tk.StringVar()
-            self.playground_custom_entry = tk.Entry(
-                self.custom_input_frame, textvariable=self.playground_custom_var,
-                font=("Segoe UI", 10), bg=self.colors.input_bg, fg=self.colors.fg
-            )
-            self.playground_custom_entry.pack(fill="x")
-            self.playground_custom_entry.bind('<KeyRelease>', lambda e: self._update_playground_preview())
-
-        if action_names:
-            if self.use_ctk:
-                self.playground_action_combo.set(action_names[0])
-            else:
-                self.playground_action_combo.current(0)
+            label = mod.get("label", key)
+            if key:
+                var = tk.BooleanVar()
+                self.playground_modifier_vars[key] = var
                 
+                if self.use_ctk:
+                    ctk.CTkCheckBox(
+                        self.playground_mod_scroll, text=label, variable=var,
+                        font=get_ctk_font(12), text_color=self.colors.fg,
+                        fg_color=self.colors.accent,
+                        command=self._update_playground_preview
+                    ).pack(anchor="w", pady=3)
+                else:
+                    tk.Checkbutton(
+                        self.playground_mod_scroll, text=label, variable=var,
+                        font=("Segoe UI", 10), bg=self.colors.bg, fg=self.colors.fg,
+                        selectcolor=self.colors.input_bg,
+                        command=self._update_playground_preview
+                    ).pack(anchor="w")
+
         # Endpoint Config Frame (initially hidden)
         self.endpoint_config_frame = ctk.CTkFrame(scroll_left, fg_color="transparent") if self.use_ctk else tk.Frame(scroll_left, bg=self.colors.bg)
         
@@ -1569,6 +1739,8 @@ class PromptEditorWindow:
         else:
             self.playground_sample_text.insert("1.0", "The quick brown fox jumps over the lazy dog.")
             self.playground_sample_text.bind('<KeyRelease>', lambda e: self._update_playground_preview())
+
+
     
         # API Settings section (below sample text)
         create_section_header(scroll_left, "API Settings", self.colors, "⚙️")
@@ -1630,11 +1802,19 @@ class PromptEditorWindow:
         if self.use_ctk:
             test_text = "🧪 Test with API"
             test_img = None
+            
+            # Initialize status icons cache
+            self.status_icons = {}
+            
             if HAVE_EMOJI:
                 renderer = get_emoji_renderer()
                 test_img = renderer.get_ctk_image("🧪", size=20)
                 if test_img:
                     test_text = "Test with API"
+                
+                # Pre-cache status icons to prevent GC/TclError
+                self.status_icons["loading"] = renderer.get_ctk_image("⏳", size=16)
+                self.status_icons["success"] = renderer.get_ctk_image("✅", size=16)
 
             ctk.CTkButton(btn_frame, text=test_text, image=test_img,
                          compound="left" if test_img else None,
@@ -1756,24 +1936,139 @@ class PromptEditorWindow:
             )
         self.playground_meta_label.pack(anchor="w")
         
-        # Initial preview update
+        # Initial preview update and population
+        self._populate_playground_actions("action_text")
         self.root.after(100, self._update_playground_preview)
     
+    def _populate_playground_actions(self, mode):
+        """Populate the action combo box based on selected mode."""
+        if mode == "endpoint":
+            return
+            
+        tool_key = "text_edit_tool" if mode == "action_text" else "snip_tool"
+        tool_data = self.options_data.get(tool_key, {})
+        
+        # Get actions (exclude _settings)
+        actions = [k for k in sorted(tool_data.keys()) if k != "_settings"]
+        
+        if self.use_ctk:
+            self.playground_action_combo.configure(values=actions)
+            if actions:
+                self.playground_action_combo.set(actions[0])
+                self.playground_action_var.set(actions[0])
+            else:
+                self.playground_action_combo.set("")
+                self.playground_action_var.set("")
+        else:
+            self.playground_action_combo['values'] = actions
+            if actions:
+                self.playground_action_combo.current(0)
+            else:
+                self.playground_action_var.set("")
+                
+        # Trigger preview update
+        self._on_playground_action_change()
+
     def _on_playground_mode_change(self):
         """Handle mode switch between action and endpoint."""
         mode = self.playground_mode_var.get()
         
-        if mode == "action":
+        # Show/Hide config frames
+        if mode in ("action_text", "action_snip"):
             self.action_config_frame.pack(fill="x", pady=(0, 10))
             self.endpoint_config_frame.pack_forget()
-            self.sample_text_container.pack(fill="x")
-            self._update_playground_preview()
+            self._populate_playground_actions(mode)
         else:
             self.action_config_frame.pack_forget()
             self.endpoint_config_frame.pack(fill="x", pady=(0, 10))
-            self.sample_text_container.pack_forget()
             self._populate_endpoint_list()
             self._update_endpoint_preview()
+            
+        # Show/Hide Input containers
+        if mode == "action_text":
+            self.sample_text_container.pack(fill="x", pady=(15, 0))
+        elif mode == "action_snip":
+            self.sample_text_container.pack_forget()
+            # Snip mode: no inputs initially, snip triggered by Test
+        elif mode == "endpoint":
+            self.sample_text_container.pack_forget()
+            # Endpoint has its own inputs in config frame
+            
+        self._update_playground_preview()
+
+    def _upload_image(self):
+        """Open file dialog to upload an image."""
+        file_path = filedialog.askopenfilename(
+            title="Select Image",
+            filetypes=[("Images", "*.png *.jpg *.jpeg *.webp *.bmp")]
+        )
+        if file_path:
+            self._set_playground_image(file_path)
+
+    def _paste_image(self):
+        """Paste image from clipboard."""
+        try:
+            from PIL import Image, ImageGrab
+            image = ImageGrab.grabclipboard()
+            if isinstance(image, Image.Image):
+                # Save to temporary buffer to get bytes
+                import io
+                buf = io.BytesIO()
+                image.save(buf, format="PNG")
+                buf.seek(0)
+                # We can store raw bytes or base64
+                b64_data = base64.b64encode(buf.getvalue()).decode('utf-8')
+                
+                self.playground_image_base64 = b64_data
+                self.playground_image_mime = "image/png"
+                self.playground_image_name = "Pasted Image"
+                
+                self._update_image_preview_label()
+            else:
+                messagebox.showinfo("Paste Image", "No image found in clipboard.")
+        except ImportError:
+            messagebox.showerror("Error", "Pillow (PIL) is required for image pasting.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to paste image: {e}")
+
+    def _set_playground_image(self, file_path):
+        """Set the playground image from a file path."""
+        try:
+            with open(file_path, "rb") as f:
+                data = f.read()
+                
+            self.playground_image_base64 = base64.b64encode(data).decode('utf-8')
+            
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ['.jpg', '.jpeg']:
+                self.playground_image_mime = "image/jpeg"
+            elif ext == '.png':
+                self.playground_image_mime = "image/png"
+            elif ext == '.webp':
+                self.playground_image_mime = "image/webp"
+            else:
+                self.playground_image_mime = "application/octet-stream"
+                
+            self.playground_image_name = os.path.basename(file_path)
+            self._update_image_preview_label()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load image: {e}")
+
+    def _update_image_preview_label(self):
+        """Update the image preview label text."""
+        if hasattr(self, 'image_preview_label'):
+            if self.playground_image_name:
+                text = f"Selected: {self.playground_image_name}"
+                if self.use_ctk:
+                    self.image_preview_label.configure(text=text, text_color=self.colors.accent)
+                else:
+                    self.image_preview_label.configure(text=text, fg=self.colors.accent)
+            else:
+                if self.use_ctk:
+                    self.image_preview_label.configure(text="No image selected", text_color=self.colors.surface2)
+                else:
+                    self.image_preview_label.configure(text="No image selected", fg=self.colors.surface2)
     
     def _on_playground_action_change(self, event=None):
         """Handle action selection change."""
@@ -1785,10 +2080,11 @@ class PromptEditorWindow:
         self._update_playground_preview()
     
     def _populate_endpoint_list(self):
-        """Populate the endpoint list from web_server config."""
+        """Populate the endpoint list from loaded options."""
         try:
-            from ..web_server import ENDPOINTS
-            endpoints = sorted(list(ENDPOINTS.keys()))
+            endpoints_data = self.options_data.get("endpoints", {})
+            endpoints = sorted([k for k in endpoints_data.keys() if k != "_settings"])
+            
             if self.use_ctk:
                 self.playground_endpoint_combo.configure(values=endpoints)
             else:
@@ -1800,23 +2096,38 @@ class PromptEditorWindow:
                 else:
                     self.playground_endpoint_combo.current(0)
                 self.playground_endpoint_var.set(endpoints[0])
-        except (ImportError, AttributeError):
-            pass
+        except Exception as e:
+            print(f"Error populating endpoints: {e}")
     
     def _update_playground_preview(self, event=None):
         """
         Update the live preview based on current action configuration.
         Matches logic in text_edit_tool.py _process_option.
         """
-        if self.playground_mode_var.get() == "endpoint":
+        mode = self.playground_mode_var.get()
+        if mode == "endpoint":
             return
         
         action_name = self.playground_action_var.get()
         if not action_name:
             return
-        
+            
         action_data = self.options_data.get(action_name, {})
-        settings = self.options_data.get("_settings", {})
+        # Note: action_data might be in sub-dict if not properly flattened, but _populate uses keys from tool dict
+        # So self.options_data[tool][action_name] is the correct way?
+        # self.options_data IS nested now.
+        # But wait, self.options_data.get(action_name, {}) implies flat structure or top-level.
+        # _populate_playground_actions used tool_data = self.options_data.get(tool_key, {})
+        # So we must fetch from the correct tool!
+        
+        tool_key = "text_edit_tool" if mode == "action_text" else "snip_tool"
+        tool_data = self.options_data.get(tool_key, {})
+        action_data = tool_data.get(action_name, {})
+        
+        # Determine global vs tool settings
+        # _settings is usually at tool level too
+        tool_settings = tool_data.get("_settings", {})
+        global_settings = self.options_data.get("_global_settings", {})
         
         # --- 1. System Prompt Construction ---
         # Logic: Starts with action's system prompt, then appends modifier injections.
@@ -1842,7 +2153,7 @@ class PromptEditorWindow:
         modifier_injections = []
         for key, var in self.playground_modifier_vars.items():
             if var.get():
-                for mod in settings.get("modifiers", []):
+                for mod in global_settings.get("modifiers", []):
                     if mod.get("key") == key:
                         injection = mod.get("injection", "")
                         if injection:
@@ -1864,10 +2175,10 @@ class PromptEditorWindow:
         task = ""
         
         if action_name == "_Custom" and custom_input:
-            template = settings.get("custom_task_template", "Apply the following change to the text: {custom_input}")
+            template = tool_settings.get("custom_task_template", "Apply the following change to the text: {custom_input}")
             task = template.format(custom_input=custom_input)
         elif action_name == "_Ask" and custom_input:
-            template = settings.get("ask_task_template", "Answer the following question about the text: {custom_input}")
+            template = tool_settings.get("ask_task_template", "Answer the following question about the text: {custom_input}")
             task = template.format(custom_input=custom_input)
         else:
             if self.current_action == action_name:
@@ -1889,16 +2200,16 @@ class PromptEditorWindow:
              prompt_type = action_data.get("prompt_type", "edit")
              
         if prompt_type == "general":
-            output_rules = settings.get("base_output_rules_general", "")
+            output_rules = tool_settings.get("base_output_rules_general", "")
         else:
-            output_rules = settings.get("base_output_rules_edit", "")
+            output_rules = tool_settings.get("base_output_rules_edit", "")
             
         if output_rules:
             user_parts.append(output_rules)
             
         # Add text with delimiters
-        text_delimiter = settings.get("text_delimiter", "\n\n<text_to_process>\n")
-        text_delimiter_close = settings.get("text_delimiter_close", "\n</text_to_process>")
+        text_delimiter = tool_settings.get("text_delimiter", "\n\n<text_to_process>\n")
+        text_delimiter_close = tool_settings.get("text_delimiter_close", "\n</text_to_process>")
         
         if self.use_ctk:
             sample_text = self.playground_sample_text.get("0.0", "end").strip()
@@ -1906,7 +2217,7 @@ class PromptEditorWindow:
             sample_text = self.playground_sample_text.get("1.0", "end").strip()
         
         user_message = "\n\n".join(user_parts)
-        if sample_text:
+        if sample_text and mode == "action_text":
             user_message += text_delimiter + sample_text + text_delimiter_close
         
         self._set_preview_text(self.playground_system_preview, full_system, "system")
@@ -1940,8 +2251,11 @@ class PromptEditorWindow:
             return
         
         try:
-            from ..web_server import ENDPOINTS
-            prompt_template = ENDPOINTS.get(endpoint_name, "")
+            endpoints_data = self.options_data.get("endpoints", {})
+            prompt_template = endpoints_data.get(endpoint_name, "")
+            # Handle if it's a dict (new structure) or string (old structure)
+            if isinstance(prompt_template, dict):
+                 prompt_template = prompt_template.get("task", "") or prompt_template.get("prompt", "")
         except:
             prompt_template = "(Could not load endpoint)"
         
@@ -1987,10 +2301,7 @@ class PromptEditorWindow:
         try:
             pyperclip.copy(content)
             if self.use_ctk:
-                ok_img = None
-                if HAVE_EMOJI:
-                    renderer = get_emoji_renderer()
-                    ok_img = renderer.get_ctk_image("✅", size=16)
+                ok_img = self.status_icons.get("success") if hasattr(self, "status_icons") else None
                 self.playground_test_status.configure(text=" Copied!", image=ok_img, compound="left", text_color=self.colors.accent_green)
             else:
                 self.playground_test_status.configure(text="✅ Copied!", fg=self.colors.accent_green)
@@ -2111,22 +2422,95 @@ class PromptEditorWindow:
         # Ensure preview is up to date with any edits
         self._update_playground_preview()
         
+        mode = self.playground_mode_var.get()
+        if mode == "action_snip":
+            # Start Snip Flow
+            self._perform_snip_test()
+            return
+
         if self.use_ctk:
-            status_img = None
-            if HAVE_EMOJI:
-                renderer = get_emoji_renderer()
-                status_img = renderer.get_ctk_image("⏳", size=16)
-            self.playground_test_status.configure(text=" Sending request...", image=status_img, compound="left", text_color=self.colors.fg)
+            try:
+                status_img = self.status_icons.get("loading") if hasattr(self, "status_icons") else None
+                self.playground_test_status.configure(text=" Sending request...", image=status_img, compound="left", text_color=self.colors.fg)
+            except Exception:
+                 # Last resort fallback if cached image also fails (shouldn't happen but safe)
+                 try:
+                    self.playground_test_status.configure(text="⏳ Sending request...", image=None, compound="left", text_color=self.colors.fg)
+                 except:
+                    pass
         else:
             self.playground_test_status.configure(text="⏳ Sending request...", fg=self.colors.fg)
         self.root.update()
         
+        params = {}
+        
         try:
-            if self.playground_mode_var.get() == "endpoint":
+            if mode == "endpoint":
                 params = self._prepare_endpoint_request()
-            else:
-                params = self._prepare_action_request()
+            else: # action_text
+                params = self._prepare_text_request()
             
+            if params.get("error"):
+                raise ValueError(params["error"])
+                
+            self._run_streaming_test(params)
+            
+        except Exception as e:
+            if self.use_ctk:
+                self.playground_test_status.configure(text=f"❌ Error: {e}", text_color=self.colors.accent_red)
+            else:
+                self.playground_test_status.configure(text=f"❌ Error: {e}", fg=self.colors.accent_red)
+
+    def _perform_snip_test(self):
+        """Trigger screen snipping for Playground test."""
+        # Hide window to allow capture
+        self.root.iconify()
+        
+        # We need GUICoordinator to trigger overlay
+        try:
+            from .core import GUICoordinator
+            GUICoordinator.get_instance().request_snip_overlay(
+                on_capture=self._on_playground_snip_captured,
+                on_cancel=self._on_playground_snip_cancelled
+            )
+        except Exception as e:
+            self.root.deiconify()
+            messagebox.showerror("Error", f"Failed to start snip: {e}")
+
+    def _on_playground_snip_cancelled(self):
+        """Handle snip cancellation."""
+        self.root.deiconify()
+        if self.use_ctk:
+            self.playground_test_status.configure(text="❌ Snipping cancelled", text_color=self.colors.surface2)
+        else:
+            self.playground_test_status.configure(text="❌ Snipping cancelled", fg=self.colors.surface2)
+
+    def _on_playground_snip_captured(self, result):
+        """Handle captured snip for Playground."""
+        # Restore window
+        self.root.deiconify()
+        
+        # Store capture data
+        self.playground_image_base64 = result.image_base64
+        self.playground_image_mime = result.mime_type
+        self.playground_image_name = f"Snip_{int(time.time())}.png"
+        
+        # Proceed with test
+        self._continue_snip_test()
+
+    def _continue_snip_test(self):
+        """Continue with API test after snip capture."""
+        try:
+            if self.use_ctk:
+                self.playground_test_status.configure(text="⏳ Sending request...", image=None, text_color=self.colors.fg)
+            else:
+                self.playground_test_status.configure(text="⏳ Sending request...", fg=self.colors.fg)
+            self.root.update()
+        except Exception as e:
+            print(f"Warning: Failed to update status label: {e}")
+        
+        try:
+            params = self._prepare_snip_request()
             if params.get("error"):
                 raise ValueError(params["error"])
                 
@@ -2140,27 +2524,55 @@ class PromptEditorWindow:
     
     def _prepare_endpoint_request(self) -> Dict:
         """Prepare params for endpoint request."""
-        if not self.playground_image_base64:
-            return {"error": "No image selected. Endpoints require an image for testing."}
+        # Endpoints use the user preview as the prompt template (already resolved with lang)
+        # If image is present, treat as multimodal
         
         if self.use_ctk:
             prompt = self.playground_user_preview.get("0.0", "end").strip()
         else:
             prompt = self.playground_user_preview.get("1.0", "end").strip()
-        
-        data_url = f"data:{self.playground_image_mime};base64,{self.playground_image_base64}"
-        messages = [{
-            "role": "user",
-            "content": [
+            
+        messages = []
+        if self.playground_image_base64:
+            data_url = f"data:{self.playground_image_mime};base64,{self.playground_image_base64}"
+            content = [
                 {"type": "image_url", "image_url": {"url": data_url}},
                 {"type": "text", "text": prompt}
             ]
-        }]
+            messages.append({"role": "user", "content": content})
+        else:
+            messages.append({"role": "user", "content": prompt})
+        
+        return self._get_request_config(messages)
+
+    def _prepare_snip_request(self) -> Dict:
+        """Prepare params for snip action request (multimodal)."""
+        if not self.playground_image_base64:
+            return {"error": "No image selected. Snip actions require an image."}
+            
+        if self.use_ctk:
+            system_prompt = self.playground_system_preview.get("0.0", "end").strip()
+            user_message = self.playground_user_preview.get("0.0", "end").strip()
+        else:
+            system_prompt = self.playground_system_preview.get("1.0", "end").strip()
+            user_message = self.playground_user_preview.get("1.0", "end").strip()
+            
+        data_url = f"data:{self.playground_image_mime};base64,{self.playground_image_base64}"
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+            
+        user_content = [
+            {"type": "image_url", "image_url": {"url": data_url}},
+            {"type": "text", "text": user_message}
+        ]
+        messages.append({"role": "user", "content": user_content})
         
         return self._get_request_config(messages)
     
-    def _prepare_action_request(self) -> Dict:
-        """Prepare params for action request."""
+    def _prepare_text_request(self) -> Dict:
+        """Prepare params for text action request."""
         if self.use_ctk:
             system_prompt = self.playground_system_preview.get("0.0", "end").strip()
             user_message = self.playground_user_preview.get("0.0", "end").strip()
@@ -2168,10 +2580,10 @@ class PromptEditorWindow:
             system_prompt = self.playground_system_preview.get("1.0", "end").strip()
             user_message = self.playground_user_preview.get("1.0", "end").strip()
         
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ]
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_message})
         
         return self._get_request_config(messages)
         
@@ -2276,10 +2688,13 @@ class PromptEditorWindow:
     
     def _clear_test_status(self):
         """Clear the test status label."""
-        if self.use_ctk:
-            self.playground_test_status.configure(text="", image=None)
-        else:
-            self.playground_test_status.configure(text="")
+        try:
+            if self.use_ctk:
+                self.playground_test_status.configure(text="", image=None)
+            else:
+                self.playground_test_status.configure(text="")
+        except Exception:
+            pass
     
     # Event handlers
     
@@ -2289,7 +2704,8 @@ class PromptEditorWindow:
             return
             
         self.current_action = action_name
-        action_data = self.options_data.get(action_name, {})
+        tool_data = self.options_data.get(self.current_tool, {})
+        action_data = tool_data.get(action_name, {})
         
         # Populate editor
         if self.use_ctk:
@@ -2318,7 +2734,7 @@ class PromptEditorWindow:
         except ValueError:
             return
             
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get("_global_settings", {})
         modifiers = settings.get("modifiers", [])
         
         if 0 <= index < len(modifiers):
@@ -2344,7 +2760,7 @@ class PromptEditorWindow:
         except ValueError:
             return
             
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get(self.current_tool, {}).get("_settings", {})
         groups = settings.get("popup_groups", [])
         
         if 0 <= index < len(groups):
@@ -2369,8 +2785,10 @@ class PromptEditorWindow:
     def _add_action(self):
         """Add a new action."""
         name = ask_themed_string(self.root, "New Action", "Enter action name:", self.colors)
-        if name and name not in self.options_data:
-            self.options_data[name] = {
+        tool_data = self.options_data.setdefault(self.current_tool, {})
+        
+        if name and name not in tool_data:
+            tool_data[name] = {
                 "icon": "⚡",
                 "prompt_type": "edit",
                 "system_prompt": "",
@@ -2386,16 +2804,17 @@ class PromptEditorWindow:
         if not self.current_action:
             return
         
+        tool_data = self.options_data.get(self.current_tool, {})
         new_name = f"{self.current_action}_copy"
         counter = 1
-        while new_name in self.options_data:
+        while new_name in tool_data:
             counter += 1
             new_name = f"{self.current_action}_copy{counter}"
         
         import copy
-        self.options_data[new_name] = copy.deepcopy(self.options_data[self.current_action])
+        tool_data[new_name] = copy.deepcopy(tool_data[self.current_action])
         
-        icon = self.options_data[new_name].get("icon", "")
+        icon = tool_data[new_name].get("icon", "")
         self.action_listbox.add_item(new_name, new_name, icon)
     
     def _delete_action(self):
@@ -2404,7 +2823,9 @@ class PromptEditorWindow:
             return
         
         if messagebox.askyesno("Delete Action", f"Delete action '{self.current_action}'?", parent=self.root):
-            del self.options_data[self.current_action]
+            tool_data = self.options_data.get(self.current_tool, {})
+            if self.current_action in tool_data:
+                del tool_data[self.current_action]
             self.action_listbox.delete(self.current_action)
             self.current_action = None
             if self.use_ctk:
@@ -2417,7 +2838,8 @@ class PromptEditorWindow:
         if not self.current_action:
             return
             
-        display_keys = [k for k in self.options_data.keys() if k != "_settings"]
+        tool_data = self.options_data.get(self.current_tool, {})
+        display_keys = [k for k in tool_data.keys() if k != "_settings"]
         if self.current_action not in display_keys:
             return
             
@@ -2429,13 +2851,13 @@ class PromptEditorWindow:
             # Reconstruct dictionary
             new_data = {}
             for k in display_keys:
-                new_data[k] = self.options_data[k]
+                new_data[k] = tool_data[k]
                 
             # append _settings if exists
-            if "_settings" in self.options_data:
-                new_data["_settings"] = self.options_data["_settings"]
+            if "_settings" in tool_data:
+                new_data["_settings"] = tool_data["_settings"]
                 
-            self.options_data = new_data
+            self.options_data[self.current_tool] = new_data
             self._refresh_action_list()
             self.action_listbox.select(self.current_action)
 
@@ -2444,7 +2866,8 @@ class PromptEditorWindow:
         if not self.current_action:
             return
             
-        display_keys = [k for k in self.options_data.keys() if k != "_settings"]
+        tool_data = self.options_data.get(self.current_tool, {})
+        display_keys = [k for k in tool_data.keys() if k != "_settings"]
         if self.current_action not in display_keys:
             return
             
@@ -2456,12 +2879,12 @@ class PromptEditorWindow:
             # Reconstruct dictionary
             new_data = {}
             for k in display_keys:
-                new_data[k] = self.options_data[k]
+                new_data[k] = tool_data[k]
                 
-            if "_settings" in self.options_data:
-                new_data["_settings"] = self.options_data["_settings"]
+            if "_settings" in tool_data:
+                new_data["_settings"] = tool_data["_settings"]
                 
-            self.options_data = new_data
+            self.options_data[self.current_tool] = new_data
             self._refresh_action_list()
             self.action_listbox.select(self.current_action)
 
@@ -2475,7 +2898,8 @@ class PromptEditorWindow:
         else:
             system_prompt = self.editor_widgets["system_prompt"].get("1.0", "end").strip()
         
-        self.options_data[self.current_action] = {
+        tool_data = self.options_data.setdefault(self.current_tool, {})
+        tool_data[self.current_action] = {
             "icon": self.editor_widgets["icon_var"].get(),
             "prompt_type": self.editor_widgets["prompt_type_var"].get(),
             "system_prompt": system_prompt,
@@ -2501,7 +2925,7 @@ class PromptEditorWindow:
         """Add a new modifier."""
         key = ask_themed_string(self.root, "New Modifier", "Enter modifier key:", self.colors)
         if key:
-            settings = self.options_data.setdefault("_settings", {})
+            settings = self.options_data.setdefault("_global_settings", {})
             modifiers = settings.setdefault("modifiers", [])
             modifiers.append({
                 "key": key,
@@ -2525,7 +2949,7 @@ class PromptEditorWindow:
         except ValueError:
             return
             
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get("_global_settings", {})
         modifiers = settings.get("modifiers", [])
         
         if 0 <= index < len(modifiers):
@@ -2547,7 +2971,7 @@ class PromptEditorWindow:
         except ValueError:
             return
             
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get("_global_settings", {})
         modifiers = settings.get("modifiers", [])
         
         if 0 < index < len(modifiers):
@@ -2572,7 +2996,7 @@ class PromptEditorWindow:
         except ValueError:
             return
             
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get("_global_settings", {})
         modifiers = settings.get("modifiers", [])
         
         if 0 <= index < len(modifiers) - 1:
@@ -2597,7 +3021,7 @@ class PromptEditorWindow:
         except ValueError:
             return
         
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get("_global_settings", {})
         modifiers = settings.get("modifiers", [])
         
         if 0 <= index < len(modifiers):
@@ -2625,7 +3049,8 @@ class PromptEditorWindow:
         """Add a new group."""
         name = ask_themed_string(self.root, "New Group", "Enter group name:", self.colors)
         if name:
-            settings = self.options_data.setdefault("_settings", {})
+            tool_data = self.options_data.setdefault(self.current_tool, {})
+            settings = tool_data.setdefault("_settings", {})
             groups = settings.setdefault("popup_groups", [])
             groups.append({
                 "name": name,
@@ -2645,16 +3070,13 @@ class PromptEditorWindow:
         except ValueError:
             return
             
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get(self.current_tool, {}).get("_settings", {})
         groups = settings.get("popup_groups", [])
         
         if 0 <= index < len(groups):
             if messagebox.askyesno("Delete Group", "Delete this group?", parent=self.root):
                 del groups[index]
-                # Rebuild list
-                self.group_listbox.clear()
-                for i, grp in enumerate(groups):
-                     self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
+                self._refresh_group_list()
     
     def _move_group_up(self):
         """Move selected group up."""
@@ -2667,18 +3089,13 @@ class PromptEditorWindow:
         except ValueError:
             return
             
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get(self.current_tool, {}).get("_settings", {})
         groups = settings.get("popup_groups", [])
         
         if 0 < index < len(groups):
             groups[index], groups[index-1] = groups[index-1], groups[index]
             
-            # Refresh list
-            self.group_listbox.clear()
-            for i, grp in enumerate(groups):
-                self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
-            
-            # Restore selection
+            self._refresh_group_list()
             self.group_listbox.select(str(index-1))
 
     def _move_group_down(self):
@@ -2692,18 +3109,13 @@ class PromptEditorWindow:
         except ValueError:
             return
             
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get(self.current_tool, {}).get("_settings", {})
         groups = settings.get("popup_groups", [])
         
         if 0 <= index < len(groups) - 1:
             groups[index], groups[index+1] = groups[index+1], groups[index]
             
-            # Refresh list
-            self.group_listbox.clear()
-            for i, grp in enumerate(groups):
-                self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
-            
-            # Restore selection
+            self._refresh_group_list()
             self.group_listbox.select(str(index+1))
 
     def _save_current_group(self):
@@ -2717,7 +3129,7 @@ class PromptEditorWindow:
         except ValueError:
             return
         
-        settings = self.options_data.get("_settings", {})
+        settings = self.options_data.get(self.current_tool, {}).get("_settings", {})
         groups = settings.get("popup_groups", [])
         
         if 0 <= index < len(groups):
@@ -2732,10 +3144,7 @@ class PromptEditorWindow:
                 "items": items
             }
             
-            # Rebuild list
-            self.group_listbox.clear()
-            for i, grp in enumerate(groups):
-                self.group_listbox.add_item(str(i), grp.get("name", "Unnamed"), None)
+            self._refresh_group_list()
             self.group_listbox.select(str(index))
     
     def _create_button_bar(self, parent):
@@ -2765,19 +3174,36 @@ class PromptEditorWindow:
         """Save all options to file."""
         # Save settings from widgets
         if hasattr(self, 'settings_widgets'):
-            settings = self.options_data.setdefault("_settings", {})
-            for key, (widget_type, widget) in self.settings_widgets.items():
+            for widget_key, (widget_type, widget) in self.settings_widgets.items():
+                if ":" in widget_key:
+                    section, key = widget_key.split(":", 1)
+                else:
+                    # Fallback for legacy keys if any (shouldn't happen with new create_settings_tab)
+                    section, key = "text_edit_tool", widget_key
+
+                # Get the value
+                val = None
                 if widget_type == "entry":
-                    settings[key] = widget.get()
+                    val = widget.get()
                 elif widget_type == "text":
                     if self.use_ctk:
-                        settings[key] = widget.get("0.0", "end").strip()
+                        val = widget.get("0.0", "end").strip()
                     else:
-                        settings[key] = widget.get("1.0", "end").strip()
+                        val = widget.get("1.0", "end").strip()
                 elif widget_type == "int":
-                    settings[key] = widget.get()
+                    val = widget.get()
                 elif widget_type == "bool":
-                    settings[key] = widget.get()
+                    val = widget.get()
+                
+                # Update the data structure
+                if val is not None:
+                    if section == "global":
+                        target = self.options_data.setdefault("_global_settings", {})
+                    else:
+                        section_data = self.options_data.setdefault(section, {})
+                        target = section_data.setdefault("_settings", {})
+                    
+                    target[key] = val
         
         # Save to file
         if save_options(self.options_data):
@@ -2786,13 +3212,9 @@ class PromptEditorWindow:
             else:
                 self.status_label.configure(text="✅ All options saved!", fg=self.colors.accent_green)
             
-            # Reload options in text_edit_tool if possible
-            try:
-                from .text_edit_tool import reload_options
-                reload_options()
-                print("[PromptEditor] TextEditTool options hot-reloaded")
-            except (ImportError, AttributeError) as e:
-                print(f"[PromptEditor] Could not hot-reload options: {e}")
+            # Reload prompts via the save_options call (which calls reload_prompts)
+            # but also print confirmation
+            print("[PromptEditor] Prompt configuration hot-reloaded")
             
             # Close after brief delay
             self.root.after(1000, self._close)
