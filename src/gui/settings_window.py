@@ -748,7 +748,7 @@ class SettingsWindow:
         self._add_toggle_field(scroll_frame, "show_ai_response_in_chat_window",
                               "Show AI response in chat window",
                               str(self.config_data.config.get("show_ai_response_in_chat_window", "no")).lower() == "yes",
-                              hint="For endpoint requests. Actions/modifiers override this.")
+                              hint="For direct chat popup and endpoint requests. Actions/modifiers override this.")
         
         # Limits section
         create_section_header(scroll_frame, "🚦 Limits", self.colors, top_padding=20)

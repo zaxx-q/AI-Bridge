@@ -541,16 +541,9 @@ class TextEditToolApp:
             elif response_mode == "replace":
                 show_gui = False
             else:  # "default"
-                # Check "_Custom" option first
-                action_options = self._get_action_options()
-                custom_option = action_options.get("_Custom", {})
-                
-                if "show_chat_window_instead_of_replace" in custom_option:
-                    show_gui = custom_option["show_chat_window_instead_of_replace"]
-                else:
-                    # Fallback to global config
-                    show_setting = self.config.get("show_ai_response_in_chat_window", "no")
-                    show_gui = str(show_setting).lower() in ("yes", "true", "1")
+                # For direct chat, strictly use global config
+                show_setting = self.config.get("show_ai_response_in_chat_window", "no")
+                show_gui = str(show_setting).lower() in ("yes", "true", "1")
             
             if show_gui:
                 # Stream directly into chat window for real-time display
