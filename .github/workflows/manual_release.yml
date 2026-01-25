@@ -41,22 +41,31 @@ jobs:
       - name: Patch Version in setup.py
         shell: pwsh
         run: |
-          # Robustly handle version string: remove 'v' prefix if present
-          $versionRaw = "${{ inputs.version }}"
-          $version = $versionRaw -replace "^v", ""
+          # Strip 'v' prefix
+          $version = "${{ inputs.version }}".TrimStart('v')
+          Write-Host "Target build version: $version"
           
-          Write-Host "Setting build version to: $version"
+          $filePath = "setup.py"
+          # Read with explicit encoding to avoid BOM issues
+          $content = Get-Content $filePath -Raw
           
-          # Read content
-          $content = Get-Content setup.py -Raw
-          $pattern = 'version\s*=\s*["''][^"'']+["'']'
+          # Regex matches: version="1.2.3" or version = '1.2.3'
+          # We use [char]39 for single quote to avoid YAML/PowerShell quoting confusion
+          $q = "[char]34 + [char]39"
+          $pattern = 'version\s*=\s*["'']([^"'']+)["'']'
           
-          # Check if pattern exists first
           if ($content -match $pattern) {
+              $found = $Matches[0]
+              Write-Host "Found version pattern: $found"
+              
               $newContent = $content -replace $pattern, "version=""$version"""
-              $newContent | Set-Content setup.py
-              Write-Host "Successfully patched setup.py to version $version"
+              # Write back with UTF8 (no BOM)
+              [System.IO.File]::WriteAllText((Get-Item $filePath).FullName, $newContent)
+              Write-Host "Successfully patched $filePath to version $version"
           } else {
+              Write-Host "--- DEBUG: FILE CONTENT START ---"
+              Write-Host $content
+              Write-Host "--- DEBUG: FILE CONTENT END ---"
               Write-Error "Could not find version string in setup.py to patch!"
               exit 1
           }
