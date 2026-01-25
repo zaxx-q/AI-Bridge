@@ -49,18 +49,17 @@ jobs:
           
           # Read content
           $content = Get-Content setup.py -Raw
+          $pattern = 'version\s*=\s*["''][^"'']+["'']'
           
-          # Regex replace the version line. 
-          # Matches: version="...", version = "...", version='...'
-          $newContent = $content -replace 'version\s*=\s*["''][^"'']+["'']', "version=""$version"""
-          
-          if ($content -eq $newContent) {
+          # Check if pattern exists first
+          if ($content -match $pattern) {
+              $newContent = $content -replace $pattern, "version=""$version"""
+              $newContent | Set-Content setup.py
+              Write-Host "Successfully patched setup.py to version $version"
+          } else {
               Write-Error "Could not find version string in setup.py to patch!"
               exit 1
           }
-          
-          $newContent | Set-Content setup.py
-          Write-Host "Successfully patched setup.py"
 
       - name: Build Executable
         run: python setup.py build
