@@ -9,8 +9,9 @@ AIPromptBridge/
 ├── requirements.txt            # Python dependencies
 ├── config.ini                  # Configuration (auto-generated on first run)
 ├── chat_sessions.json          # Saved chat sessions (auto-created)
-├── text_edit_tool_options.json # TextEditTool prompts and settings
-├── tools_config.json           # Tools configuration and prompts
+├── prompts.json                # Unified prompt configuration (TextEdit, Snip, Endpoints)
+├── tools_config.json           # Tools configuration (auto-generated on demand)
+├── session_attachments/        # Directory for message attachment files
 ├── icon.ico                    # System tray icon
 ├── LICENSE
 ├── README.md
@@ -23,6 +24,7 @@ AIPromptBridge/
 └── src/
     ├── __init__.py
     ├── api_client.py           # Unified API interface using providers
+    ├── attachment_manager.py   # Persistent storage for session attachments
     ├── config.py               # Custom INI parser, configuration management
     ├── console.py              # Centralized Rich console configuration
     ├── key_manager.py          # API key rotation with exhaustion tracking
@@ -39,16 +41,25 @@ AIPromptBridge/
     │   ├── custom_widgets.py   # Reusable UI components (ScrollableButtonList, ScrollableComboBox)
     │   ├── emoji_renderer.py   # Twemoji-based color emoji support for Windows
     │   ├── hotkey.py           # Global hotkey listener (pynput)
-    │   ├── options.py          # Default options and settings constants
+    │   ├── options.py          # Default options and settings constants (Deprecated)
     │   ├── platform.py         # UI toolkit authority (HAVE_CTK and fallback logic)
     │   ├── popups.py           # Modern themed popups with scrollable ModifierBar
-    │   ├── prompt_editor.py    # GUI editor for text_edit_tool_options.json
+    │   ├── prompt_editor.py    # GUI editor for prompts.json
+    │   ├── prompts.py          # Unified PromptsConfig loader/manager
+    │   ├── screen_snip.py      # Screenshot capture and overlay
     │   ├── settings_window.py  # GUI editor for config.ini
+    │   ├── snip_popup.py       # Popup UI for screen snipping results
+    │   ├── snip_tool.py        # Screen Snip controller application
     │   ├── text_edit_tool.py   # TextEditTool application controller
     │   ├── text_handler.py     # Text selection and replacement
     │   ├── themes.py           # ThemeRegistry with multi-theme support
     │   ├── utils.py            # GUI utilities (clipboard, markdown render)
-    │   └── windows.py          # Chat and Browser windows
+    │   └── windows/            # Modular window implementations
+    │       ├── __init__.py
+    │       ├── base.py         # Base class for CTk windows
+    │       ├── chat_window.py  # Interactive chat window
+    │       ├── session_browser.py # Session history browser
+    │       └── utils.py        # Window management utilities
     │
     ├── providers/              # AI Provider Implementations
     │   ├── __init__.py         # Provider exports and factory
@@ -80,6 +91,7 @@ AIPromptBridge/
 | `key_manager.py` | Multi-key management with automatic rotation |
 | `request_pipeline.py` | Unified logging and token tracking for all requests |
 | `session_manager.py` | Chat session persistence to JSON |
+| `attachment_manager.py`| Manages external file storage for session attachments |
 
 ### GUI (`src/gui/`)
 
@@ -89,13 +101,14 @@ AIPromptBridge/
 | `emoji_renderer.py` | EmojiRenderer for Windows color emoji support (Twemoji) |
 | `custom_widgets.py` | Custom scrollable lists and emoji-aware dropdowns (ScrollableComboBox) |
 | `text_edit_tool.py` | Global hotkey TextEditTool application |
+| `snip_tool.py` | Screen Snipping application controller (`Ctrl+Shift+X`) |
 | `platform.py` | Central authority for UI toolkit availability and toolkit fallback |
-| `windows.py` | Chat window and session browser implementations |
+| `windows/` | Modular package for application windows |
 | `popups.py` | Themed popup dialogs with dual inputs (Edit/Ask) and scrollable ModifierBar |
 | `hotkey.py` | pynput-based global hotkey listener |
 | `themes.py` | ThemeRegistry with 7 themes, dark/light variants, system detection |
 | `settings_window.py` | GUI editor for config.ini with tabbed interface |
-| `prompt_editor.py` | GUI editor for text_edit_tool_options.json with hot-reload |
+| `prompt_editor.py` | GUI editor for prompts.json with hot-reload |
 
 ### Providers (`src/providers/`)
 
@@ -111,13 +124,14 @@ AIPromptBridge/
 |--------|---------|
 | `base.py` | Abstract BaseTool class with pause/resume support |
 | `checkpoint.py` | Checkpoint persistence for interrupted batch processing |
-| `config.py` | Tools configuration loader (tools_config.json) |
+| `config.py` | Tools configuration loader with on-demand creation |
+| `defaults.py` | Default settings and prompts for tools |
 | `file_handler.py` | File type detection, directory scanning, API message building |
 | `file_processor.py` | File Processor tool - batch process images/text/code with AI |
 
 ## Tools Configuration
 
-The `tools_config.json` file contains:
+The `tools_config.json` file (auto-created on demand) contains:
 - Tool prompts (OCR, Describe, Summarize, Code Review, etc.)
 - Output modes (individual files or combined)
 - File type mappings for auto-detection

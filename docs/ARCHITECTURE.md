@@ -26,6 +26,7 @@ flowchart TB
         Tools["Tools<br/>(tools/file_processor.py)"]
         Flask["Flask Server<br/>(web_server.py)"]
         TET["TextEditTool<br/>(text_edit_tool.py)"]
+        Snip["SnipTool<br/>(snip_tool.py)"]
         Popups["Popups<br/>(popups.py)"]
         Modifiers["Scrollable ModifierBar<br/>(popups.py)"]
         TypingInd["TypingIndicator<br/>(popups.py)"]
@@ -54,6 +55,7 @@ flowchart TB
     Console --> Tools
     Tools --> Pipeline
     TET --> Popups
+    Snip --> Popups
     Popups --> Modifiers
     TET --> TypingInd
     Popups --> Pipeline
@@ -111,9 +113,10 @@ flowchart LR
     end
     
     subgraph Windows["Windows (CTkToplevel)"]
-        Chat["ChatWindow"]
-        Browser["SessionBrowser"]
-        Popup["PopupWindow"]
+        Chat["ChatWindow (windows/chat_window.py)"]
+        Browser["SessionBrowser (windows/session_browser.py)"]
+        Popup["PopupWindow (popups.py)"]
+        SnipUI["SnipPopup (snip_popup.py)"]
     end
     
     subgraph OtherThreads["Other Threads"]
@@ -126,6 +129,7 @@ flowchart LR
     Root --> Chat
     Root --> Browser
     Root --> Popup
+    Root --> SnipUI
 ```
 
 ### Rules
@@ -150,10 +154,11 @@ To ensure robustness across different environments, AIPromptBridge includes a ce
 | `ChatWindow` | Interactive AI chat with streaming |
 | `SessionBrowserWindow` | Browse and restore saved sessions |
 | `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask) and scrollable ModifierBar |
+| `SnipPopup` | Result dialog for screen snipping with image preview and action carousel |
 | `ErrorPopup` | Dialog for displaying API failures to user |
 | `TypingIndicator` | Tooltip showing typing status and abort hotkey |
 | `SettingsWindow` | GUI editor for config.ini with tabbed interface |
-| `PromptEditorWindow` | GUI editor for text_edit_tool_options.json with Playground testing |
+| `PromptEditorWindow` | GUI editor for prompts.json with Playground testing |
 
 ## Request Pipeline
 
@@ -202,19 +207,23 @@ Sessions are stored in `chat_sessions.json` with sequential IDs.
 When a session is initiated from the TextEditTool (e.g., asking a question about selected text), the first message includes a context marker to ensure the AI has follow-up context:
 `[Task: Explain this text]`
 
-### Prompt Architecture (Two-Tier)
+### Prompt Architecture
 
-The TextEditTool utilizes a `prompt_type` system to distinguish between strict editing and general conversation:
-- **Edit Mode** (`"edit"`): Encourages direct task completion with zero conversational overhead. Used for rewrites and proofreading. Uses `base_output_rules_edit`.
-- **General Mode** (`"general"`): Uses more permissive rules allowing explanations, markdown, and a conversational tone. Used for "Explain", "ELI5", and "Ask". Uses `base_output_rules_general`.
+Prompts are managed centrally via `PromptsConfig` (loading `prompts.json` or defaults).
 
-### Context Injection
+#### Unified Configuration
+- `text_edit_tool`: Configuration for text selection actions (Ctrl+Space)
+- `snip_tool`: Configuration for screen snipping actions (Ctrl+Shift+X)
+- `endpoints`: Flask API endpoint prompts
+- `_global_settings`: Shared modifiers and system instructions
 
-Successive chat interactions from the TextEditTool utilize specific system instructions to maintain flow:
-- `chat_system_instruction`: Used for the initial one-shot prompt or direct chat.
-- `chat_window_system_instruction`: Injected when continuing a conversation within the chat window to indicate follow-up status.
+#### Modes
+- **Edit Mode** (`"edit"`): Strict text replacement (e.g., Proofread). Uses `base_output_rules_edit`.
+- **General Mode** (`"general"`): Conversational responses (e.g., Explain). Uses `base_output_rules_general`.
 
-This allows the AI to understand the context of the request even if the user asks "What did you just do?".
+#### Context Injection
+- `chat_system_instruction`: Used for initial direct chats.
+- `chat_window_system_instruction`: Global instruction for follow-up conversations in chat windows.
 
 ### Design Decision
 
@@ -386,13 +395,13 @@ GUI editor for `config.ini` (`src/gui/settings_window.py`):
 
 ### PromptEditorWindow
 
-GUI editor for `text_edit_tool_options.json` (`src/gui/prompt_editor.py`):
+GUI editor for `prompts.json` (`src/gui/prompt_editor.py`):
 
-- **Actions Tab**: Edit action prompts, icons, and types
-- **Settings Tab**: Edit global settings like output rules
-- **Modifiers Tab**: Manage modifier buttons and injections
-- **Groups Tab**: Organize actions into popup groups
-- **Playground Tab**: Test actions and endpoints with live preview and image support
+- **Actions Tab**: Edit actions for both TextEditTool and SnipTool
+- **Settings Tab**: Edit text output rules and system instructions
+- **Modifiers Tab**: Manage global modifier buttons
+- **Groups Tab**: Organize actions into popup groups for both tools
+- **Playground Tab**: Test actions and endpoints with live preview
 - **Hot-Reload**: Triggers `reload_options()` on save for immediate effect
 
 ### Access Methods

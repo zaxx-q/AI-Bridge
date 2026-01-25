@@ -1,10 +1,10 @@
 # AIPromptBridge
 
 <p align="center">
-  <strong>• Windows Desktop AI Assistant •</strong>
+  <strong>• AI Desktop Tools & Integration Bridge •</strong>
 </p>
 
-**AIPromptBridge** is a Windows desktop application that brings AI assistance to your fingertips. Use global hotkeys to edit text in any application, process screenshots with OCR, and chat with AI models—all from a lightweight system tray app.
+**AIPromptBridge** is a Windows desktop application that brings AI assistance to your fingertips. Use global hotkeys to edit text using AI, capture and analyze screen content, and chat with models—all from a lightweight system tray app.
 
 ## 📽️ Demo
 
@@ -21,15 +21,12 @@ Press **Ctrl+Space** anywhere to invoke AI on selected text:
 
 Works in any application: browsers, IDEs, Notepad, Word, everywhere.
 
-### 📸 ShareX Integration
-Process screenshots with AI:
-- **OCR** - Extract text from images
-- **Translation** - Translate foreign text (with dynamic `?lang=` parameter)
-- **Code extraction** - Convert code screenshots to text
-- **Description** - Get AI descriptions of images
-- **Custom endpoints** - Create your own prompts
-
-Results copy to clipboard automatically. See [ShareX Setup Guide](docs/SHAREX_SETUP.md).
+### 📸 Screen Snip (SnipTool)
+Press **Ctrl+Shift+X** to capture a region of your screen and analyze it with AI:
+- **OCR** - Extract text formatting and structure
+- **Analysis** - **Describe**, **Summarize**, or **Explain Code**
+- **Data** - **Extract Data** to tables or **Transcribe** handwriting
+- **Chat** - Ask follow-up questions about the captured image
 
 ### 💬 Chat Interface
 Lightweight chat windows with:
@@ -52,11 +49,13 @@ Customizable appearance with:
 - **Empty response detection** - Automatically retries with next key
 - **Streaming support** - Real-time responses
 - **Batch Processing** - Async processing for large workloads (Gemini Batch API)
+- **Attachment Manager** - Efficient external storage for session images and files
 
 ### 🧰 Tools System
-New in v2.7.0, the **File Processor** tool enables bulk operations:
+The **File Processor** tool enables bulk operations:
 - **Batch Processing**: Process folders of Images, Audio, Code, Text, or PDFs
 - **Audio Optimization**: Reduce file size (mono, sample rate) for efficient AI processing
+- **Configurable**: On-demand `tools_config.json` creation
 - **Smart Handling**:
   - **Large Files**: Auto-switches to Gemini Files API or Chunking logic
   - **Checkpoints**: Resume interrupted jobs or retry failures
@@ -116,30 +115,26 @@ Right-click the tray icon for:
 
 **Without selection**: Opens a quick input bar for direct questions.
 
+### SnipTool (Screen Snipping)
+
+1. Press **Ctrl+Shift+X**
+2. Click and drag to select a screen region
+3. Choose an action (Describe, Extract Text, etc.) or ask a question
+4. Results open in a chat window with the image attached
+
 ### API Endpoints
 
-Access AI via HTTP POST:
+Access AI via HTTP POST (Advanced). Endpoints are disabled by default (`flask_endpoints_enabled = false`) but can be enabled in `config.ini` for integrations like ShareX.
 
 ```bash
 # Basic OCR
 curl -X POST -F "image=@screenshot.png" http://127.0.0.1:5000/ocr
 
-# OCR with translation
-curl -X POST -F "image=@screenshot.png" "http://127.0.0.1:5000/ocr_translate?lang=Japanese"
-
 # With chat window
 curl -X POST -F "image=@screenshot.png" "http://127.0.0.1:5000/describe?show=yes"
 ```
 
-#### Query Parameters
-
-| Parameter | Example | Effect |
-|-----------|---------|--------|
-| `?show=yes` | Open result in chat window |
-| `?lang=XX` | Target language (for `ocr_translate`) |
-| `?prompt=...` | Override the endpoint prompt |
-| `?model=...` | Override the model |
-| `?provider=...` | Override the provider |
+See [ShareX Setup Guide](docs/SHAREX_SETUP.md) for full endpoint documentation.
 
 ### Console Commands
 
@@ -187,23 +182,37 @@ my_translator = Translate to {lang}. Keep formatting.
 
 Access via `http://127.0.0.1:5000/my_analyzer` or `http://127.0.0.1:5000/my_translator?lang=French`
 
-### TextEditTool Options
+### Unified Prompts
 
-Customize prompts in `text_edit_tool_options.json`. The tool supports two types of interactions:
+Customize all prompts (TextEditTool, SnipTool, and Endpoints) in `prompts.json`. This file is automatically created from defaults if missing.
 
-1. **Edit Mode** (`prompt_type: "edit"`): Strict text replacement (e.g., Proofread, Rewrite). Uses `base_output_rules_edit`.
-2. **General Mode** (`prompt_type: "general"`): Conversational responses (e.g., Explain, Ask). Uses `base_output_rules_general`.
+#### Structure
+- `text_edit_tool`: Text manipulation prompts (Ctrl+Space)
+- `snip_tool`: Image analysis prompts (Ctrl+Shift+X)
+- `endpoints`: Flask API endpoint prompts
+- `_global_settings`: Shared settings and modifiers
 
 ```json
 {
-  "Proofread": {
-    "icon": "✏",
-    "prompt_type": "edit",
-    "system_prompt": "You are a meticulous proofreader...",
-    "task": "Proofread the following text...",
-    "show_chat_window_instead_of_replace": false
+  "text_edit_tool": {
+    "Proofread": {
+      "icon": "✏",
+      "prompt_type": "edit",
+      "system_prompt": "You are a meticulous proofreader...",
+      "task": "Proofread the following text...",
+      "show_chat_window_instead_of_replace": false
+    }
   },
-  "Explain": {
+  "snip_tool": {
+    "Describe": {
+      "icon": "🖼️",
+      "system_prompt": "You are an image analysis expert...",
+      "task": "Describe this image in detail...",
+      "show_chat_window": true
+    }
+  }
+}
+```
     "icon": "💡",
     "prompt_type": "general",
     "system_prompt": "You are a knowledgeable teacher...",

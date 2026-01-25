@@ -2,6 +2,8 @@
 
 This guide explains how to set up ShareX to work with AIPromptBridge for image processing tasks like OCR, translation, and description.
 
+> **Note**: AIPromptBridge now includes a built-in Screen Snipping feature (**Ctrl+Shift+X**) which provides similar functionality without requiring external tools. This ShareX integration is intended for advanced users who need ShareX's specific workflow capabilities or custom endpoints.
+
 ## Demo
 
 https://github.com/user-attachments/assets/f9fcbea2-e403-4ea5-86d5-50edb79454f6
@@ -9,9 +11,10 @@ https://github.com/user-attachments/assets/f9fcbea2-e403-4ea5-86d5-50edb79454f6
 ## Prerequisites
 
 - Latest version of [ShareX](https://getsharex.com/) installed
-- AIPromptBridge running:
-  - **Recommended**: Download `AIPromptBridge.exe` from [GitHub Releases](https://github.com/zaxx-q/AIPromptBridge/releases) - just extract, run, and enter your API key in the Settings window that appears
-  - **Alternative**: `python main.py` (requires Python environment)
+- AIPromptBridge running with Flask endpoints enabled:
+  1. Open `config.ini` (Right-click tray icon -> Edit config.ini)
+  2. Set `flask_endpoints_enabled = true` under `[config]` (it is disabled by default)
+  3. Restart AIPromptBridge
 
 ## Step 1: Create Custom Uploader
 
@@ -37,7 +40,7 @@ Fill in the following settings:
 
 ## Available Endpoints
 
-AIPromptBridge comes with these default endpoints:
+AIPromptBridge comes with these default endpoints (configurable in `prompts.json`):
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -54,14 +57,7 @@ AIPromptBridge comes with these default endpoints:
 
 ### Custom Endpoints
 
-You can add your own endpoints by editing `config.ini`:
-
-```ini
-[endpoints]
-my_custom = Your custom prompt here. The AI will process the image with this prompt.
-```
-
-Then access it at `http://127.0.0.1:5000/my_custom`
+You can add your own endpoints by editing `prompts.json` (Right-click tray -> Settings -> Endpoints Tab). The endpoints are defined in the `endpoints` section of the JSON configuration.
 
 ## Query Parameters
 
@@ -126,6 +122,7 @@ You can also access workflows by:
 ### "Connection refused" Error
 
 - Make sure AIPromptBridge is running (check system tray for the icon)
+- **Check if Flask endpoints are enabled**: Ensure `flask_endpoints_enabled = true` in `config.ini`
 - Check the port matches your config (default: 5000)
 - Try opening `http://127.0.0.1:5000/` in your browser
 
@@ -160,5 +157,5 @@ Create multiple custom uploaders for different tasks:
 - Use `?show=yes` when you want to ask follow-up questions about the image
 - Create separate hotkeys for different workflows (e.g., `Ctrl+1` for OCR, `Ctrl+2` for translate)
 - The response is plain text - it works with any application that accepts paste
-- Add your own custom endpoints in `config.ini` for specialized prompts
+- Add your own custom endpoints in `prompts.json` for specialized prompts
 - Use the `{lang}` placeholder in custom endpoints for dynamic language selection
