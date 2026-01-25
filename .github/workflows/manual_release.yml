@@ -1,0 +1,107 @@
+name: Manual Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version Tag (e.g., v2.8.0)'
+        required: true
+        default: 'v2.8.0'
+      release_notes:
+        description: 'Release Description (What changed?)'
+        required: false
+        default: 'Manual build from GitHub Actions'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release ${{ inputs.version }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for proper git versioning if needed
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install cx_Freeze
+
+      - name: Patch Version in setup.py
+        shell: pwsh
+        run: |
+          # Robustly handle version string: remove 'v' prefix if present
+          $versionRaw = "${{ inputs.version }}"
+          $version = $versionRaw -replace "^v", ""
+          
+          Write-Host "Setting build version to: $version"
+          
+          # Read content
+          $content = Get-Content setup.py -Raw
+          
+          # Regex replace the version line. 
+          # Matches: version="...", version = "...", version='...'
+          $newContent = $content -replace 'version\s*=\s*["''][^"'']+["'']', "version=""$version"""
+          
+          if ($content -eq $newContent) {
+              Write-Error "Could not find version string in setup.py to patch!"
+              exit 1
+          }
+          
+          $newContent | Set-Content setup.py
+          Write-Host "Successfully patched setup.py"
+
+      - name: Build Executable
+        run: python setup.py build
+
+      - name: Zip Build Output
+        id: zip_build
+        shell: pwsh
+        run: |
+          # Find the build folder (usually build/exe.win-amd64-3.11)
+          $buildDir = Get-ChildItem -Path "build" -Filter "exe.*" | Select-Object -First 1 -ExpandProperty FullName
+          
+          if (-not $buildDir) {
+            Write-Error "Build directory not found!"
+            exit 1
+          }
+
+          $zipName = "AIPromptBridge-${{ inputs.version }}.zip"
+          
+          Write-Host "Compressing $buildDir to $zipName..."
+          Compress-Archive -Path "$buildDir\*" -DestinationPath $zipName
+          
+          # Save path for the release step
+          echo "ASSET_PATH=$zipName" >> $env:GITHUB_ENV
+          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIPromptBridge-Build
+          path: ${{ env.ZIP_NAME }}
+          retention-days: 5
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ inputs.version }}
+          name: Release ${{ inputs.version }}
+          body: ${{ inputs.release_notes }}
+          files: ${{ env.ASSET_PATH }}
+          draft: true  # Always draft first for safety
+          prerelease: false
+          generate_release_notes: true
