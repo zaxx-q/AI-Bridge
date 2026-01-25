@@ -4,27 +4,54 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version Tag (e.g., v2.8.0)'
-        required: true
-        default: 'v2.8.0'
-      release_notes:
-        description: 'Release Description (What changed?)'
+        description: 'Version Tag (Leave empty to use latest Git tag)'
         required: false
-        default: 'Manual build from GitHub Actions'
+        default: '' # Leave blank to default to git tag
+      release_notes:
+        description: 'Short Summary (Edit the full release page later for long text)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 jobs:
   build-and-release:
-    name: Build & Release ${{ inputs.version }}
     runs-on: windows-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history for proper git versioning if needed
+          fetch-depth: 0 # Required to get git tags
+
+      # --- LOGIC TO HANDLE EMPTY INPUT ---
+      - name: Determine Version
+        id: get_version
+        shell: pwsh
+        run: |
+          $inputVer = "${{ inputs.version }}"
+          
+          if ([string]::IsNullOrWhiteSpace($inputVer)) {
+            try {
+              # Get the latest tag from git (e.g., v2.8.0)
+              $gitTag = git describe --tags --abbrev=0
+              Write-Host "No input provided. Detected latest git tag: $gitTag"
+              $finalVersion = $gitTag
+            } catch {
+              Write-Error "No input provided and no Git tags found in repository!"
+              exit 1
+            }
+          } else {
+            Write-Host "Using user input version: $inputVer"
+            $finalVersion = $inputVer
+          }
+          
+          # Save to GITHUB_ENV so all other steps use this variable
+          echo "RELEASE_VERSION=$finalVersion" >> $env:GITHUB_ENV
+          
+          # Set the job name dynamically for the UI
+          echo "::notice::Building Release: $finalVersion"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -41,33 +68,24 @@ jobs:
       - name: Patch Version in setup.py
         shell: pwsh
         run: |
-          # Strip 'v' prefix
-          $version = "${{ inputs.version }}".TrimStart('v')
-          Write-Host "Target build version: $version"
+          # Use the variable we calculated in step 1
+          $fullVersion = "$env:RELEASE_VERSION"
+          
+          # Strip 'v' prefix for setup.py (e.g., v2.8.0 -> 2.8.0)
+          $cleanVersion = $fullVersion.TrimStart('v')
+          
+          Write-Host "Patching setup.py to version: $cleanVersion"
           
           $filePath = "setup.py"
-          # Read with explicit encoding to avoid BOM issues
           $content = Get-Content $filePath -Raw
           
-          # Regex matches: version="1.2.3" or version = '1.2.3'
-          # We use [char]39 for single quote to avoid YAML/PowerShell quoting confusion
-          $q = "[char]34 + [char]39"
           $pattern = 'version\s*=\s*["'']([^"'']+)["'']'
           
           if ($content -match $pattern) {
-              $found = $Matches[0]
-              Write-Host "Found version pattern: $found"
-              
-              $newContent = $content -replace $pattern, "version=""$version"""
-              # Write back with UTF8 (no BOM)
+              $newContent = $content -replace $pattern, "version=""$cleanVersion"""
               [System.IO.File]::WriteAllText((Get-Item $filePath).FullName, $newContent)
-              Write-Host "Successfully patched $filePath to version $version"
           } else {
-              Write-Host "--- DEBUG: FILE CONTENT START ---"
-              Write-Host $content
-              Write-Host "--- DEBUG: FILE CONTENT END ---"
-              Write-Error "Could not find version string in setup.py to patch!"
-              exit 1
+              Write-Warning "Could not find version string in setup.py! Proceeding with existing version."
           }
 
       - name: Build Executable
@@ -77,39 +95,26 @@ jobs:
         id: zip_build
         shell: pwsh
         run: |
-          # Find the build folder (usually build/exe.win-amd64-3.11)
           $buildDir = Get-ChildItem -Path "build" -Filter "exe.*" | Select-Object -First 1 -ExpandProperty FullName
           
-          if (-not $buildDir) {
-            Write-Error "Build directory not found!"
-            exit 1
-          }
+          if (-not $buildDir) { Write-Error "Build directory not found!"; exit 1 }
 
-          $zipName = "AIPromptBridge-${{ inputs.version }}.zip"
+          # Use the environment variable for consistent naming
+          $zipName = "AIPromptBridge-$env:RELEASE_VERSION.zip"
           
-          Write-Host "Compressing $buildDir to $zipName..."
           Compress-Archive -Path "$buildDir\*" -DestinationPath $zipName
           
-          # Save path for the release step
           echo "ASSET_PATH=$zipName" >> $env:GITHUB_ENV
-          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AIPromptBridge-Build
-          path: ${{ env.ZIP_NAME }}
-          retention-days: 5
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ inputs.version }}
-          name: Release ${{ inputs.version }}
+          # Use the determined version
+          tag_name: ${{ env.RELEASE_VERSION }}
+          name: Release ${{ env.RELEASE_VERSION }}
           body: ${{ inputs.release_notes }}
           files: ${{ env.ASSET_PATH }}
-          draft: true  # Always draft first for safety
           prerelease: false
           generate_release_notes: true
