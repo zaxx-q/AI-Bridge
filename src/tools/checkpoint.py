@@ -51,6 +51,11 @@ class FileProcessorCheckpoint:
     # Audio processing settings (for resume without re-prompting)
     audio_preprocessing: Optional[Dict[str, Any]] = None
     
+    # Custom instructions (for additional user context)
+    custom_instructions: Optional[str] = None  # Batch-wide instructions
+    per_file_instructions: Dict[str, str] = field(default_factory=dict)  # file_path -> instructions
+    skip_per_file_prompts: bool = False  # User chose to skip all per-file prompts
+    
     # Progress tracking
     completed_files: List[str] = field(default_factory=list)
     failed_files: List[Dict[str, str]] = field(default_factory=list)  # {"path": str, "error": str}
@@ -196,6 +201,13 @@ class FileProcessorCheckpoint:
         # Preserve original errors for display
         original_errors = original.failed_files.copy()
         
+        # Filter per_file_instructions to only include failed files
+        failed_per_file_instructions = {
+            path: instructions
+            for path, instructions in original.per_file_instructions.items()
+            if path in failed_paths
+        }
+        
         return cls(
             session_id=str(uuid.uuid4())[:8],
             created_at=now,
@@ -213,6 +225,9 @@ class FileProcessorCheckpoint:
             delay_between_requests=original.delay_between_requests,
             use_batch=original.use_batch,
             audio_preprocessing=original.audio_preprocessing,  # Preserve audio settings
+            custom_instructions=original.custom_instructions,  # Preserve batch instructions
+            per_file_instructions=failed_per_file_instructions,  # Preserve per-file for failed files
+            skip_per_file_prompts=original.skip_per_file_prompts,  # Preserve skip preference
             completed_files=[],
             failed_files=[],  # Reset - these will be tracked fresh
             current_index=0,
@@ -399,7 +414,9 @@ class CheckpointManager:
         model: str,
         delay: float,
         use_batch: bool = False,
-        audio_preprocessing: Optional[Dict[str, Any]] = None
+        audio_preprocessing: Optional[Dict[str, Any]] = None,
+        custom_instructions: Optional[str] = None,
+        skip_per_file_prompts: bool = False
     ) -> FileProcessorCheckpoint:
         """
         Create a new checkpoint.
@@ -418,6 +435,8 @@ class CheckpointManager:
             delay: Delay between requests in seconds
             use_batch: Whether to use Batch API
             audio_preprocessing: Audio preprocessing settings (preset, intensity, optimization)
+            custom_instructions: Batch-wide custom instructions for AI context
+            skip_per_file_prompts: Whether to skip per-file instruction prompts
         
         Returns:
             New FileProcessorCheckpoint
@@ -441,6 +460,9 @@ class CheckpointManager:
             delay_between_requests=delay,
             use_batch=use_batch,
             audio_preprocessing=audio_preprocessing,
+            custom_instructions=custom_instructions,
+            per_file_instructions={},
+            skip_per_file_prompts=skip_per_file_prompts,
             completed_files=[],
             failed_files=[],
             current_index=0,

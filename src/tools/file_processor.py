@@ -100,6 +100,10 @@ class FileProcessor(BaseTool):
         self._processing_callback: Optional[Callable] = None
         self._large_file_mode: Dict[str, str] = {}  # file_path -> mode
         self._audio_preprocessing: Optional[Dict[str, Any]] = None  # Audio preprocessing settings
+        
+        # Custom instructions state
+        self._custom_instructions: Optional[str] = None  # Batch-wide instructions
+        self._ask_per_file: bool = False  # Whether to prompt for per-file instructions
     
     def run_interactive(self) -> ToolResult:
         """
@@ -153,6 +157,13 @@ class FileProcessor(BaseTool):
             if prompt_key is None:
                 return ToolResult(success=False, message="Cancelled")
             
+            # Step 2.5: Custom instructions (optional)
+            custom_result = self._step_custom_instructions(prompt_key, len(scan_result.files))
+            if custom_result is None:
+                return ToolResult(success=False, message="Cancelled")
+            
+            self._custom_instructions, self._ask_per_file = custom_result
+            
             # Step 3: Output configuration
             output_config = self._step_output_configuration(scan_result, prompt_key)
             if output_config is None:
@@ -163,7 +174,7 @@ class FileProcessor(BaseTool):
             if exec_settings is None:
                 return ToolResult(success=False, message="Cancelled")
             
-            # Create checkpoint (include audio preprocessing settings)
+            # Create checkpoint (include audio preprocessing and custom instructions)
             input_files = [str(f.path) for f in scan_result.files]
             self._current_checkpoint = self.checkpoint_manager.create(
                 input_path=str(scan_result.input_path),
@@ -178,7 +189,9 @@ class FileProcessor(BaseTool):
                 model=exec_settings["model"],
                 delay=exec_settings["delay"],
                 use_batch=exec_settings.get("use_batch", False),
-                audio_preprocessing=self._audio_preprocessing
+                audio_preprocessing=self._audio_preprocessing,
+                custom_instructions=self._custom_instructions,
+                skip_per_file_prompts=not self._ask_per_file
             )
             
             # Step 5: Execute processing
@@ -1562,6 +1575,190 @@ class FileProcessor(BaseTool):
                 print_warning("Invalid input")
     
     # ─────────────────────────────────────────────────────────────────
+    # STEP 2.5: Custom Instructions (Optional)
+    # ─────────────────────────────────────────────────────────────────
+    
+    def _step_custom_instructions(self, prompt_key: str, file_count: int) -> Optional[Tuple[Optional[str], bool]]:
+        """
+        Step 2.5: Optional custom instructions for batch processing.
+        
+        Allows users to add context like speaker names, abbreviations, etc.
+        
+        Args:
+            prompt_key: Selected prompt name (for display)
+            file_count: Number of files to process
+            
+        Returns:
+            Tuple of (custom_instructions, ask_per_file) or None if cancelled
+            - custom_instructions: Batch-wide instructions text (None if skipped)
+            - ask_per_file: Whether to prompt for per-file instructions during processing
+        """
+        self._print_header("📁 FILE PROCESSOR - Step 2.5: Custom Instructions (Optional)")
+        
+        print(f"\nSelected prompt: {prompt_key}")
+        print(f"Files to process: {file_count}")
+        
+        print("\n💡 Custom instructions add context for the AI:")
+        print("   • Speaker names and count for transcription")
+        print("   • Abbreviations or shorthand for handwriting recognition")
+        print("   • Domain-specific terminology or hints")
+        print("   • Any file-specific guidance")
+        
+        print("\nOptions:")
+        print("  [1] Add batch instructions (apply to ALL files)")
+        print("  [2] Skip batch, but ask per-file during processing")
+        print("  [3] Skip all custom instructions")
+        print("  [Q] Cancel")
+        
+        try:
+            choice = input("\nChoice [3]: ").strip().lower() or "3"
+        except (EOFError, KeyboardInterrupt):
+            return None
+        
+        if choice == 'q':
+            return None
+        
+        if choice == '1':
+            # Batch-wide instructions
+            print("\nEnter your custom instructions (end with empty line):")
+            print("Examples:")
+            print("  - 2 speakers: John (interviewer) and Sarah (guest)")
+            print("  - 'k' with line above = 'king', 'q' = 'queen'")
+            print("")
+            
+            lines = []
+            try:
+                while True:
+                    line = input()
+                    if not line:
+                        break
+                    lines.append(line)
+            except (EOFError, KeyboardInterrupt):
+                return None
+            
+            if not lines:
+                print_warning("No instructions entered - skipping batch instructions")
+                batch_instructions = None
+            else:
+                batch_instructions = "\n".join(lines)
+                print(f"\n✅ Batch instructions saved ({len(lines)} lines)")
+            
+            # Ask about per-file
+            if file_count > 1:
+                try:
+                    per_file_choice = input("\nAlso ask for file-specific instructions during processing? [y/N]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    return None
+                ask_per_file = per_file_choice == 'y'
+                if ask_per_file:
+                    print("✅ Will prompt for per-file instructions")
+            else:
+                ask_per_file = False
+            
+            return (batch_instructions, ask_per_file)
+        
+        elif choice == '2':
+            # Per-file only
+            print("\n✅ Will prompt for per-file instructions during processing")
+            return (None, True)
+        
+        else:
+            # Skip all
+            print("\n✅ Skipping custom instructions")
+            return (None, False)
+    
+    def _prompt_per_file_instructions(
+        self,
+        filepath: Path,
+        file_index: int,
+        total_files: int
+    ) -> Optional[str]:
+        """
+        Prompt for per-file instructions during processing.
+        
+        Args:
+            filepath: Path to the current file
+            file_index: Current file index (0-based)
+            total_files: Total number of files
+            
+        Returns:
+            - str: Instructions for this file
+            - "": Skip this file (use batch only)
+            - "SKIP_ALL": User wants to skip all remaining prompts
+            - None: User cancelled
+        """
+        print(f"\n[{file_index + 1}/{total_files}] About to process: {filepath.name}")
+        print("\n📝 Add instructions for this file?")
+        print("   [Y] Yes, add instructions")
+        print("   [N] No, use batch instructions only")
+        print("   [A] Apply to All remaining - skip this prompt for rest")
+        print("   [Q] Quit and save progress")
+        
+        try:
+            choice = input("\nChoice [N]: ").strip().lower() or "n"
+        except (EOFError, KeyboardInterrupt):
+            return None
+        
+        if choice == 'q':
+            return None
+        
+        if choice == 'a':
+            return "SKIP_ALL"
+        
+        if choice == 'y':
+            print("\nEnter file-specific instructions (end with empty line):")
+            lines = []
+            try:
+                while True:
+                    line = input()
+                    if not line:
+                        break
+                    lines.append(line)
+            except (EOFError, KeyboardInterrupt):
+                return None
+            
+            if lines:
+                instructions = "\n".join(lines)
+                print(f"✅ Instructions saved for this file")
+                return instructions
+            else:
+                return ""
+        
+        return ""
+    
+    def _build_final_prompt(
+        self,
+        base_prompt: str,
+        batch_instructions: Optional[str],
+        per_file_instructions: Optional[str]
+    ) -> str:
+        """
+        Build the final prompt by injecting custom instructions.
+        
+        Args:
+            base_prompt: The original prompt text
+            batch_instructions: Batch-wide instructions (or None)
+            per_file_instructions: File-specific instructions (or None)
+            
+        Returns:
+            Final prompt with instructions appended
+        """
+        if not batch_instructions and not per_file_instructions:
+            return base_prompt
+        
+        parts = [base_prompt]
+        parts.append("\n\n---\nADDITIONAL CONTEXT FROM USER:")
+        
+        if batch_instructions:
+            parts.append(batch_instructions)
+        
+        if per_file_instructions:
+            parts.append("\nFILE-SPECIFIC NOTES:")
+            parts.append(per_file_instructions)
+        
+        return "\n".join(parts)
+    
+    # ─────────────────────────────────────────────────────────────────
     # STEP 3: Output Configuration
     # ─────────────────────────────────────────────────────────────────
     
@@ -1872,6 +2069,43 @@ class FileProcessor(BaseTool):
                 if interactive:
                     print(f"\n{progress} Processing: {file_path_obj.name}")
                 
+                # Handle per-file instructions
+                per_file_instructions = None
+                if self._ask_per_file and not cp.skip_per_file_prompts:
+                    # Check if we already have instructions for this file (from previous run)
+                    per_file_instructions = cp.per_file_instructions.get(str(file_path))
+                    
+                    if per_file_instructions is None and interactive:
+                        # Need to prompt for instructions
+                        per_file_result = self._prompt_per_file_instructions(
+                            file_path_obj,
+                            file_index=len(cp.completed_files) + len(cp.failed_files),
+                            total_files=total
+                        )
+                        
+                        if per_file_result is None:
+                            # User cancelled - save checkpoint and exit
+                            self.checkpoint_manager.save(cp)
+                            result.message = "Stopped by user"
+                            break
+                        elif per_file_result == "SKIP_ALL":
+                            # User wants to skip all remaining per-file prompts
+                            cp.skip_per_file_prompts = True
+                            self._ask_per_file = False
+                            self.checkpoint_manager.save(cp)
+                        elif per_file_result:
+                            # User provided instructions
+                            per_file_instructions = per_file_result
+                            cp.per_file_instructions[str(file_path)] = per_file_result
+                            self.checkpoint_manager.save(cp)
+                
+                # Build final prompt with custom instructions
+                final_prompt = self._build_final_prompt(
+                    cp.prompt_text,
+                    self._custom_instructions,
+                    per_file_instructions
+                )
+                
                 process_path = file_path_obj
                 preprocess_result = None
                 
@@ -1905,24 +2139,24 @@ class FileProcessor(BaseTool):
                         elif mode == LARGE_FILE_MODE_CHUNKING and is_audio:
                             # Use FFmpeg chunking on the processed file
                             response = self._process_audio_with_chunking(
-                                process_path, cp.prompt_text, cp, interactive, skip_preprocessing=True
+                                process_path, final_prompt, cp, interactive, skip_preprocessing=True
                             )
                         
                         else:
                             # Use Files API with the processed file
                             response = self._process_with_files_api(
-                                process_path, cp.prompt_text, cp, interactive
+                                process_path, final_prompt, cp, interactive
                             )
                     
                     # Check for Batch API
                     elif cp.use_batch and "gemini" in cp.provider.lower():
                          response = self._process_file_batch(
-                            process_path, cp.prompt_text, cp, interactive
+                            process_path, final_prompt, cp, interactive
                         )
                     else:
                         # Standard inline processing
                         response = self._process_file_inline(
-                            process_path, cp.prompt_text, cp, interactive
+                            process_path, final_prompt, cp, interactive
                         )
                     
                     if response is None:
@@ -2074,6 +2308,10 @@ class FileProcessor(BaseTool):
         # Restore audio preprocessing settings from checkpoint
         self._audio_preprocessing = self._current_checkpoint.audio_preprocessing
         
+        # Restore custom instructions from checkpoint
+        self._custom_instructions = self._current_checkpoint.custom_instructions
+        self._ask_per_file = not self._current_checkpoint.skip_per_file_prompts
+        
         return self._execute_processing()
     
     def _prompt_retry_failed(self) -> Optional[bool]:
@@ -2127,6 +2365,10 @@ class FileProcessor(BaseTool):
         
         # Restore audio preprocessing settings from checkpoint
         self._audio_preprocessing = self._current_checkpoint.audio_preprocessing
+        
+        # Restore custom instructions from checkpoint
+        self._custom_instructions = self._current_checkpoint.custom_instructions
+        self._ask_per_file = not self._current_checkpoint.skip_per_file_prompts
         
         # Clear the failed checkpoint since we're using it now
         # (A new one will be created if there are still failures)
