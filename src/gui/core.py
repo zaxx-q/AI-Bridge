@@ -386,13 +386,14 @@ class GUICoordinator:
         prompts_config = request.get('prompts_config')
         on_action = request.get('on_action')
         on_close = request.get('on_close')
+        on_request_compare_capture = request.get('on_request_compare_capture')
         x = request.get('x')
         y = request.get('y')
         
         if capture_result and prompts_config and on_action:
             create_attached_snip_popup(
                 self._root, capture_result, prompts_config,
-                on_action, on_close, x, y
+                on_action, on_close, on_request_compare_capture, x, y
             )
     
     def request_chat_window(self, session, initial_response=None):
@@ -525,6 +526,7 @@ class GUICoordinator:
         prompts_config,
         on_action,
         on_close=None,
+        on_request_compare_capture=None,
         x=None,
         y=None
     ):
@@ -536,6 +538,7 @@ class GUICoordinator:
             'prompts_config': prompts_config,
             'on_action': on_action,
             'on_close': on_close,
+            'on_request_compare_capture': on_request_compare_capture,
             'x': x,
             'y': y
         })

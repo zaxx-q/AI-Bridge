@@ -358,7 +358,8 @@ DEFAULT_SNIP_SETTINGS = {
     "popup_groups": [
         {"name": "Analysis", "items": ["Describe", "Summarize", "Extract Text"]},
         {"name": "Code", "items": ["Explain Code", "Debug", "Convert"]},
-        {"name": "Data", "items": ["Extract Data", "Transcribe"]}
+        {"name": "Data", "items": ["Extract Data", "Transcribe"]},
+        {"name": "Compare", "items": ["Compare Images"]}
     ],
     "custom_task_template": "Regarding this image: {custom_input}",
     "allow_text_edit_actions": True
@@ -369,55 +370,71 @@ DEFAULT_SNIP_ACTIONS = {
         "icon": "🖼️",
         "system_prompt": "You are an image analysis expert who provides detailed, accurate descriptions.",
         "task": "Describe this image in detail. Include all visible elements, text, colors, layout, and context.",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
     },
     "Extract Text": {
         "icon": "📄",
         "system_prompt": "You are an OCR specialist who extracts text with high accuracy.",
         "task": "Extract all text from this image. Preserve the original formatting, line breaks, and layout as closely as possible.",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
     },
     "Explain Code": {
         "icon": "💻",
         "system_prompt": "You are a code analysis expert who explains code clearly and concisely.",
         "task": "Analyze the code in this screenshot. Explain what it does, its purpose, and any notable patterns or techniques used.",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
     },
     "Debug": {
         "icon": "🐛",
         "system_prompt": "You are a debugging expert who identifies issues in code with precision.",
         "task": "Examine this code screenshot carefully. Identify any bugs, errors, potential issues, anti-patterns, or improvements. Be specific about line numbers or locations if visible.",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
     },
     "Extract Data": {
         "icon": "📊",
         "system_prompt": "You are a data extraction specialist who structures information accurately.",
         "task": "Extract any structured data from this image (tables, lists, key-value pairs, forms). Format it clearly using Markdown.",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
     },
     "Summarize": {
         "icon": "📝",
         "system_prompt": "You are a summarization expert who distills information to its essence.",
         "task": "Summarize the key information visible in this image concisely. Focus on the most important points.",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
     },
     "Transcribe": {
         "icon": "✍️",
         "system_prompt": "You are a transcription specialist for handwritten text and documents.",
         "task": "Transcribe any handwritten or printed text in this image as accurately as possible. Note any unclear parts.",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
     },
     "Convert": {
         "icon": "🔄",
         "system_prompt": "You are a code formatting specialist who produces clean, idiomatic code.",
         "task": "Convert the code in this screenshot to clean, well-formatted code. Fix any obvious issues and follow best practices.",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
+    },
+    "Compare Images": {
+        "icon": "🔀",
+        "system_prompt": "You are an image comparison expert who analyzes differences and similarities between two images.",
+        "task": "Compare these two images. Identify and describe: 1) Key differences 2) Similarities 3) Any notable changes between them.",
+        "show_chat_window": True,
+        "compare_prompts": True
     },
     "_Custom": {
         "icon": "⚡",
         "system_prompt": "You are a versatile image analysis assistant who adapts to any request.",
         "task": "",
-        "show_chat_window": True
+        "show_chat_window": True,
+        "compare_prompts": False
     }
 }
 

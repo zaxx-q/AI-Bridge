@@ -137,7 +137,18 @@ class SnipToolApp:
             capture_result=capture_result,
             prompts_config=prompts_config,
             on_action=self._on_action_selected,
-            on_close=self._on_popup_closed
+            on_close=self._on_popup_closed,
+            on_request_compare_capture=self._on_request_compare_capture
+        )
+    
+    def _on_request_compare_capture(self, on_capture, on_cancel):
+        """Handle request for second capture (compare mode)."""
+        logging.debug('[SnipTool] Initiating second capture for comparison')
+        
+        from .core import GUICoordinator
+        GUICoordinator.get_instance().request_snip_overlay(
+            on_capture=on_capture,
+            on_cancel=on_cancel
         )
     
     def _get_combined_prompts(self) -> Dict[str, Any]:
@@ -157,20 +168,30 @@ class SnipToolApp:
         # Keep capture for potential re-opening? Or clear?
         # For now, keep it - user might want to try again
     
-    def _on_action_selected(self, source: str, action_key: str, custom_input: Optional[str], active_modifiers: List[str] = None):
+    def _on_action_selected(
+        self,
+        source: str,
+        action_key: str,
+        custom_input: Optional[str],
+        active_modifiers: List[str] = None,
+        compare_mode: bool = False,
+        compare_capture: Optional[CaptureResult] = None
+    ):
         """
         Handle action selection from popup.
         
         Args:
-            source: "snip" or "text_edit"
+            source: "snip", "text_edit", or "file_processor"
             action_key: The action name (e.g., "Describe", "Proofread")
             custom_input: Custom question text (if any)
             active_modifiers: List of active modifier keys
+            compare_mode: Whether compare mode is enabled
+            compare_capture: Second capture result (if compare mode)
         """
         if active_modifiers is None:
             active_modifiers = []
         
-        logging.debug(f'Action selected: source={source}, key={action_key}, custom={bool(custom_input)}, modifiers={active_modifiers}')
+        logging.debug(f'Action selected: source={source}, key={action_key}, custom={bool(custom_input)}, modifiers={active_modifiers}, compare={compare_mode}')
         
         if not self.current_capture:
             logging.error('No capture available for action')
@@ -181,7 +202,7 @@ class SnipToolApp:
         # Process in background thread
         threading.Thread(
             target=self._process_action,
-            args=(source, action_key, custom_input, active_modifiers),
+            args=(source, action_key, custom_input, active_modifiers, compare_mode, compare_capture),
             daemon=True
         ).start()
     
@@ -204,33 +225,45 @@ class SnipToolApp:
                 return True
         return False
     
-    def _process_action(self, source: str, action_key: str, custom_input: Optional[str], active_modifiers: List[str] = None):
+    def _process_action(
+        self,
+        source: str,
+        action_key: str,
+        custom_input: Optional[str],
+        active_modifiers: List[str] = None,
+        compare_mode: bool = False,
+        compare_capture: Optional[CaptureResult] = None
+    ):
         """Process the selected action with image context."""
         if active_modifiers is None:
             active_modifiers = []
         
         try:
-            # Get action config based on source
-            if source == "text_edit":
-                actions = self.prompts.get_text_edit_actions()
-                settings = self.prompts.get_text_edit_tool().get("_settings", {})
+            # Handle File Processor source separately
+            if source == "file_processor":
+                system_prompt, task = self._get_file_processor_prompt(action_key)
             else:
-                actions = self.prompts.get_snip_actions()
-                settings = self.prompts.get_snip_tool().get("_settings", {})
-            
-            action = actions.get(action_key, {})
-            
-            # Build prompt
-            system_prompt = action.get("system_prompt", "You are an AI assistant analyzing images.")
-            task = action.get("task", "Analyze this image.")
-            
-            # Handle custom input
-            if action_key == "_Custom" and custom_input:
-                template = settings.get(
-                    "custom_task_template",
-                    "Regarding this image: {custom_input}"
-                )
-                task = template.format(custom_input=custom_input)
+                # Get action config based on source
+                if source == "text_edit":
+                    actions = self.prompts.get_text_edit_actions()
+                    settings = self.prompts.get_text_edit_tool().get("_settings", {})
+                else:
+                    actions = self.prompts.get_snip_actions()
+                    settings = self.prompts.get_snip_tool().get("_settings", {})
+                
+                action = actions.get(action_key, {})
+                
+                # Build prompt
+                system_prompt = action.get("system_prompt", "You are an AI assistant analyzing images.")
+                task = action.get("task", "Analyze this image.")
+                
+                # Handle custom input
+                if action_key == "_Custom" and custom_input:
+                    template = settings.get(
+                        "custom_task_template",
+                        "Regarding this image: {custom_input}"
+                    )
+                    task = template.format(custom_input=custom_input)
             
             # Apply modifier injections to system prompt
             if active_modifiers:
@@ -238,18 +271,33 @@ class SnipToolApp:
                 if modifier_injections:
                     system_prompt = system_prompt + "\n\n" + modifier_injections
             
-            # Build multimodal message
-            messages = self._build_image_message(
-                image_b64=self.current_capture.image_base64,
-                mime_type=self.current_capture.mime_type,
-                task=task,
-                system_prompt=system_prompt
-            )
+            # Build multimodal message (single or comparison)
+            if compare_mode and compare_capture:
+                messages = self._build_comparison_message(
+                    image1_b64=self.current_capture.image_base64,
+                    image2_b64=compare_capture.image_base64,
+                    mime_type=self.current_capture.mime_type,
+                    task=task,
+                    system_prompt=system_prompt
+                )
+                window_title = f"🔀 {action_key}"
+                image_info = f"{self.current_capture.width}x{self.current_capture.height} vs {compare_capture.width}x{compare_capture.height}"
+            else:
+                messages = self._build_image_message(
+                    image_b64=self.current_capture.image_base64,
+                    mime_type=self.current_capture.mime_type,
+                    task=task,
+                    system_prompt=system_prompt
+                )
+                window_title = f"📷 {action_key}"
+                image_info = f"{self.current_capture.width}x{self.current_capture.height}"
             
             # Log the request
             print(f"\n{'─'*60}")
             print(f"[SnipTool] Processing: {action_key}")
-            print(f"[SnipTool] Image: {self.current_capture.width}x{self.current_capture.height}")
+            print(f"[SnipTool] Image{'s' if compare_mode else ''}: {image_info}")
+            if compare_mode:
+                print(f"[SnipTool] Compare Mode: Enabled")
             if active_modifiers:
                 print(f"[SnipTool] Modifiers: {', '.join(active_modifiers)}")
             
@@ -257,8 +305,9 @@ class SnipToolApp:
             from ..request_pipeline import RequestOrigin
             self._stream_to_chat_window(
                 messages=messages,
-                window_title=f"📷 {action_key}",
-                origin=RequestOrigin.SNIP_TOOL
+                window_title=window_title,
+                origin=RequestOrigin.SNIP_TOOL,
+                compare_capture=compare_capture
             )
             
             print(f"{'─'*60}\n")
@@ -274,6 +323,34 @@ class SnipToolApp:
             )
         finally:
             self.is_processing = False
+    
+    def _get_file_processor_prompt(self, action_key: str) -> tuple:
+        """
+        Get prompt from File Processor tools_config.json.
+        
+        File Processor prompts have only a user prompt, no system prompt.
+        
+        Args:
+            action_key: The prompt key name
+            
+        Returns:
+            Tuple of (system_prompt, task)
+        """
+        try:
+            from ..tools.config import load_tools_config, get_prompt_by_key
+            config = load_tools_config(create_if_missing=False)
+            prompt_config = get_prompt_by_key(config, action_key)
+            
+            if prompt_config:
+                # File Processor prompts only have a user prompt, use minimal system prompt
+                system_prompt = "You are a helpful AI assistant processing images."
+                task = prompt_config.get("prompt", "Analyze this image.")
+                return system_prompt, task
+        except Exception as e:
+            logging.error(f"[SnipTool] Failed to load file processor prompt '{action_key}': {e}")
+        
+        # Fallback
+        return "You are a helpful AI assistant.", "Analyze this image."
     
     def _build_image_message(
         self,
@@ -300,19 +377,51 @@ class SnipToolApp:
             ]}
         ]
     
+    def _build_comparison_message(
+        self,
+        image1_b64: str,
+        image2_b64: str,
+        mime_type: str,
+        task: str,
+        system_prompt: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Build multimodal message with two images for comparison.
+        
+        Format follows OpenAI multimodal message structure which is
+        compatible with both OpenAI-compatible and Gemini Native providers.
+        
+        Images are labeled and placed before the task text.
+        """
+        data_url1 = f"data:{mime_type};base64,{image1_b64}"
+        data_url2 = f"data:{mime_type};base64,{image2_b64}"
+        
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": [
+                {"type": "text", "text": "Image 1:"},
+                {"type": "image_url", "image_url": {"url": data_url1}},
+                {"type": "text", "text": "Image 2:"},
+                {"type": "image_url", "image_url": {"url": data_url2}},
+                {"type": "text", "text": task}
+            ]}
+        ]
+    
     def _stream_to_chat_window(
         self,
         messages: List[Dict[str, Any]],
         window_title: str,
-        origin
+        origin,
+        compare_capture: Optional[CaptureResult] = None
     ):
         """
         Open a chat window and stream API response into it.
         
         Args:
-            messages: API messages with image
+            messages: API messages with image(s)
             window_title: Title for the chat window
             origin: RequestOrigin for logging
+            compare_capture: Optional second capture for comparison mode
         """
         from .core import GUICoordinator
         from ..session_manager import ChatSession
@@ -327,15 +436,30 @@ class SnipToolApp:
         )
         session.title = window_title
         
-        # Save image to external file for persistence
+        # Save primary image to external file for persistence
         attachment_path = AttachmentManager.save_image(
             session_id=session.session_id,
             image_base64=self.current_capture.image_base64,
             mime_type=self.current_capture.mime_type,
             message_index=0
         )
+        attachments = []
         if attachment_path:
-            session.attachments = [{"path": attachment_path, "mime_type": self.current_capture.mime_type}]
+            attachments.append({"path": attachment_path, "mime_type": self.current_capture.mime_type})
+        
+        # Save comparison image if present
+        if compare_capture:
+            compare_path = AttachmentManager.save_image(
+                session_id=session.session_id,
+                image_base64=compare_capture.image_base64,
+                mime_type=compare_capture.mime_type,
+                message_index=1
+            )
+            if compare_path:
+                attachments.append({"path": compare_path, "mime_type": compare_capture.mime_type})
+        
+        if attachments:
+            session.attachments = attachments
         
         # Add user message (just the task text, image is in session)
         # Extract text from multimodal message
