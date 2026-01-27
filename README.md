@@ -26,6 +26,7 @@ Press **Ctrl+Shift+X** to capture a region of your screen and analyze it with AI
 - **OCR** - Extract text formatting and structure
 - **Analysis** - **Describe**, **Summarize**, or **Explain Code**
 - **Data** - **Extract Data** to tables or **Transcribe** handwriting
+- **Compare** - **Compare Images** to analyze differences between two screenshots
 - **Chat** - Ask follow-up questions about the captured image
 
 ### 💬 Chat Interface

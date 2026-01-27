@@ -136,7 +136,7 @@ executables = [
 
 setup(
     name="AIPromptBridge",
-    version="3.0.0",
+    version="3.2.0",
     description="Multi-modal System-wide AI Integration",
     author="AIPromptBridge",
     options={"build_exe": build_exe_options},
