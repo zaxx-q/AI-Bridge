@@ -359,7 +359,7 @@ DEFAULT_SNIP_SETTINGS = {
         {"name": "Analysis", "items": ["Describe", "Summarize", "Extract Text"]},
         {"name": "Code", "items": ["Explain Code", "Debug", "Convert"]},
         {"name": "Data", "items": ["Extract Data", "Transcribe"]},
-        {"name": "Compare", "items": ["Compare Images"]}
+        {"name": "Compare", "items": ["Compare Images", "Spot Differences", "Before/After", "Code Diff", "Which is Better"]}
     ],
     "custom_task_template": "Regarding this image: {custom_input}",
     "allow_text_edit_actions": True
@@ -426,6 +426,34 @@ DEFAULT_SNIP_ACTIONS = {
         "icon": "🔀",
         "system_prompt": "You are an image comparison expert who analyzes differences and similarities between two images.",
         "task": "Compare these two images. Identify and describe: 1) Key differences 2) Similarities 3) Any notable changes between them.",
+        "show_chat_window": True,
+        "compare_prompts": True
+    },
+    "Spot Differences": {
+        "icon": "🔍",
+        "system_prompt": "You are a visual detail specialist who meticulously identifies even subtle differences between two images.",
+        "task": "Examine these two images carefully and identify ALL differences, no matter how small. List each difference with its location. Include: pixel-level changes, color variations, missing/added elements, text changes, and positional shifts.",
+        "show_chat_window": True,
+        "compare_prompts": True
+    },
+    "Before/After": {
+        "icon": "⏮️",
+        "system_prompt": "You are a change documentation specialist who analyzes before/after states to explain what was done.",
+        "task": "Analyze these before (Image 1) and after (Image 2) images. Describe: 1) What changes were made 2) The likely purpose or goal of these changes 3) The overall impact or improvement. Focus on documenting the transformation.",
+        "show_chat_window": True,
+        "compare_prompts": True
+    },
+    "Code Diff": {
+        "icon": "💻",
+        "system_prompt": "You are a code review specialist who analyzes differences between two code screenshots.",
+        "task": "Compare these two code screenshots. Identify: 1) Lines added, removed, or modified 2) Functional changes in the code 3) Whether the changes fix bugs, add features, or refactor. Present as a clear diff summary.",
+        "show_chat_window": True,
+        "compare_prompts": True
+    },
+    "Which is Better": {
+        "icon": "⚖️",
+        "system_prompt": "You are an evaluator who provides objective analysis and recommendations when comparing two options.",
+        "task": "Compare these two images and evaluate which is better. Consider: 1) Quality and clarity 2) Design/presentation 3) Effectiveness for its purpose. Provide a clear recommendation with reasoning.",
         "show_chat_window": True,
         "compare_prompts": True
     },
