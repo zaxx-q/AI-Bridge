@@ -43,8 +43,14 @@ jobs:
               exit 1
             }
           } else {
-            Write-Host "Using user input version: $inputVer"
-            $finalVersion = $inputVer
+            $inputVer = $inputVer.Trim()
+            if (-not ($inputVer.ToLower().StartsWith("v"))) {
+              $finalVersion = "v$inputVer"
+              Write-Host "Added 'v' prefix to input: $finalVersion"
+            } else {
+              $finalVersion = $inputVer
+              Write-Host "Using user input version: $finalVersion"
+            }
           }
           
           # Save to GITHUB_ENV so all other steps use this variable
@@ -72,7 +78,7 @@ jobs:
           $fullVersion = "$env:RELEASE_VERSION"
           
           # Strip 'v' prefix for setup.py (e.g., v2.8.0 -> 2.8.0)
-          $cleanVersion = $fullVersion.TrimStart('v')
+          $cleanVersion = $fullVersion.TrimStart('vV')
           
           Write-Host "Patching setup.py to version: $cleanVersion"
           
