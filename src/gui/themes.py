@@ -786,7 +786,14 @@ def get_ctk_button_colors(colors: ThemeColors, variant: str = "primary") -> dict
         return {
             "fg_color": colors.accent_green,
             "hover_color": "#45a049",
-            "text_color": "#ffffff",
+            "text_color": "#2b2b2b",
+            "border_width": 0,
+        }
+    elif variant == "warning":
+        return {
+            "fg_color": colors.accent_yellow,
+            "hover_color": colors.peach,
+            "text_color": "#2b2b2b",
             "border_width": 0,
         }
     elif variant == "danger":
