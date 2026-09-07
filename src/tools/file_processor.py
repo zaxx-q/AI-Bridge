@@ -12,6 +12,7 @@ Provides:
 """
 
 import contextlib
+import os
 import sys
 import threading
 import time
@@ -65,6 +66,7 @@ from .config import (
     get_setting,
     list_available_prompts,
     load_tools_config,
+    save_tools_config,
 )
 from .file_handler import FileHandler, FileInfo, ScanResult
 
@@ -314,12 +316,24 @@ class FileProcessor(BaseTool):
         """
         self._print_header("📁 FILE PROCESSOR - Step 1: Input Selection")
 
+        # Load previous input path from settings for prefill
+        last_input = get_setting(self.tools_config, "last_input_path", "")
+
         while True:
-            print("\nEnter path to file or folder (or 'q' to cancel):")
+            if last_input:
+                print("\nEnter path to file or folder (or 'q' to cancel):")
+                print(f"  (previous: {last_input})")
+            else:
+                print("\nEnter path to file or folder (or 'q' to cancel):")
             try:
                 path_str = input("> ").strip()
             except (EOFError, KeyboardInterrupt):
                 return None
+
+            # Use previous input if user just pressed Enter
+            if not path_str and last_input:
+                path_str = last_input
+                print(f"  Using: {path_str}")
 
             if path_str.lower() == "q":
                 return None
@@ -328,11 +342,14 @@ class FileProcessor(BaseTool):
                 print_warning("Please enter a path")
                 continue
 
-            # Handle quoted paths
-            if path_str.startswith('"') and path_str.endswith('"'):
+            # Strip surrounding quotes (single or double)
+            if (path_str.startswith('"') and path_str.endswith('"')) or (
+                path_str.startswith("'") and path_str.endswith("'")
+            ):
                 path_str = path_str[1:-1]
 
-            path = Path(path_str)
+            # Expand ~ and environment variables
+            path = Path(os.path.expandvars(os.path.expanduser(path_str)))
 
             if not path.exists():
                 print_error(f"Path does not exist: {path}")
@@ -398,6 +415,10 @@ class FileProcessor(BaseTool):
             if confirm == "n":
                 self._cleanup_pdf_temp_dirs()
                 continue
+
+            # Save last input path to tools config for prefill next time
+            self.tools_config.setdefault("_settings", {})["last_input_path"] = path_str
+            save_tools_config(self.tools_config)
 
             return scan_result
 
