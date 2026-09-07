@@ -1075,8 +1075,11 @@ class AudioProcessor:
                 success=False,
                 error=(
                     "DeepFilterNet not installed. Install via:\n"
-                    "  • Rust (lightweight ~25MB):  cargo install deep_filter\n"
-                    "  • Python (~2GB):             pip install deepfilternet\n"
+                    "  • Standalone binary (~25MB, recommended for Windows & Linux):\n"
+                    "    https://github.com/Rikorose/DeepFilterNet/releases\n"
+                    "    (download 'deep-filter' / 'deep-filter.exe' and place on PATH)\n"
+                    "  • Cargo git:    cargo install --git https://github.com/Rikorose/DeepFilterNet.git deep-filter\n"
+                    "  • Python:       pipx install deepfilternet (or pip install deepfilternet)\n"
                     "Then ensure 'deep-filter' or 'deepFilter' is on your PATH."
                 ),
             )
@@ -1413,7 +1416,9 @@ class AudioProcessor:
             if not self.is_deep_filter_available():
                 print_error(
                     "DeepFilterNet not installed - cannot preview audio.\n"
-                    "  Install via: cargo install deep_filter or pip install deepfilternet"
+                    "  • Standalone binary (Windows & Linux): https://github.com/Rikorose/DeepFilterNet/releases\n"
+                    "  • Cargo git:  cargo install --git https://github.com/Rikorose/DeepFilterNet.git deep-filter\n"
+                    "  • Python:     pip install deepfilternet (or pipx install deepfilternet)"
                 )
                 return False
 
@@ -1459,7 +1464,12 @@ class AudioProcessor:
                     str(processed_result.output_path),
                 ]
                 print_info(f"Previewing {duration_seconds}s DeepFilterNet output... (press 'q' to stop)")
-                process = subprocess.Popen(play_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                process = subprocess.Popen(
+                    play_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=get_creation_flags(),
+                )
                 self._wait_with_keypress(process, duration_seconds + 10)
                 return True
             except Exception as e:
@@ -1543,7 +1553,12 @@ class AudioProcessor:
             ]
 
             print_info(f"Previewing {duration_seconds}s... (press 'q' to stop)")
-            process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=get_creation_flags(),
+            )
 
             self._wait_with_keypress(process, duration_seconds + 10)
             return True

@@ -673,8 +673,11 @@ class FileProcessor(BaseTool):
                 print_warning(
                     "\n⚠️  DeepFilterNet is not installed.\n"
                     "  Install via:\n"
-                    "    • Rust (lightweight ~25MB):  cargo install deep_filter\n"
-                    "    • Python (~2GB):             pip install deepfilternet\n"
+                    "    • Standalone binary (~25MB, recommended for Windows & Linux):\n"
+                    "      https://github.com/Rikorose/DeepFilterNet/releases\n"
+                    "      (download 'deep-filter' / 'deep-filter.exe' and place on your system PATH)\n"
+                    "    • Cargo git:    cargo install --git https://github.com/Rikorose/DeepFilterNet.git deep-filter\n"
+                    "    • Python:       pipx install deepfilternet (or pip install deepfilternet)\n"
                     "  Then ensure 'deep-filter' or 'deepFilter' is on your PATH."
                 )
                 try:
