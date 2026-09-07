@@ -30,6 +30,10 @@ _ffprobe_path: Optional[str] = None
 _ffplay_path: Optional[str] = None
 _checked: bool = False
 
+_deep_filter_path: Optional[str] = None
+_deep_filter_checked: bool = False
+_arnndn_available: Optional[bool] = None
+
 
 def _ensure_checked():
     """Populate cached paths on first call using shutil.which (fast PATH lookup)."""
@@ -99,6 +103,60 @@ def get_ffplay_path() -> Optional[str]:
     """
     _ensure_checked()
     return _ffplay_path
+
+
+def _ensure_deep_filter_checked():
+    """Check for DeepFilterNet binary (deep-filter or deepFilter)."""
+    global _deep_filter_path, _deep_filter_checked
+    if not _deep_filter_checked:
+        # Try Rust binary first (lighter), then Python CLI
+        _deep_filter_path = shutil.which("deep-filter") or shutil.which("deepFilter")
+        _deep_filter_checked = True
+
+
+def is_deep_filter_available() -> bool:
+    """Check if DeepFilterNet binary is available on PATH (cached).
+
+    Returns:
+        True if deep-filter or deepFilter binary was found on PATH.
+    """
+    _ensure_deep_filter_checked()
+    return _deep_filter_path is not None
+
+
+def get_deep_filter_path() -> Optional[str]:
+    """Get cached DeepFilterNet binary path.
+
+    Returns:
+        Absolute path to deep-filter/deepFilter, or None if not found.
+    """
+    _ensure_deep_filter_checked()
+    return _deep_filter_path
+
+
+def is_arnndn_available() -> bool:
+    """Check if FFmpeg has the arnndn filter compiled in (cached).
+
+    Returns:
+        True if the arnndn audio filter is present in FFmpeg.
+    """
+    global _arnndn_available
+    if _arnndn_available is None:
+        _arnndn_available = False
+        path = get_ffmpeg_path()
+        if path:
+            try:
+                result = subprocess.run(
+                    [path, "-filters"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    creationflags=get_creation_flags(),
+                )
+                _arnndn_available = "arnndn" in result.stdout
+            except Exception:
+                pass
+    return _arnndn_available
 
 
 def get_ffmpeg_version() -> Optional[str]:

@@ -35,6 +35,7 @@ from src.console import (
 from src.platform.console_input import RawConsole, get_key, is_console_input_available
 
 from .audio_processor import (
+    ARNNDN_MODELS,
     BITRATE_OPTIONS,
     SAMPLE_RATE_OPTIONS,
     TARGET_CHUNK_SIZE_BYTES,
@@ -496,6 +497,11 @@ class FileProcessor(BaseTool):
             print("  [6] Phone Recording - Enhance low-quality audio")
             print("  [7] More presets...")
 
+            print("\n🧠 AI-Powered Presets:")
+            print("  [8] AI Noise Reduction - Neural network noise removal")
+            print("  [9] AI Lecture Cleanup - Full AI lecture pipeline")
+            print("  [10] AI Deep Denoise - Premium DeepFilterNet (requires install)")
+
             print("\n🔧 Advanced:")
             print("  [A] Advanced mode - Custom effect chains")
 
@@ -534,6 +540,10 @@ class FileProcessor(BaseTool):
                 "4": "noise_reduction",
                 "5": "podcast",
                 "6": "phone_recording",
+                # AI presets
+                "8": "ai_noise_reduction",
+                "9": "ai_lecture_cleanup",
+                "10": "ai_deep_denoise",
             }
 
             if choice in preset_map:
@@ -572,6 +582,55 @@ class FileProcessor(BaseTool):
             if current_config:
                 print_info("Press [C] to continue with current settings or choose an option")
 
+    def _select_arnndn_model(self) -> Optional[str]:
+        """
+        Show sub-menu for selecting an arnndn model.
+
+        Returns:
+            Model name (e.g., "sh"), or None if cancelled.
+            Returns empty string "" to go back.
+        """
+        if not self.audio_processor.is_arnndn_available():
+            print_warning(
+                "\n⚠️  Your FFmpeg installation does not appear to have the 'arnndn' filter.\n"
+                "  This filter requires FFmpeg compiled with RNNoise support.\n"
+                "  The preset may fail. Consider upgrading FFmpeg or using\n"
+                "  the standard Noise Reduction preset instead."
+            )
+
+        print("\n🧠 Select AI Noise Model:")
+        print("  Each model is trained for different noise/signal combinations.\n")
+
+        model_keys = list(ARNNDN_MODELS.keys())
+        for i, key in enumerate(model_keys, 1):
+            info = ARNNDN_MODELS[key]
+            recommended = " ◄ recommended" if key == "sh" else ""
+            print(f"  [{i}] {info['name']}{recommended}")
+            print(f"      {info['description']}")
+            print(f"      Best for: {info['recommended_for']}")
+
+        print("\n  [B] Back")
+
+        try:
+            choice = input("\nChoice [1]: ").strip() or "1"
+        except (EOFError, KeyboardInterrupt):
+            return None
+
+        if choice.lower() == "b":
+            return ""
+
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(model_keys):
+                selected = model_keys[idx]
+                print(f"  ✓ Selected: {ARNNDN_MODELS[selected]['name']} ({selected}.rnnn)")
+                return selected
+        except ValueError:
+            pass
+
+        # Default to "sh"
+        return "sh"
+
     def _select_preset_intensity(self, preset_id: str) -> Optional[Dict[str, Any]]:
         """
         Select intensity level for a preset.
@@ -586,6 +645,33 @@ class FileProcessor(BaseTool):
         if not preset:
             print_error(f"Preset not found: {preset_id}")
             return {}
+
+        # Check if this is a DeepFilterNet preset
+        if preset_id == "ai_deep_denoise":
+            if not self.audio_processor.is_deep_filter_available():
+                print_warning(
+                    "\n⚠️  DeepFilterNet is not installed.\n"
+                    "  Install via:\n"
+                    "    • Rust (lightweight ~25MB):  cargo install deep_filter\n"
+                    "    • Python (~2GB):             pip install deepfilternet\n"
+                    "  Then ensure 'deep-filter' or 'deepFilter' is on your PATH."
+                )
+                try:
+                    input("\nPress Enter to go back...")
+                except (EOFError, KeyboardInterrupt):
+                    pass
+                return {}
+
+        # For arnndn-based AI presets, show model selection
+        arnndn_model = None
+        is_arnndn_preset = preset.category == "ai" and preset_id != "ai_deep_denoise"
+
+        if is_arnndn_preset:
+            arnndn_model = self._select_arnndn_model()
+            if arnndn_model is None:
+                return None  # Cancelled
+            if arnndn_model == "":
+                return {}  # Back
 
         print(f"\n{preset.name}")
         print(f"  {preset.description}")
@@ -613,7 +699,11 @@ class FileProcessor(BaseTool):
 
         print(f"✅ Will apply {preset.name} ({intensity.value})")
 
-        return {"type": "preset", "preset_id": preset_id, "intensity": intensity.value}
+        config = {"type": "preset", "preset_id": preset_id, "intensity": intensity.value}
+        if arnndn_model:
+            config["arnndn_model"] = arnndn_model
+
+        return config
 
     def _show_all_presets(self) -> Optional[Dict[str, Any]]:
         """
@@ -639,7 +729,7 @@ class FileProcessor(BaseTool):
         preset_list = []
 
         for cat_name, presets in categories.items():
-            cat_icon = {"voice": "🎤", "cleanup": "🔇", "volume": "🔊"}.get(cat_name, "📌")
+            cat_icon = {"voice": "🎤", "cleanup": "🔇", "volume": "🔊", "ai": "🧠"}.get(cat_name, "📌")
             print(f"\n{cat_icon} {cat_name.upper()}")
 
             for preset in presets:
@@ -962,11 +1052,13 @@ class FileProcessor(BaseTool):
         elif preprocess_type == "preset":
             preset_id = config.get("preset_id", "")
             intensity = config.get("intensity", "medium")
+            arnndn_model = config.get("arnndn_model")
             preset = get_preset(preset_id)
+            model_info = f" [{arnndn_model}]" if arnndn_model else ""
             if preset:
-                print(f"  {label}: {preset.name} ({intensity})")
+                print(f"  {label}: {preset.name}{model_info} ({intensity})")
             else:
-                print(f"  {label}: Preset {preset_id} ({intensity})")
+                print(f"  {label}: Preset {preset_id}{model_info} ({intensity})")
 
         elif preprocess_type == "custom":
             effects = config.get("effects", [])
@@ -1029,13 +1121,18 @@ class FileProcessor(BaseTool):
             # Preview preset
             preset_id = config.get("preset_id", "")
             intensity_str = config.get("intensity", "medium")
+            arnndn_model = config.get("arnndn_model")
             intensity = Intensity(intensity_str)
 
             preset = get_preset(preset_id)
             if preset:
                 print(f"Playing with {preset.name} ({intensity_str})...")
                 self.audio_processor.preview_preset(
-                    audio_path, preset_id, intensity=intensity, duration_seconds=duration
+                    audio_path,
+                    preset_id,
+                    intensity=intensity,
+                    duration_seconds=duration,
+                    arnndn_model=arnndn_model,
                 )
             else:
                 print_error(f"Preset not found: {preset_id}")
@@ -3398,6 +3495,7 @@ class FileProcessor(BaseTool):
             # Apply a voice enhancement preset
             preset_id = self._audio_preprocessing.get("preset_id", "")
             intensity_str = self._audio_preprocessing.get("intensity", "medium")
+            arnndn_model = self._audio_preprocessing.get("arnndn_model")
 
             preset = get_preset(preset_id)
             if not preset:
@@ -3412,7 +3510,11 @@ class FileProcessor(BaseTool):
 
             # Pass optimization directly to apply_preset
             result = self.audio_processor.apply_preset(
-                filepath, preset_id, intensity=intensity, optimization=optimization
+                filepath,
+                preset_id,
+                intensity=intensity,
+                optimization=optimization,
+                arnndn_model=arnndn_model,
             )
 
             if result.success:

@@ -11,6 +11,7 @@ Currently includes:
 """
 
 from .audio_processor import (
+    ARNNDN_MODELS,
     AUDIO_PRESETS,
     BITRATE_OPTIONS,
     SAMPLE_RATE_OPTIONS,
@@ -52,6 +53,7 @@ from .file_processor import FileProcessor, show_tools_menu
 from .tts_processor import TTSProcessor
 
 __all__ = [
+    "ARNNDN_MODELS",
     "AUDIO_PRESETS",
     "BITRATE_OPTIONS",
     "SAMPLE_RATE_OPTIONS",
