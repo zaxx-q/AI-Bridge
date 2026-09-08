@@ -1,5 +1,30 @@
 # Changelog
 
+## [8.3.0] - 2026-09-08
+
+### New Features
+
+- **AI Audio Denoising & Enhancement Presets**: Added neural network noise reduction and speech enhancement presets to the audio processor and batch File Processor:
+  - **AI Noise Reduction**: Uses RNNoise (`arnndn`) to strip background hiss, fan noise, and hum while preserving clear speech.
+  - **AI Lecture Cleanup**: A multi-stage pipeline designed for classroom and lecture audio that combines rumble removal, neural noise reduction, speech level normalization, and clarity EQ.
+  - **AI Deep Denoise**: Neural noise suppression powered by DeepFilterNet, with automated 48kHz WAV conversion and speech leveling.
+  - **Bundled RNNoise Models**: Included 6 pre-trained `.rnnn` model profiles (`sh` Speech, `bd` Voice, `cb` Crowd, `std` Baseline, `mp` Noisy Environment, `lq` Voice in Noise) with an interactive model selection menu and audio preview playback.
+- **`wtype` Virtual Keyboard on Linux**: Added support for `wtype` as the default virtual keyboard backend on Wayland compositors. This enables smooth text streaming with native per-keystroke delay (`wtype -d`), full UTF-8 Unicode, and emoji support directly through standard input.
+
+### Improvements
+
+- **Immediate Request Cancellation**: Provider retry loops across OpenAI-compatible, Gemini Native, and Anthropic providers now halt immediately on user cancellation, waking up from backoff sleep delays and preventing socket leaks. User aborts log as `[CANCELLED]` instead of failures, and error popups are cleanly suppressed.
+- **Immediate Typing Abort**: Dismissing the typing overlay with Escape or clicking the abort button now immediately terminates active virtual keyboard typing processes.
+- **Live-Reloading Typing Delay**: Adjusting the streaming typing speed in settings now applies immediately to active tools without requiring an application restart.
+- **Wayland Selection Detection**: Prioritized active selection capture via injected `Ctrl+C` before passive reading, allowing reliable text grabbing from web browsers, Google Docs, and Electron editors while ignoring stale Wayland primary selection text when nothing is selected.
+- **File Processor Path Handling**: Added tilde (`~`) and environment variable expansion, automatic quote stripping, and path prefilling so you can press Enter to reuse the previous directory or file path.
+- **Streaming Buffer Optimization**: Reduced streaming text chunk buffering from 80 to 20 characters for more responsive, real-time typing output.
+
+### Fixes
+
+- **`wlrctl` Unicode Fallback**: Added automatic clipboard paste fallback when typing non-ASCII text with `wlrctl` to prevent dropped characters or incomplete text injection during streaming.
+- **Windows Release Launcher Builds**: Pinned `cx_Freeze` to 8.6.4 in CI release workflows and included the `typing` module in launcher builds to prevent runtime packaging issues.
+
 ## [8.2.0] - 2026-09-01
 
 ### New Features
