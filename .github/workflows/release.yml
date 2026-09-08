@@ -3,24 +3,24 @@ name: Release Build
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version Tag (Leave empty to use CHANGELOG.md latest)'
+        description: "Version Tag (Leave empty to use CHANGELOG.md latest)"
         required: false
-        default: ''
+        default: ""
       release_notes:
-        description: 'Short Summary (Edit the full release page later for long text)'
+        description: "Short Summary (Edit the full release page later for long text)"
         required: false
-        default: ''
+        default: ""
       create_release:
-        description: 'Create GitHub Release (Uncheck to only build artifacts)'
+        description: "Create GitHub Release (Uncheck to only build artifacts)"
         required: false
         type: boolean
         default: true
       platform:
-        description: 'Which platform(s) to build'
+        description: "Which platform(s) to build"
         required: false
         type: choice
         options:
@@ -150,8 +150,8 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13.12'
-          cache: 'pip'
+          python-version: "3.13.12"
+          cache: "pip"
 
       - name: Install Dependencies
         run: |
@@ -209,7 +209,7 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Installing cx_Freeze..."
-          pip install cx_Freeze
+          pip install "cx_Freeze==8.6.4"
 
           Write-Host "Building Launchers with cx_Freeze..."
           python src/launchers/setup_launchers.py build
@@ -466,9 +466,8 @@ jobs:
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         with:
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
           tag_name: ${{ needs.determine-version.outputs.version }}
           name: ${{ needs.determine-version.outputs.version }}
           body_path: release_body.md
