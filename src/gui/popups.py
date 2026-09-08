@@ -2732,8 +2732,10 @@ class TypingIndicator:
                 text=f" [{hotkey_display} to abort]",
                 font=get_ctk_font(size=10),
                 text_color=self.colors.overlay0,
+                cursor="hand2",
             )
             abort_label.pack(side="left")
+            abort_label.bind("<Button-1>", self._on_user_abort)
         else:
             # Fallback
             main_frame = tk.Frame(
@@ -2753,13 +2755,20 @@ class TypingIndicator:
             ).pack(side=tk.LEFT)
 
             hotkey_display = self.abort_hotkey.title() if self.abort_hotkey else "Escape"
-            tk.Label(
+            abort_label = tk.Label(
                 content_frame,
                 text=f" [{hotkey_display} to abort]",
                 font=("Arial", 9),
                 bg=self.colors.surface0,
                 fg=self.colors.overlay0,
-            ).pack(side=tk.LEFT)
+                cursor="hand2",
+            )
+            abort_label.pack(side=tk.LEFT)
+            abort_label.bind("<Button-1>", self._on_user_abort)
+
+        # Enable Escape key on the overlay to abort immediately
+        self.root.bind("<Escape>", self._on_user_abort)
+        self.root.bind("<Key-Escape>", self._on_user_abort)
 
         # Enable drag-to-move on non-interactive areas
         _make_draggable(self.root, main_frame)
@@ -2808,7 +2817,11 @@ class TypingIndicator:
         except tk.TclError:
             pass
 
-    def dismiss(self):
+    def _on_user_abort(self, event=None):
+        """Handle abort triggered by user interaction (Escape key or click)."""
+        self.dismiss(user_aborted=True)
+
+    def dismiss(self, user_aborted: bool = False):
         """Dismiss the indicator."""
         self.is_visible = False
 
@@ -2820,11 +2833,13 @@ class TypingIndicator:
                 pass
             self.root = None
 
-        if self.on_dismiss:
+        if user_aborted and self.on_dismiss:
+            cb = self.on_dismiss
+            self.on_dismiss = None
             try:
-                self.on_dismiss()
-            except Exception:
-                pass
+                cb()
+            except Exception as e:
+                logging.debug("Error in typing indicator on_dismiss: %s", e)
 
 
 # Global reference

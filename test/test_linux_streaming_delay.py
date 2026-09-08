@@ -117,3 +117,44 @@ def test_settings_tab_tools_spinbox_max_range():
     delay_call = next(call for call in spinbox_calls if call.args[1] == "streaming_typing_delay")
     assert delay_call.args[4] == 0  # min
     assert delay_call.args[5] == 500  # max
+
+
+def test_typing_delay_live_update_without_restart():
+    """Changing streaming_typing_delay in config updates typing_delay_ms immediately without restart."""
+    config = {"streaming_typing_delay": 10}
+    app = TextEditToolApp(config=config, ai_params={}, key_managers={})
+    assert app.typing_delay_ms == 10
+
+    # Simulate settings save modifying config dictionary
+    config["streaming_typing_delay"] = 120
+    app._on_config_changed("streaming_typing_delay", 120)
+    assert app.typing_delay_ms == 120
+
+    # Test bulk update notification from SettingsWindow
+    config["streaming_typing_delay"] = 250
+    app._on_config_changed("_bulk_update")
+    assert app.typing_delay_ms == 250
+
+
+def test_typing_indicator_escape_and_click_aborts():
+    """TypingIndicator user interaction (Escape key or click) fires on_dismiss callback."""
+    from src.gui.popups import TypingIndicator
+
+    dismissed = []
+
+    def on_dismiss():
+        dismissed.append(True)
+
+    with patch.object(TypingIndicator, "_create_window"):
+        indicator = TypingIndicator(MagicMock(), abort_hotkey="Escape", on_dismiss=on_dismiss)
+        indicator.root = MagicMock()
+        # Simulate user pressing Escape or clicking on the overlay
+        indicator._on_user_abort()
+        assert len(dismissed) == 1
+
+        # Programmatic dismissal (e.g. stream ended normally) does not fire abort callback
+        dismissed.clear()
+        indicator2 = TypingIndicator(MagicMock(), abort_hotkey="Escape", on_dismiss=on_dismiss)
+        indicator2.root = MagicMock()
+        indicator2.dismiss(user_aborted=False)
+        assert len(dismissed) == 0

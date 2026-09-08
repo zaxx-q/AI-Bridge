@@ -56,8 +56,16 @@ class TextEditToolApp:
         self.hotkey = config.get("text_edit_tool_hotkey", "ctrl+space")
         self.abort_hotkey = config.get("text_edit_tool_abort_hotkey", "escape")
 
-        # Typing speed settings
-        self.typing_delay_ms = config.get("streaming_typing_delay", 0)
+        # Typing speed settings (supports live hot-reload without restart)
+        self._typing_delay_ms = config.get("streaming_typing_delay", 0)
+
+        # Subscribe to config changes for hot-reloading settings (typing speed, etc.)
+        try:
+            from ..config import subscribe_config_change
+
+            subscribe_config_change(self._on_config_changed)
+        except Exception as e:
+            logging.debug("Could not subscribe to config changes: %s", e)
 
         # Initialize components
         self.hotkey_listener: Optional[HotkeyListener] = None
@@ -76,6 +84,29 @@ class TextEditToolApp:
         self._abort_listener = None
 
         logging.debug("TextEditToolApp initialized")
+
+    @property
+    def typing_delay_ms(self) -> int:
+        """Dynamic typing delay in ms, read live from config to avoid restart."""
+        val = self.config.get("streaming_typing_delay", getattr(self, "_typing_delay_ms", 0))
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return 0
+
+    @typing_delay_ms.setter
+    def typing_delay_ms(self, val: int):
+        self._typing_delay_ms = val
+
+    def _on_config_changed(self, key, value=None):
+        """Handle live configuration updates (e.g. typing speed changed in settings)."""
+        if key in ("streaming_typing_delay", "_bulk_update"):
+            new_delay = self.config.get("streaming_typing_delay", 0)
+            try:
+                self._typing_delay_ms = int(new_delay)
+                logging.debug("TextEditTool: updated typing_delay_ms to %s ms", self._typing_delay_ms)
+            except (ValueError, TypeError):
+                pass
 
     def _begin_task(self):
         """Increment active task counter (thread-safe)."""
@@ -527,6 +558,24 @@ class TextEditToolApp:
 
             return ctx.response_text, ctx.error
 
+    def _abort_current_operation(self):
+        """Abort current streaming or processing operation immediately."""
+        self.streaming_aborted = True
+        self.cancel_requested = True
+        if self._current_abort_event:
+            self._current_abort_event.set()
+        if is_linux():
+            try:
+                from ..platform.input import abort_typing
+
+                abort_typing()
+            except Exception:
+                pass
+        from .core import dismiss_typing_indicator
+
+        dismiss_typing_indicator()
+        logging.debug("Operation aborted by user")
+
     def _start_abort_listener(self, abort_event=None):
         """
         Start listening for abort hotkey (e.g., Escape).
@@ -546,18 +595,8 @@ class TextEditToolApp:
 
         def on_press(key):
             if self._key_matches(key, abort_key):
-                self.streaming_aborted = True
-                self.cancel_requested = True
-                if self._current_abort_event:
-                    self._current_abort_event.set()
-                logging.debug("Abort hotkey pressed - stopping stream")
-
-                # Provide immediate visual feedback
-                from .core import dismiss_typing_indicator
-
-                dismiss_typing_indicator()
+                self._abort_current_operation()
                 print("\n⚠️ Streaming aborted by user")
-
                 return False  # Stop listener
 
         self._abort_listener = pykeyboard.Listener(on_press=on_press)
@@ -572,6 +611,13 @@ class TextEditToolApp:
                 pass
             self._abort_listener = None
         self._current_abort_event = None
+        if is_linux():
+            try:
+                from ..platform.input import abort_typing
+
+                abort_typing()
+            except Exception:
+                pass
 
     def _parse_hotkey(self, hotkey_str: str):
         """Parse hotkey string to pynput key."""
@@ -986,7 +1032,7 @@ class TextEditToolApp:
                     self._start_abort_listener()
                     from .core import dismiss_typing_indicator, show_typing_indicator
 
-                    show_typing_indicator(self.abort_hotkey)
+                    show_typing_indicator(self.abort_hotkey, on_dismiss=self._abort_current_operation)
 
                     # Buffer to accumulate chunks before typing (helps with Unicode)
                     chunk_buffer = []
@@ -1043,7 +1089,7 @@ class TextEditToolApp:
                     self._start_abort_listener(abort_event)
                     from .core import dismiss_typing_indicator, show_typing_indicator
 
-                    show_typing_indicator(self.abort_hotkey)
+                    show_typing_indicator(self.abort_hotkey, on_dismiss=self._abort_current_operation)
 
                     try:
                         response, error = self._call_api(
@@ -1321,12 +1367,12 @@ class TextEditToolApp:
                     self._start_abort_listener()
                     from .core import dismiss_typing_indicator, show_typing_indicator
 
-                    show_typing_indicator(self.abort_hotkey)
+                    show_typing_indicator(self.abort_hotkey, on_dismiss=self._abort_current_operation)
 
                     # Buffer to accumulate chunks before typing (helps with Unicode)
                     chunk_buffer = []
                     buffer_size = 0
-                    MIN_BUFFER_CHARS = 20  # Accumulate at least 20 chars before typing
+                    MIN_BUFFER_CHARS = _STREAM_BUFFER_CHARS
                     typing_aborted = False
 
                     def type_chunk(chunk):
@@ -1374,7 +1420,7 @@ class TextEditToolApp:
                     self._start_abort_listener(abort_event)
                     from .core import dismiss_typing_indicator, show_typing_indicator
 
-                    show_typing_indicator(self.abort_hotkey)
+                    show_typing_indicator(self.abort_hotkey, on_dismiss=self._abort_current_operation)
 
                     try:
                         response, error = self._call_api(

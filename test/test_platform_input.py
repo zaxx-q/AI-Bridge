@@ -325,19 +325,46 @@ def test_wtype_type_text_piped_to_stdin_with_delay():
 
     calls = []
 
-    def fake_run(cmd, **kwargs):
-        calls.append({"cmd": cmd, "input": kwargs.get("input")})
-        return _completed()
+    class FakeStdin:
+        def __init__(self):
+            self.buffer = b""
+
+        def write(self, data):
+            self.buffer += data
+
+        def close(self):
+            pass
+
+    class FakePopen:
+        def __init__(self, cmd, **kwargs):
+            self.cmd = cmd
+            self.kwargs = kwargs
+            self.stdin = FakeStdin()
+            self.returncode = 0
+            self.stderr = None
+            calls.append(self)
+
+        def poll(self):
+            return 0
+
+        def terminate(self):
+            self.returncode = -15
+
+        def kill(self):
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            return self.returncode
 
     with (
         patch.object(input_mod, "is_linux", return_value=True),
         patch.object(input_mod.shutil, "which", side_effect=fake_which),
-        patch.object(input_mod.subprocess, "run", side_effect=fake_run),
+        patch.object(input_mod.subprocess, "Popen", side_effect=FakePopen),
     ):
         assert type_text("Hello — world! 🚀", delay_ms=15) is True
         assert len(calls) == 1
-        assert calls[0]["cmd"] == ["/usr/bin/wtype", "-d", "15", "-"]
-        assert calls[0]["input"] == "Hello — world! 🚀".encode()
+        assert calls[0].cmd == ["/usr/bin/wtype", "-d", "15", "-"]
+        assert calls[0].stdin.buffer == "Hello — world! 🚀".encode()
 
 
 def test_wtype_newlines_use_shift_return():
@@ -346,27 +373,102 @@ def test_wtype_newlines_use_shift_return():
             return "/usr/bin/wtype"
         return None
 
-    calls = []
+    popen_calls = []
+    run_calls = []
+
+    class FakeStdin:
+        def __init__(self):
+            self.buffer = b""
+
+        def write(self, data):
+            self.buffer += data
+
+        def close(self):
+            pass
+
+    class FakePopen:
+        def __init__(self, cmd, **kwargs):
+            self.cmd = cmd
+            self.stdin = FakeStdin()
+            self.returncode = 0
+            self.stderr = None
+            popen_calls.append(self)
+
+        def poll(self):
+            return 0
+
+        def terminate(self):
+            self.returncode = -15
+
+        def kill(self):
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            return self.returncode
 
     def fake_run(cmd, **kwargs):
-        calls.append({"cmd": cmd, "input": kwargs.get("input")})
+        run_calls.append(cmd)
         return _completed()
 
     with (
         patch.object(input_mod, "is_linux", return_value=True),
         patch.object(input_mod.shutil, "which", side_effect=fake_which),
+        patch.object(input_mod.subprocess, "Popen", side_effect=FakePopen),
         patch.object(input_mod.subprocess, "run", side_effect=fake_run),
     ):
         assert type_text("Line 1\nLine 2") is True
-        assert len(calls) == 3
-        # First text segment
-        assert calls[0]["cmd"] == ["/usr/bin/wtype", "-"]
-        assert calls[0]["input"] == b"Line 1"
-        # Shift+Return
-        assert calls[1]["cmd"] == ["/usr/bin/wtype", "-M", "shift", "-k", "Return", "-m", "shift"]
-        # Second text segment
-        assert calls[2]["cmd"] == ["/usr/bin/wtype", "-"]
-        assert calls[2]["input"] == b"Line 2"
+        # 2 Popen calls for the 2 lines
+        assert len(popen_calls) == 2
+        assert popen_calls[0].cmd == ["/usr/bin/wtype", "-"]
+        assert popen_calls[0].stdin.buffer == b"Line 1"
+        assert popen_calls[1].cmd == ["/usr/bin/wtype", "-"]
+        assert popen_calls[1].stdin.buffer == b"Line 2"
+
+        # 1 run call for Shift+Return
+        assert len(run_calls) == 1
+        assert run_calls[0] == ["/usr/bin/wtype", "-M", "shift", "-k", "Return", "-m", "shift"]
+
+
+def test_wtype_aborts_immediately_during_typing():
+    import io
+
+    def fake_which(name: str):
+        if name == "wtype":
+            return "/usr/bin/wtype"
+        return None
+
+    class SlowPopen:
+        def __init__(self, cmd, **kwargs):
+            self.cmd = cmd
+            self.stdin = io.BytesIO()
+            self.returncode = 0
+            self.terminated = False
+
+        def poll(self):
+            # Still running until terminated
+            return -15 if self.terminated else None
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def kill(self):
+            self.terminated = True
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    # Abort on first poll
+    with (
+        patch.object(input_mod, "is_linux", return_value=True),
+        patch.object(input_mod.shutil, "which", side_effect=fake_which),
+        patch.object(input_mod.subprocess, "Popen", side_effect=SlowPopen),
+        patch.object(input_mod.time, "sleep"),
+    ):
+        assert type_text("Some text", delay_ms=100, abort_check=lambda: True) is False
+        # Active typing proc should be cleared
+        assert input_mod._active_typing_proc is None
 
 
 def test_wlrctl_unicode_fallback_to_paste():

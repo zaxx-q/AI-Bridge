@@ -22,6 +22,7 @@ from .clipboard import (
 from .console_input import RawConsole, get_key, is_console_input_available
 from .detect import is_linux, is_wayland, is_windows
 from .input import (
+    abort_typing,
     backend_supports_keystroke_delay,
     copy_via_clipboard_shortcut,
     get_keyboard_backend,
@@ -56,6 +57,7 @@ __all__ = [
     "InstanceLock",
     "RawConsole",
     "TriggerServer",
+    "abort_typing",
     "acquire_single_instance",
     "acquire_single_instance_mutex",
     "backend_supports_keystroke_delay",

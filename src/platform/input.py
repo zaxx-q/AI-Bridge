@@ -9,6 +9,7 @@ Windows call sites keep SendInput / pynput; this module returns False on non-Lin
 
 from __future__ import annotations
 
+import atexit
 import logging
 import shutil
 import subprocess
@@ -35,6 +36,32 @@ _wlrctl_path: Optional[str] = None
 _availability_checked = False
 _availability_lock = threading.Lock()
 _missing_warned = False
+
+# Active typing subprocess tracking for immediate abort & clean shutdown
+_active_typing_proc: Optional[subprocess.Popen] = None
+_proc_lock = threading.Lock()
+
+
+def abort_typing() -> None:
+    """Immediately terminate any currently active virtual keyboard typing subprocess."""
+    global _active_typing_proc
+    with _proc_lock:
+        if _active_typing_proc is not None:
+            try:
+                if _active_typing_proc.poll() is None:
+                    _active_typing_proc.terminate()
+                    try:
+                        _active_typing_proc.wait(timeout=0.1)
+                    except subprocess.TimeoutExpired:
+                        _active_typing_proc.kill()
+            except Exception as e:
+                logger.debug("abort_typing failed to terminate proc: %s", e)
+            finally:
+                _active_typing_proc = None
+
+
+# Ensure any spawned typing process is killed if the app exits or restarts
+atexit.register(abort_typing)
 
 # Canonical modifier names accepted by wlrctl
 _VALID_MODIFIERS = frozenset({"SHIFT", "CTRL", "ALT", "SUPER"})
@@ -276,8 +303,14 @@ def _type_segment_wtype(
     *,
     delay_ms: int = 0,
     timeout: float = _TYPE_TIMEOUT,
+    abort_check: Optional[Callable[[], bool]] = None,
 ) -> bool:
-    """Type a string segment via wtype using stdin with native per-keystroke delay."""
+    """Type a string segment via wtype using stdin with native per-keystroke delay.
+
+    Checks ``abort_check`` periodically during typing so that high delays can be
+    cancelled immediately without typing remaining characters.
+    """
+    global _active_typing_proc
     if not segment:
         return True
     if not _wtype_path:
@@ -289,29 +322,63 @@ def _type_segment_wtype(
     try:
         expected_time = (len(segment) * max(0, delay_ms)) / 1000.0
         effective_timeout = max(timeout, expected_time + 5.0)
-        result = subprocess.run(
+
+        proc = subprocess.Popen(
             args,
-            input=segment.encode("utf-8"),
-            capture_output=True,
-            check=False,
-            timeout=effective_timeout,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
-        if result.returncode != 0:
-            stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+        with _proc_lock:
+            _active_typing_proc = proc
+
+        try:
+            proc.stdin.write(segment.encode("utf-8"))
+            proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+
+        start = time.time()
+        while proc.poll() is None:
+            if abort_check is not None:
+                try:
+                    if abort_check():
+                        logger.debug("wtype aborted by abort_check during typing")
+                        abort_typing()
+                        return False
+                except Exception as e:
+                    logger.debug("wtype abort_check error: %s", e)
+                    abort_typing()
+                    return False
+
+            if (time.time() - start) > effective_timeout:
+                logger.warning("wtype timed out after %ss", effective_timeout)
+                abort_typing()
+                return False
+
+            time.sleep(0.015)
+
+        with _proc_lock:
+            _active_typing_proc = None
+
+        if proc.returncode != 0:
+            stderr = proc.stderr.read() if proc.stderr else b""
             logger.debug(
                 "wtype failed (rc=%s) stderr=%s",
-                result.returncode,
-                stderr or "(empty)",
+                proc.returncode,
+                stderr.decode("utf-8", errors="replace").strip() or "(empty)",
             )
             return False
         return True
     except subprocess.TimeoutExpired:
         logger.warning("wtype timed out after %ss", timeout)
+        abort_typing()
         return False
     except FileNotFoundError:
         return False
     except Exception as e:
         logger.debug("wtype run failed: %s", e)
+        abort_typing()
         return False
 
 
@@ -417,7 +484,7 @@ def type_text(
             if kind == "nl":
                 ok = _type_newline_shift_enter()
             else:
-                ok = _type_segment_wtype(payload, delay_ms=delay_ms)
+                ok = _type_segment_wtype(payload, delay_ms=delay_ms, abort_check=abort_check)
             if not ok:
                 return False
         return True

@@ -559,7 +559,7 @@ class SnipToolApp:
             text_edit._start_abort_listener()
             from .core import dismiss_typing_indicator, show_typing_indicator
 
-            show_typing_indicator(text_edit.abort_hotkey)
+            show_typing_indicator(text_edit.abort_hotkey, on_dismiss=text_edit._abort_current_operation)
 
             # Buffer to accumulate chunks before typing (helps with Unicode)
             chunk_buffer = []
@@ -618,7 +618,7 @@ class SnipToolApp:
             text_edit._start_abort_listener(abort_event)
             from .core import dismiss_typing_indicator, show_typing_indicator
 
-            show_typing_indicator(text_edit.abort_hotkey)
+            show_typing_indicator(text_edit.abort_hotkey, on_dismiss=text_edit._abort_current_operation)
 
             try:
                 response, error = text_edit._call_api(
