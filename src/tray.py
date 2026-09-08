@@ -1038,6 +1038,7 @@ class TrayApp:
 
         menu_options = self.build_menu_options()
         entries = []
+        has_tmux_terminal = any("Open Terminal (tmux)" in entry[0] for entry in menu_options)
 
         for entry in menu_options:
             text = entry[0]
@@ -1047,7 +1048,7 @@ class TrayApp:
                 entries.append(TrayMenuEntry(label=None))
                 continue
 
-            is_default = "Session Browser" in text
+            is_default = "Open Terminal (tmux)" in text if has_tmux_terminal else "Session Browser" in text
             entries.append(
                 TrayMenuEntry(
                     label=text,
@@ -1082,6 +1083,7 @@ class TrayApp:
         """Build a pystray.Menu from shared menu option logic."""
         menu_options = self.build_menu_options()
         items = []
+        has_tmux_terminal = any("Open Terminal (tmux)" in entry[0] for entry in menu_options)
 
         for entry in menu_options:
             # Windows format: (text, icon_path, callback)
@@ -1092,8 +1094,8 @@ class TrayApp:
                 items.append(PystrayMenu.SEPARATOR)
                 continue
 
-            # Primary-click default: Session Browser (no Toggle Console on Linux)
-            is_default = "Session Browser" in text
+            # Prefer the Linux tmux terminal when it is available; otherwise Session Browser.
+            is_default = "Open Terminal (tmux)" in text if has_tmux_terminal else "Session Browser" in text
             items.append(
                 PystrayMenuItem(
                     text,

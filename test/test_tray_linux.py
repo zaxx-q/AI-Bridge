@@ -105,6 +105,7 @@ class TestTrayMenuLinux:
         with (
             patch("src.tray.is_windows", return_value=False),
             patch("src.tray.is_linux", return_value=True),
+            patch("src.platform.tmux.is_tmux_available", return_value=False),
             patch("src.web_server.CONFIG", config_mock),
             patch("src.tray.HAVE_SYSTRAY", True),
             patch("src.tray.HAVE_PYSTRAY", True),

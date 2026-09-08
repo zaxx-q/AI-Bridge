@@ -162,6 +162,8 @@ def open_terminal_and_attach(session_name: str = TMUX_SESSION_NAME) -> Tuple[boo
         subprocess.Popen(
             terminal_argv,
             stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
         return True, f"Opened terminal ({terminal_name}) attached to tmux session '{session_name}'."

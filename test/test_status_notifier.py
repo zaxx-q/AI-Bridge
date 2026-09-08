@@ -111,6 +111,7 @@ class TestTrayAppSniIntegration:
         with (
             patch("src.tray.is_windows", return_value=False),
             patch("src.tray.is_linux", return_value=True),
+            patch("src.platform.tmux.is_tmux_available", return_value=False),
             patch("src.web_server.CONFIG", config_mock),
             patch("src.tray.HAVE_SYSTRAY", True),
             patch("src.tray.HAVE_STATUS_NOTIFIER", True),
@@ -149,13 +150,13 @@ class TestTrayAppSniIntegration:
             entries = tray._build_sni_menu_entries()
             labels = [e.label for e in entries if e.label]
             assert any("Open Terminal" in l for l in labels)
-            # Verify Session Browser remains default and Open Terminal is not default
+            # The available tmux action takes primary-click/default status.
             terminal_entries = [e for e in entries if e.label and "Open Terminal" in e.label]
             assert len(terminal_entries) == 1
-            assert terminal_entries[0].default is False
+            assert terminal_entries[0].default is True
             browser_entries = [e for e in entries if e.label and "Session Browser" in e.label]
             assert len(browser_entries) == 1
-            assert browser_entries[0].default is True
+            assert browser_entries[0].default is False
 
     def test_update_tray_menu_sni(self):
         from src.tray import TrayApp

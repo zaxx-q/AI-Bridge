@@ -163,6 +163,8 @@ class TestOpenTerminalAndAttach:
             mock_popen.assert_called_once_with(
                 ["xdg-terminal-exec", "tmux", "attach-session", "-t", "aipromptbridge"],
                 stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
 
@@ -186,6 +188,8 @@ class TestOpenTerminalAndAttach:
             mock_popen.assert_called_once_with(
                 ["wezterm", "start", "--", "tmux", "attach-session", "-t", "aipromptbridge"],
                 stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
 
@@ -207,6 +211,8 @@ class TestOpenTerminalAndAttach:
             mock_popen.assert_called_once_with(
                 ["custom-term", "--title", "MyTerm", "-e", "tmux", "attach-session", "-t", "aipromptbridge"],
                 stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
 
@@ -244,6 +250,8 @@ class TestOpenTerminalAndAttach:
             mock_popen.assert_called_once_with(
                 expected_args,
                 stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
 
