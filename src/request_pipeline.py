@@ -55,6 +55,7 @@ class RequestContext:
     tool_calls: List[Dict] = field(default_factory=list)
     error: Optional[str] = None
     gemini_parts: Optional[List[Dict]] = None
+    aborted: bool = False
 
     def get_usage_summary(self) -> str:
         """Get formatted usage summary"""
@@ -71,6 +72,7 @@ class StreamCallback:
     on_usage: Optional[Callable[[Dict], None]] = None
     on_done: Optional[Callable[[], None]] = None
     on_error: Optional[Callable[[str], None]] = None
+    on_aborted: Optional[Callable[[], None]] = None
     on_tool_calls: Optional[Callable[[List], None]] = None
     on_gemini_parts: Optional[Callable[[List], None]] = None
 
@@ -119,6 +121,31 @@ class RequestPipeline:
     @staticmethod
     def log_request_complete(ctx: RequestContext):
         """Log when request completes - always includes token usage"""
+        is_cancelled = ctx.aborted or ctx.error in ("Request aborted", "Request cancelled")
+
+        if is_cancelled:
+            if HAVE_RICH:
+                summary = [f"Elapsed: {ctx.elapsed_time:.2f}s"]
+                if ctx.retry_count > 0:
+                    summary.append(f"Retries: {ctx.retry_count}")
+                summary.append(f"\n{ctx.get_usage_summary()}")
+                print_panel(
+                    "\n".join(summary),
+                    title="[bold yellow]CANCELLED: Request aborted by user[/bold yellow]",
+                    border_style="yellow",
+                    style="white",
+                )
+                console.print()
+            else:
+                print("  [CANCELLED] Request aborted by user")
+                if ctx.elapsed_time > 0:
+                    print(f"  Elapsed: {ctx.elapsed_time:.1f}s")
+                if ctx.retry_count > 0:
+                    print(f"  Retries: {ctx.retry_count}")
+                print(f"  {ctx.get_usage_summary()}")
+                print(f"{'=' * 60}\n")
+            return
+
         if HAVE_RICH:
             style = "green" if not ctx.error else "red"
             if ctx.error:
@@ -266,8 +293,9 @@ class RequestPipeline:
 
             elif data_type == "aborted":
                 ctx.error = "Request aborted"
-                if callbacks.on_error:
-                    callbacks.on_error("Request aborted")
+                ctx.aborted = True
+                if callbacks.on_aborted:
+                    callbacks.on_aborted()
 
         # Execute the actual API call — pass model_override so per-session
         # model selection is respected in the streaming path
@@ -284,15 +312,22 @@ class RequestPipeline:
         ctx.elapsed_time = time.time() - start_time
         if error:
             ctx.error = error
+            if error in ("Request aborted", "Request cancelled") or (abort_event and abort_event.is_set()):
+                ctx.aborted = True
         else:
             if text is not None:
                 ctx.response_text = text
             if reasoning is not None:
                 ctx.reasoning_text = reasoning
 
+        if abort_event and abort_event.is_set():
+            ctx.aborted = True
+            if not ctx.error:
+                ctx.error = "Request aborted"
+
         RequestPipeline.log_request_complete(ctx)
 
-        if log_raw:
+        if log_raw and not error and not ctx.aborted:
             RequestPipeline.log_raw_response(ctx, log_full=True)
 
         return ctx
@@ -344,6 +379,12 @@ class RequestPipeline:
 
         if error:
             ctx.error = error
+            if (
+                error in ("Request aborted", "Request cancelled")
+                or (abort_event and abort_event.is_set())
+                or result_out.get("aborted")
+            ):
+                ctx.aborted = True
         else:
             ctx.response_text = text or ""
             ctx.gemini_parts = result_out.get("gemini_parts")
@@ -353,9 +394,14 @@ class RequestPipeline:
             ctx.total_tokens = ctx.input_tokens + ctx.output_tokens
             ctx.estimated = True
 
+        if (abort_event and abort_event.is_set()) or result_out.get("aborted"):
+            ctx.aborted = True
+            if not ctx.error:
+                ctx.error = "Request aborted"
+
         RequestPipeline.log_request_complete(ctx)
 
-        if log_raw and not error:
+        if log_raw and not error and not ctx.aborted:
             RequestPipeline.log_raw_response(ctx, log_full=True)
 
         return ctx
@@ -437,8 +483,9 @@ class RequestPipeline:
 
             elif data_type == "aborted":
                 ctx.error = "Request aborted"
-                if callbacks.on_error:
-                    callbacks.on_error("Request aborted")
+                ctx.aborted = True
+                if callbacks.on_aborted:
+                    callbacks.on_aborted()
 
         text, reasoning, _usage, error = call_api_stream_unified(
             provider_type=ctx.provider,
@@ -455,15 +502,22 @@ class RequestPipeline:
         ctx.elapsed_time = time.time() - start_time
         if error:
             ctx.error = error
+            if error in ("Request aborted", "Request cancelled") or (abort_event and abort_event.is_set()):
+                ctx.aborted = True
         else:
             if text is not None:
                 ctx.response_text = text
             if reasoning is not None:
                 ctx.reasoning_text = reasoning
 
+        if abort_event and abort_event.is_set():
+            ctx.aborted = True
+            if not ctx.error:
+                ctx.error = "Request aborted"
+
         RequestPipeline.log_request_complete(ctx)
 
-        if log_raw and not error:
+        if log_raw and not error and not ctx.aborted:
             RequestPipeline.log_raw_response(ctx, log_full=True)
 
         return ctx

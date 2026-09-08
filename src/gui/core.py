@@ -693,6 +693,15 @@ class GUICoordinator:
 
     def request_error_popup(self, title: str, message: str, details: Optional[str] = None):
         """Request creation of an error popup (thread-safe)"""
+        d = (details or "").strip().lower()
+        m = (message or "").strip().lower()
+        t = (title or "").strip().lower()
+        if (
+            d in ("request aborted", "request cancelled")
+            or m in ("request aborted", "request cancelled")
+            or t in ("request aborted", "request cancelled")
+        ):
+            return
         self.ensure_running()
         self._enqueue_request({"type": "error_popup", "title": title, "message": message, "details": details})
 

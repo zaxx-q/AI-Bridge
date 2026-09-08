@@ -3230,6 +3230,16 @@ def show_error_popup(title: str, message: str, details: Optional[str] = None):
         message: User-friendly message describing the error
         details: Optional detailed error information (technical details)
     """
+    d = (details or "").strip().lower()
+    m = (message or "").strip().lower()
+    t = (title or "").strip().lower()
+    if (
+        d in ("request aborted", "request cancelled")
+        or m in ("request aborted", "request cancelled")
+        or t in ("request aborted", "request cancelled")
+    ):
+        return
+
     from .core import GUICoordinator
 
     coordinator = GUICoordinator.get_instance()

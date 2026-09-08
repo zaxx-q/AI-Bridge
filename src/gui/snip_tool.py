@@ -489,6 +489,8 @@ class SnipToolApp:
         ctx = RequestPipeline.execute_simple(ctx, messages, resolved.config, resolved.ai_params, resolved.key_managers)
 
         if ctx.error:
+            if ctx.aborted or ctx.error in ("Request aborted", "Request cancelled"):
+                return
             logging.error(f"Copy mode request failed: {ctx.error}")
             print(f"  [Error] {ctx.error}")
             from .popups import show_error_popup
@@ -555,8 +557,10 @@ class SnipToolApp:
         if streaming_enabled:
             print(f"[AI Response] Streaming to active field... [{text_edit.abort_hotkey.title()} to abort]")
 
-            # Use TextEditTool's abort listener and typing indicator
-            text_edit._start_abort_listener()
+            import threading
+
+            abort_event = threading.Event()
+            text_edit._start_abort_listener(abort_event)
             from .core import dismiss_typing_indicator, show_typing_indicator
 
             show_typing_indicator(text_edit.abort_hotkey, on_dismiss=text_edit._abort_current_operation)
@@ -586,7 +590,11 @@ class SnipToolApp:
 
             try:
                 response, error = text_edit._call_api(
-                    messages, on_chunk=type_chunk, origin_override=origin, action_config=action_config
+                    messages,
+                    on_chunk=type_chunk,
+                    origin_override=origin,
+                    action_config=action_config,
+                    abort_event=abort_event,
                 )
 
                 # Type any remaining buffered text (unless aborted)
@@ -596,7 +604,12 @@ class SnipToolApp:
                 text_edit._stop_abort_listener()
                 dismiss_typing_indicator()
 
+            if text_edit.streaming_aborted or text_edit.cancel_requested:
+                return
+
             if error:
+                if error in ("Request cancelled", "Request aborted"):
+                    return
                 logging.error(f"Type mode request failed: {error}")
                 print(f"  [Error] {error}")
                 from .popups import show_error_popup
@@ -631,10 +644,12 @@ class SnipToolApp:
                 text_edit._stop_abort_listener()
                 dismiss_typing_indicator()
 
-            if text_edit.streaming_aborted:
+            if text_edit.streaming_aborted or text_edit.cancel_requested:
                 return
 
             if error:
+                if error in ("Request cancelled", "Request aborted"):
+                    return
                 logging.error(f"Type mode request failed: {error}")
                 print(f"  [Error] {error}")
                 from .popups import show_error_popup
@@ -796,6 +811,8 @@ class SnipToolApp:
             )
 
             if ctx.error:
+                if ctx.aborted or ctx.error in ("Request aborted", "Request cancelled"):
+                    return
                 logging.error(f"Streaming to chat window failed: {ctx.error}")
                 print(f"  [Error] {ctx.error}")
 
@@ -836,6 +853,8 @@ class SnipToolApp:
             )
 
             if ctx.error:
+                if ctx.aborted or ctx.error in ("Request aborted", "Request cancelled"):
+                    return
                 logging.error(f"Image analysis failed: {ctx.error}")
                 print(f"  [Error] {ctx.error}")
 

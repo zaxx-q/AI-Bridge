@@ -310,124 +310,131 @@ class OpenAICompatibleProvider(BaseProvider):
         accumulated_tool_calls = []
         usage_data = None
 
+        self._check_abort(abort_event)
         response = requests.post(url, headers=headers, json=body, timeout=timeout, stream=True)
 
-        # Handle error responses
-        if response.status_code != 200:
-            error_text = response.text
-            return ProviderResult(success=False, error=error_text, status_code=response.status_code)
-
-        # Process streaming response
-        response.encoding = "utf-8"
-
-        chunk_count = 0
-        last_content_time = time.time()  # Track last meaningful content for idle timeout
-        for line in response.iter_lines(decode_unicode=True):
+        try:
             self._check_abort(abort_event)
 
-            # Content-idle timeout: detect hangs masked by SSE heartbeats
-            if time.time() - last_content_time > timeout:
-                response.close()
-                raise requests.exceptions.Timeout(f"No content received for {timeout}s (content-idle timeout)")
+            # Handle error responses
+            if response.status_code != 200:
+                error_text = response.text
+                return ProviderResult(success=False, error=error_text, status_code=response.status_code)
 
-            if not line:
-                continue
+            # Process streaming response
+            response.encoding = "utf-8"
 
-            line = line.strip()
+            chunk_count = 0
+            last_content_time = time.time()  # Track last meaningful content for idle timeout
+            for line in response.iter_lines(decode_unicode=True):
+                self._check_abort(abort_event)
 
-            if line == "data: [DONE]":
-                callback(CallbackType.DONE, None)
-                break
+                # Content-idle timeout: detect hangs masked by SSE heartbeats
+                if time.time() - last_content_time > timeout:
+                    raise requests.exceptions.Timeout(f"No content received for {timeout}s (content-idle timeout)")
 
-            # Ignore SSE comments/keep-alive heartbeats (lines starting with :)
-            if line.startswith(":"):
-                continue
+                if not line:
+                    continue
 
-            if not line.startswith("data: "):
-                if line:
-                    self.log("debug", f"Unexpected line format: {line[:100]}")
-                continue
+                line = line.strip()
 
-            try:
-                json_str = line[6:]
-                data = json.loads(json_str)
-                chunk_count += 1
+                if line == "data: [DONE]":
+                    callback(CallbackType.DONE, None)
+                    break
 
-                # Check for error object in SSE stream
-                if "error" in data:
-                    error_obj = data["error"]
-                    if isinstance(error_obj, dict):
-                        error_code = error_obj.get("code", 0)
-                        error_type = error_obj.get("type", "")
-                        error_message = error_obj.get("message", str(error_obj))
-                        prefix = f"{error_code} {error_type}" if error_type else str(error_code) if error_code else ""
-                        error_text = f"{prefix}: {error_message}" if prefix else error_message
-                    else:
-                        error_text = str(error_obj)
-                    return ProviderResult(success=False, error=error_text)
+                # Ignore SSE comments/keep-alive heartbeats (lines starting with :)
+                if line.startswith(":"):
+                    continue
 
-                choices = data.get("choices", [])
-                if choices:
-                    choice = choices[0]
+                if not line.startswith("data: "):
+                    if line:
+                        self.log("debug", f"Unexpected line format: {line[:100]}")
+                    continue
 
-                    if choice is None or not isinstance(choice, dict):
-                        continue
+                try:
+                    json_str = line[6:]
+                    data = json.loads(json_str)
+                    chunk_count += 1
 
-                    delta = choice.get("delta")
-                    if delta is None:
-                        delta = {}
-                    if not isinstance(delta, dict):
-                        continue
+                    # Check for error object in SSE stream
+                    if "error" in data:
+                        error_obj = data["error"]
+                        if isinstance(error_obj, dict):
+                            error_code = error_obj.get("code", 0)
+                            error_type = error_obj.get("type", "")
+                            error_message = error_obj.get("message", str(error_obj))
+                            prefix = (
+                                f"{error_code} {error_type}" if error_type else str(error_code) if error_code else ""
+                            )
+                            error_text = f"{prefix}: {error_message}" if prefix else error_message
+                        else:
+                            error_text = str(error_obj)
+                        return ProviderResult(success=False, error=error_text)
 
-                    # Handle regular content
-                    content = delta.get("content", "")
-                    if content:
-                        accumulated_content += content
-                        callback(CallbackType.TEXT, content)
-                        last_content_time = time.time()
+                    choices = data.get("choices", [])
+                    if choices:
+                        choice = choices[0]
 
-                    # Handle reasoning_content (DeepSeek/thinking style)
-                    reasoning = delta.get("reasoning_content", "")
-                    if reasoning:
-                        accumulated_thinking += reasoning
-                        callback(CallbackType.THINKING, reasoning)
-                        last_content_time = time.time()
+                        if choice is None or not isinstance(choice, dict):
+                            continue
 
-                    # Also check for "reasoning" field
-                    reasoning_alt = delta.get("reasoning", "")
-                    if reasoning_alt:
-                        accumulated_thinking += reasoning_alt
-                        callback(CallbackType.THINKING, reasoning_alt)
-                        last_content_time = time.time()
+                        delta = choice.get("delta")
+                        if delta is None:
+                            delta = {}
+                        if not isinstance(delta, dict):
+                            continue
 
-                    # Handle tool calls
-                    tool_calls = delta.get("tool_calls")
-                    if tool_calls:
-                        accumulated_tool_calls.extend(tool_calls)
-                        callback(CallbackType.TOOL_CALLS, tool_calls)
-                        last_content_time = time.time()
+                        # Handle regular content
+                        content = delta.get("content", "")
+                        if content:
+                            accumulated_content += content
+                            callback(CallbackType.TEXT, content)
+                            last_content_time = time.time()
 
-                    # Check for blocked finish reasons
-                    finish_reason = choice.get("finish_reason")
-                    if finish_reason in ("content_filter", "blocked"):
-                        if not accumulated_content.strip() and not accumulated_tool_calls:
-                            block_msg = f"Response blocked: {finish_reason}"
-                            callback(CallbackType.ERROR, block_msg)
-                            return ProviderResult(success=False, error=block_msg)
+                        # Handle reasoning_content (DeepSeek/thinking style)
+                        reasoning = delta.get("reasoning_content", "")
+                        if reasoning:
+                            accumulated_thinking += reasoning
+                            callback(CallbackType.THINKING, reasoning)
+                            last_content_time = time.time()
 
-                if "usage" in data:
-                    usage = data["usage"]
-                    if usage and isinstance(usage, dict):
-                        usage_data = UsageData(
-                            prompt_tokens=usage.get("prompt_tokens", 0),
-                            completion_tokens=usage.get("completion_tokens", 0),
-                            total_tokens=usage.get("total_tokens", 0),
-                        )
-                        callback(CallbackType.USAGE, usage_data.to_dict())
+                        # Also check for "reasoning" field
+                        reasoning_alt = delta.get("reasoning", "")
+                        if reasoning_alt:
+                            accumulated_thinking += reasoning_alt
+                            callback(CallbackType.THINKING, reasoning_alt)
+                            last_content_time = time.time()
 
-            except json.JSONDecodeError as e:
-                self.log("warn", f"Chunk {chunk_count}: JSON decode error: {e}, raw: {line[:200]}")
-                continue
+                        # Handle tool calls
+                        tool_calls = delta.get("tool_calls")
+                        if tool_calls:
+                            accumulated_tool_calls.extend(tool_calls)
+                            callback(CallbackType.TOOL_CALLS, tool_calls)
+                            last_content_time = time.time()
+
+                        # Check for blocked finish reasons
+                        finish_reason = choice.get("finish_reason")
+                        if finish_reason in ("content_filter", "blocked"):
+                            if not accumulated_content.strip() and not accumulated_tool_calls:
+                                block_msg = f"Response blocked: {finish_reason}"
+                                callback(CallbackType.ERROR, block_msg)
+                                return ProviderResult(success=False, error=block_msg)
+
+                    if "usage" in data:
+                        usage = data["usage"]
+                        if usage and isinstance(usage, dict):
+                            usage_data = UsageData(
+                                prompt_tokens=usage.get("prompt_tokens", 0),
+                                completion_tokens=usage.get("completion_tokens", 0),
+                                total_tokens=usage.get("total_tokens", 0),
+                            )
+                            callback(CallbackType.USAGE, usage_data.to_dict())
+
+                except json.JSONDecodeError as e:
+                    self.log("warn", f"Chunk {chunk_count}: JSON decode error: {e}, raw: {line[:200]}")
+                    continue
+        finally:
+            response.close()
 
         # Extract inline thinking if native reasoning is empty
         if not accumulated_thinking and accumulated_content:

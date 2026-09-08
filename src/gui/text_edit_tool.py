@@ -512,6 +512,9 @@ class TextEditToolApp:
             thinking_enabled=resolved.thinking_enabled,
         )
 
+        if abort_event is None:
+            abort_event = self._current_abort_event
+
         if streaming_enabled:
             # Create a temporary session (uses current config, not stored provider/model)
             session = ChatSession(origin="textedit")
@@ -543,7 +546,13 @@ class TextEditToolApp:
                 abort_event=abort_event,
             )
 
-            if self.cancel_requested:
+            if (
+                self.cancel_requested
+                or self.streaming_aborted
+                or ctx.aborted
+                or (abort_event and abort_event.is_set())
+                or ctx.error in ("Request aborted", "Request cancelled")
+            ):
                 return None, "Request cancelled"
 
             return ctx.response_text, ctx.error
@@ -553,7 +562,13 @@ class TextEditToolApp:
                 ctx, messages, resolved.config, resolved.ai_params, resolved.key_managers, abort_event=abort_event
             )
 
-            if self.cancel_requested:
+            if (
+                self.cancel_requested
+                or self.streaming_aborted
+                or ctx.aborted
+                or (abort_event and abort_event.is_set())
+                or ctx.error in ("Request aborted", "Request cancelled")
+            ):
                 return None, "Request cancelled"
 
             return ctx.response_text, ctx.error
@@ -584,8 +599,16 @@ class TextEditToolApp:
 
         Args:
             abort_event: Optional threading.Event to set on abort (for cancelling API calls)
+
+        Returns:
+            The threading.Event being listened to
         """
+        import threading
+
         from pynput import keyboard as pykeyboard
+
+        if abort_event is None:
+            abort_event = threading.Event()
 
         self.streaming_aborted = False
         self._current_abort_event = abort_event
@@ -601,6 +624,7 @@ class TextEditToolApp:
 
         self._abort_listener = pykeyboard.Listener(on_press=on_press)
         self._abort_listener.start()
+        return abort_event
 
     def _stop_abort_listener(self):
         """Stop the abort hotkey listener."""
@@ -998,6 +1022,13 @@ class TextEditToolApp:
                         messages, origin_override=RequestOrigin.POPUP_INPUT, action_config=action_config
                     )
 
+                    if (
+                        self.streaming_aborted
+                        or self.cancel_requested
+                        or error in ("Request cancelled", "Request aborted")
+                    ):
+                        return
+
                     if error:
                         logging.error(f"Direct chat failed: {error}")
                         print(f"  [Error] {error}")
@@ -1029,7 +1060,8 @@ class TextEditToolApp:
                     print(f"[AI Response] Streaming to active field... [{self.abort_hotkey.title()} to abort]")
 
                     # Start abort listener and typing indicator
-                    self._start_abort_listener()
+                    abort_event = threading.Event()
+                    self._start_abort_listener(abort_event)
                     from .core import dismiss_typing_indicator, show_typing_indicator
 
                     show_typing_indicator(self.abort_hotkey, on_dismiss=self._abort_current_operation)
@@ -1067,6 +1099,7 @@ class TextEditToolApp:
                             on_chunk=type_chunk,
                             origin_override=RequestOrigin.POPUP_INPUT,
                             action_config=action_config,
+                            abort_event=abort_event,
                         )
 
                         # Type any remaining buffered text (unless aborted)
@@ -1102,7 +1135,7 @@ class TextEditToolApp:
                         self._stop_abort_listener()
                         dismiss_typing_indicator()
 
-                    if self.streaming_aborted:
+                    if self.streaming_aborted or self.cancel_requested:
                         return
 
                     # Paste the full response instantly using clipboard
@@ -1110,7 +1143,12 @@ class TextEditToolApp:
                         print("[Pasting to active field...]")
                         self._paste_text_instant(response)
 
+                if self.streaming_aborted or self.cancel_requested:
+                    return
+
                 if error:
+                    if error in ("Request cancelled", "Request aborted"):
+                        return
                     logging.error(f"Direct chat failed: {error}")
                     print(f"  [Error] {error}")
 
@@ -1124,7 +1162,7 @@ class TextEditToolApp:
 
                 if streaming_enabled and not self.streaming_aborted:
                     print(f"\n✅ Response streamed ({len(response) if response else 0} chars)")
-                elif not streaming_enabled:
+                elif not streaming_enabled and not self.streaming_aborted:
                     print(f"✅ Response pasted ({len(response) if response else 0} chars)")
 
         except Exception as e:
@@ -1331,6 +1369,13 @@ class TextEditToolApp:
                         messages, origin_override=RequestOrigin.POPUP_PROMPT, action_config=option
                     )
 
+                    if (
+                        self.streaming_aborted
+                        or self.cancel_requested
+                        or error in ("Request cancelled", "Request aborted")
+                    ):
+                        return
+
                     if error:
                         logging.error(f"Option processing failed: {error}")
                         print(f"  [Error] {error}")
@@ -1364,7 +1409,8 @@ class TextEditToolApp:
                     print(f"[AI Response] Streaming to active field... [{self.abort_hotkey.title()} to abort]")
 
                     # Start abort listener and typing indicator
-                    self._start_abort_listener()
+                    abort_event = threading.Event()
+                    self._start_abort_listener(abort_event)
                     from .core import dismiss_typing_indicator, show_typing_indicator
 
                     show_typing_indicator(self.abort_hotkey, on_dismiss=self._abort_current_operation)
@@ -1400,6 +1446,7 @@ class TextEditToolApp:
                             on_chunk=type_chunk,
                             origin_override=RequestOrigin.POPUP_PROMPT,
                             action_config=option,
+                            abort_event=abort_event,
                         )
 
                         # Type any remaining buffered text (unless aborted)
@@ -1440,7 +1487,12 @@ class TextEditToolApp:
                         print("[Pasting to active field...]")
                         self._paste_text_instant(response)
 
+                if self.streaming_aborted or self.cancel_requested:
+                    return
+
                 if error:
+                    if error in ("Request cancelled", "Request aborted"):
+                        return
                     logging.error(f"Option processing failed: {error}")
                     print(f"  [Error] {error}")
 
@@ -1453,12 +1505,14 @@ class TextEditToolApp:
                     return
 
                 if not response:
+                    if self.streaming_aborted or self.cancel_requested:
+                        return
                     logging.error("No response from AI")
                     return
 
                 if streaming_enabled and not self.streaming_aborted:
                     print(f"\n✅ Response streamed ({len(response) if response else 0} chars)")
-                elif not streaming_enabled:
+                elif not streaming_enabled and not self.streaming_aborted:
                     print(f"✅ Response pasted ({len(response) if response else 0} chars)")
 
         except Exception as e:
@@ -1632,6 +1686,8 @@ class TextEditToolApp:
         )
 
         if ctx.error:
+            if ctx.aborted or ctx.error in ("Request aborted", "Request cancelled"):
+                return
             logging.error(f"Streaming to chat window failed: {ctx.error}")
             print(f"  [Error] {ctx.error}")
 

@@ -68,6 +68,7 @@ class ProviderResult:
     retry_count: int = 0
     status_code: Optional[int] = None
     _retryable: bool = False
+    aborted: bool = False
     # Raw Gemini response parts with thoughtSignature fields preserved.
     # Used to maintain reasoning context across multi-turn conversations.
     # Only populated by GeminiNativeProvider; None for other providers.
@@ -152,34 +153,68 @@ class BaseProvider(ABC):
                     messages, model, params, callback, thinking_enabled, current_key, abort_event
                 )
 
+                if getattr(result, "aborted", False) or (abort_event and abort_event.is_set()):
+                    callback(CallbackType.ABORTED, None)
+                    return ProviderResult(success=False, error="Request aborted", aborted=True)
+
                 if result.success:
                     self.log_success(key_num)
                     result.retry_count = retry
                     return result
 
                 # Non-success (like empty response)
-                if result.error and not self._should_retry_result(result, retry, max_retries):
+                if result.error and not self._should_retry_result(result, retry, max_retries, abort_event=abort_event):
+                    if abort_event and abort_event.is_set():
+                        callback(CallbackType.ABORTED, None)
+                        return ProviderResult(success=False, error="Request aborted", aborted=True)
                     return result
 
             except AbortedError:
                 callback(CallbackType.ABORTED, None)
-                return ProviderResult(success=False, error="Request aborted")
+                return ProviderResult(success=False, error="Request aborted", aborted=True)
 
             except requests.exceptions.Timeout as e:
-                if not self._handle_exception_retry(RetryReason.NETWORK_ERROR, retry, max_retries, str(e)):
+                if abort_event and abort_event.is_set():
+                    callback(CallbackType.ABORTED, None)
+                    return ProviderResult(success=False, error="Request aborted", aborted=True)
+                if not self._handle_exception_retry(
+                    RetryReason.NETWORK_ERROR, retry, max_retries, str(e), abort_event=abort_event
+                ):
+                    if abort_event and abort_event.is_set():
+                        callback(CallbackType.ABORTED, None)
+                        return ProviderResult(success=False, error="Request aborted", aborted=True)
                     callback(CallbackType.ERROR, "Request timeout")
                     return ProviderResult(success=False, error=str(e), retry_count=retry)
 
             except requests.exceptions.RequestException as e:
-                if not self._handle_exception_retry(RetryReason.NETWORK_ERROR, retry, max_retries, str(e)):
+                if abort_event and abort_event.is_set():
+                    callback(CallbackType.ABORTED, None)
+                    return ProviderResult(success=False, error="Request aborted", aborted=True)
+                if not self._handle_exception_retry(
+                    RetryReason.NETWORK_ERROR, retry, max_retries, str(e), abort_event=abort_event
+                ):
+                    if abort_event and abort_event.is_set():
+                        callback(CallbackType.ABORTED, None)
+                        return ProviderResult(success=False, error="Request aborted", aborted=True)
                     callback(CallbackType.ERROR, str(e))
                     return ProviderResult(success=False, error=str(e), retry_count=retry)
 
             except Exception as e:
-                if not self._handle_exception_retry(RetryReason.SERVER_ERROR, retry, max_retries, str(e)):
+                if abort_event and abort_event.is_set():
+                    callback(CallbackType.ABORTED, None)
+                    return ProviderResult(success=False, error="Request aborted", aborted=True)
+                if not self._handle_exception_retry(
+                    RetryReason.SERVER_ERROR, retry, max_retries, str(e), abort_event=abort_event
+                ):
+                    if abort_event and abort_event.is_set():
+                        callback(CallbackType.ABORTED, None)
+                        return ProviderResult(success=False, error="Request aborted", aborted=True)
                     callback(CallbackType.ERROR, str(e))
                     return ProviderResult(success=False, error=str(e), retry_count=retry)
 
+        if abort_event and abort_event.is_set():
+            callback(CallbackType.ABORTED, None)
+            return ProviderResult(success=False, error="Request aborted", aborted=True)
         return ProviderResult(success=False, error="Max retries exhausted")
 
     def generate(
@@ -209,30 +244,49 @@ class BaseProvider(ABC):
 
                 result = self._do_generate(messages, model, params, thinking_enabled, current_key, abort_event)
 
+                if getattr(result, "aborted", False) or (abort_event and abort_event.is_set()):
+                    return ProviderResult(success=False, error="Request aborted", aborted=True)
+
                 if result.success:
                     self.log_success(key_num)
                     result.retry_count = retry
                     return result
 
                 # Non-success (like empty response)
-                if result.error and not self._should_retry_result(result, retry, max_retries):
+                if result.error and not self._should_retry_result(result, retry, max_retries, abort_event=abort_event):
+                    if abort_event and abort_event.is_set():
+                        return ProviderResult(success=False, error="Request aborted", aborted=True)
                     return result
 
             except AbortedError:
-                return ProviderResult(success=False, error="Request aborted")
+                return ProviderResult(success=False, error="Request aborted", aborted=True)
 
             except requests.exceptions.Timeout as e:
-                if not self._handle_exception_retry(RetryReason.NETWORK_ERROR, retry, max_retries, str(e)):
+                if abort_event and abort_event.is_set():
+                    return ProviderResult(success=False, error="Request aborted", aborted=True)
+                if not self._handle_exception_retry(
+                    RetryReason.NETWORK_ERROR, retry, max_retries, str(e), abort_event=abort_event
+                ):
                     return ProviderResult(success=False, error=str(e), retry_count=retry)
 
             except requests.exceptions.RequestException as e:
-                if not self._handle_exception_retry(RetryReason.NETWORK_ERROR, retry, max_retries, str(e)):
+                if abort_event and abort_event.is_set():
+                    return ProviderResult(success=False, error="Request aborted", aborted=True)
+                if not self._handle_exception_retry(
+                    RetryReason.NETWORK_ERROR, retry, max_retries, str(e), abort_event=abort_event
+                ):
                     return ProviderResult(success=False, error=str(e), retry_count=retry)
 
             except Exception as e:
-                if not self._handle_exception_retry(RetryReason.SERVER_ERROR, retry, max_retries, str(e)):
+                if abort_event and abort_event.is_set():
+                    return ProviderResult(success=False, error="Request aborted", aborted=True)
+                if not self._handle_exception_retry(
+                    RetryReason.SERVER_ERROR, retry, max_retries, str(e), abort_event=abort_event
+                ):
                     return ProviderResult(success=False, error=str(e), retry_count=retry)
 
+        if abort_event and abort_event.is_set():
+            return ProviderResult(success=False, error="Request aborted", aborted=True)
         return ProviderResult(success=False, error="Max retries exhausted")
 
     @abstractmethod
@@ -390,11 +444,15 @@ class BaseProvider(ABC):
         if abort_event and abort_event.is_set():
             raise AbortedError("Request aborted")
 
-    def _handle_http_error(self, status_code: int, error_text: str, retry: int, max_retries: int) -> bool:
+    def _handle_http_error(
+        self, status_code: int, error_text: str, retry: int, max_retries: int, abort_event: Optional[Any] = None
+    ) -> bool:
         """
         Classify HTTP error, rotate key if needed, sleep if needed.
         Returns True if should retry, False if should give up.
         """
+        if abort_event and abort_event.is_set():
+            return False
         reason = self.get_retry_reason(status_code, error_text)
         if not self.should_retry(reason, retry):
             return False
@@ -404,11 +462,19 @@ class BaseProvider(ABC):
         if reason in (RetryReason.RATE_LIMITED, RetryReason.AUTH_ERROR):
             self.rotate_key_if_possible(f"({reason.value})")
         if delay > 0:
-            time.sleep(delay)
-        return True
+            if abort_event:
+                if abort_event.wait(delay):
+                    return False
+            else:
+                time.sleep(delay)
+        return not (abort_event and abort_event.is_set())
 
-    def _handle_exception_retry(self, reason: RetryReason, retry: int, max_retries: int, error_brief: str) -> bool:
+    def _handle_exception_retry(
+        self, reason: RetryReason, retry: int, max_retries: int, error_brief: str, abort_event: Optional[Any] = None
+    ) -> bool:
         """Handle retry on exception (network/timeout)."""
+        if abort_event and abort_event.is_set():
+            return False
         if not self.should_retry(reason, retry):
             return False
         delay = self.get_retry_delay(reason)
@@ -417,14 +483,25 @@ class BaseProvider(ABC):
         if reason == RetryReason.NETWORK_ERROR:
             self.rotate_key_if_possible(f"({reason.value})")
         if delay > 0:
-            time.sleep(delay)
-        return True
+            if abort_event:
+                if abort_event.wait(delay):
+                    return False
+            else:
+                time.sleep(delay)
+        return not (abort_event and abort_event.is_set())
 
-    def _should_retry_result(self, result: ProviderResult, retry: int, max_retries: int) -> bool:
+    def _should_retry_result(
+        self, result: ProviderResult, retry: int, max_retries: int, abort_event: Optional[Any] = None
+    ) -> bool:
         """Determine if a result containing an error should be retried."""
+        if abort_event and abort_event.is_set():
+            return False
+        if getattr(result, "aborted", False):
+            return False
+
         status_code = getattr(result, "status_code", None)
         if status_code is not None:
-            return self._handle_http_error(status_code, result.error or "", retry, max_retries)
+            return self._handle_http_error(status_code, result.error or "", retry, max_retries, abort_event=abort_event)
 
         if getattr(result, "_retryable", False):
             return True
@@ -437,8 +514,12 @@ class BaseProvider(ABC):
             self.log_retry(reason, retry + 1, delay, result.error)
             self.rotate_key_if_possible(f"({reason.value})")
             if delay > 0:
-                time.sleep(delay)
-            return True
+                if abort_event:
+                    if abort_event.wait(delay):
+                        return False
+                else:
+                    time.sleep(delay)
+            return not (abort_event and abort_event.is_set())
 
         return False
 

@@ -262,9 +262,15 @@ def call_api_with_retry(
                 result_out["gemini_parts"] = result.gemini_parts
             return result.content, None
         else:
+            if isinstance(result_out, dict) and getattr(result, "aborted", False):
+                result_out["aborted"] = True
             return None, result.error
 
     except Exception as e:
+        if abort_event and abort_event.is_set():
+            if isinstance(result_out, dict):
+                result_out["aborted"] = True
+            return None, "Request aborted"
         return None, f"Provider error: {e}"
 
 

@@ -258,80 +258,85 @@ class AnthropicProvider(BaseProvider):
         input_tokens = 0
         output_tokens = 0
 
+        self._check_abort(abort_event)
         response = requests.post(url, headers=headers, json=body, timeout=timeout, stream=True)
 
-        if response.status_code != 200:
-            error_text = response.text
-            return ProviderResult(success=False, error=error_text, status_code=response.status_code)
-
-        response.encoding = "utf-8"
-        last_content_time = time.time()
-
-        for line in response.iter_lines(decode_unicode=True):
+        try:
             self._check_abort(abort_event)
 
-            if time.time() - last_content_time > timeout:
-                response.close()
-                raise requests.exceptions.Timeout(f"No content received for {timeout}s (content-idle timeout)")
+            if response.status_code != 200:
+                error_text = response.text
+                return ProviderResult(success=False, error=error_text, status_code=response.status_code)
 
-            if not line:
-                continue
+            response.encoding = "utf-8"
+            last_content_time = time.time()
 
-            line = line.strip()
+            for line in response.iter_lines(decode_unicode=True):
+                self._check_abort(abort_event)
 
-            # Anthropic SSE format uses:
-            # event: event_name
-            # data: json_payload
-            # Or some proxies send only data: lines. Let's just focus on lines starting with data:
-            if not line.startswith("data: "):
-                continue
+                if time.time() - last_content_time > timeout:
+                    raise requests.exceptions.Timeout(f"No content received for {timeout}s (content-idle timeout)")
 
-            try:
-                json_str = line[6:]
-                data = json.loads(json_str)
-                event_type = data.get("type")
+                if not line:
+                    continue
 
-                if event_type == "error":
-                    error_obj = data.get("error", {})
-                    error_message = error_obj.get("message", "Unknown error")
-                    return ProviderResult(success=False, error=error_message)
+                line = line.strip()
 
-                elif event_type == "message_start":
-                    msg_obj = data.get("message", {})
-                    usage = msg_obj.get("usage", {})
-                    if usage:
-                        input_tokens = usage.get("input_tokens", input_tokens)
-                        output_tokens = usage.get("output_tokens", output_tokens)
+                # Anthropic SSE format uses:
+                # event: event_name
+                # data: json_payload
+                # Or some proxies send only data: lines. Let's just focus on lines starting with data:
+                if not line.startswith("data: "):
+                    continue
 
-                elif event_type == "content_block_delta":
-                    delta = data.get("delta", {})
+                try:
+                    json_str = line[6:]
+                    data = json.loads(json_str)
+                    event_type = data.get("type")
 
-                    # Handle text delta
-                    text = delta.get("text", "")
-                    if text:
-                        accumulated_content += text
-                        callback(CallbackType.TEXT, text)
-                        last_content_time = time.time()
+                    if event_type == "error":
+                        error_obj = data.get("error", {})
+                        error_message = error_obj.get("message", "Unknown error")
+                        return ProviderResult(success=False, error=error_message)
 
-                    # Handle thinking delta
-                    thinking = delta.get("thinking", "")
-                    if thinking:
-                        accumulated_thinking += thinking
-                        callback(CallbackType.THINKING, thinking)
-                        last_content_time = time.time()
+                    elif event_type == "message_start":
+                        msg_obj = data.get("message", {})
+                        usage = msg_obj.get("usage", {})
+                        if usage:
+                            input_tokens = usage.get("input_tokens", input_tokens)
+                            output_tokens = usage.get("output_tokens", output_tokens)
 
-                elif event_type == "message_delta":
-                    usage = data.get("usage", {})
-                    if usage:
-                        input_tokens = usage.get("input_tokens", input_tokens)
-                        output_tokens = usage.get("output_tokens", output_tokens)
+                    elif event_type == "content_block_delta":
+                        delta = data.get("delta", {})
 
-                elif event_type == "message_stop":
-                    callback(CallbackType.DONE, None)
-                    break
+                        # Handle text delta
+                        text = delta.get("text", "")
+                        if text:
+                            accumulated_content += text
+                            callback(CallbackType.TEXT, text)
+                            last_content_time = time.time()
 
-            except json.JSONDecodeError:
-                continue
+                        # Handle thinking delta
+                        thinking = delta.get("thinking", "")
+                        if thinking:
+                            accumulated_thinking += thinking
+                            callback(CallbackType.THINKING, thinking)
+                            last_content_time = time.time()
+
+                    elif event_type == "message_delta":
+                        usage = data.get("usage", {})
+                        if usage:
+                            input_tokens = usage.get("input_tokens", input_tokens)
+                            output_tokens = usage.get("output_tokens", output_tokens)
+
+                    elif event_type == "message_stop":
+                        callback(CallbackType.DONE, None)
+                        break
+
+                except json.JSONDecodeError:
+                    continue
+        finally:
+            response.close()
 
         # Check for empty response
         if self.detect_empty_response(accumulated_content, accumulated_thinking, [], output_tokens):

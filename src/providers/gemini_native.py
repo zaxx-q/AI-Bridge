@@ -162,112 +162,121 @@ class GeminiNativeProvider(BaseProvider):
         usage_data = None
         last_signature = None
 
+        self._check_abort(abort_event)
         response = requests.post(url, headers=headers, json=body, timeout=timeout, stream=True)
 
-        # Handle error responses
-        if response.status_code != 200:
-            error_text = response.text
-            return ProviderResult(success=False, error=error_text, status_code=response.status_code)
-
-        # Process streaming response
-        response.encoding = "utf-8"
-
-        last_content_time = time.time()  # Track last meaningful content for idle timeout
-        for line in response.iter_lines(decode_unicode=True):
+        try:
             self._check_abort(abort_event)
 
-            # Content-idle timeout: detect hangs masked by SSE heartbeats
-            if time.time() - last_content_time > timeout:
-                response.close()
-                raise requests.exceptions.Timeout(f"No content received for {timeout}s (content-idle timeout)")
+            # Handle error responses
+            if response.status_code != 200:
+                error_text = response.text
+                return ProviderResult(success=False, error=error_text, status_code=response.status_code)
 
-            if not line:
-                continue
+            # Process streaming response
+            response.encoding = "utf-8"
 
-            if not line.startswith("data: "):
-                continue
+            last_content_time = time.time()  # Track last meaningful content for idle timeout
+            for line in response.iter_lines(decode_unicode=True):
+                self._check_abort(abort_event)
 
-            try:
-                data = json.loads(line[6:])
+                # Content-idle timeout: detect hangs masked by SSE heartbeats
+                if time.time() - last_content_time > timeout:
+                    raise requests.exceptions.Timeout(f"No content received for {timeout}s (content-idle timeout)")
 
-                # Check for error object in SSE stream (e.g., 503 overloaded)
-                if "error" in data:
-                    error_obj = data["error"]
-                    if isinstance(error_obj, dict):
-                        error_code = error_obj.get("code", 0)
-                        error_status = error_obj.get("status", "")
-                        error_message = error_obj.get("message", str(error_obj))
-                        prefix = (
-                            f"{error_code} {error_status}" if error_status else str(error_code) if error_code else ""
+                if not line:
+                    continue
+
+                if not line.startswith("data: "):
+                    continue
+
+                try:
+                    data = json.loads(line[6:])
+
+                    # Check for error object in SSE stream (e.g., 503 overloaded)
+                    if "error" in data:
+                        error_obj = data["error"]
+                        if isinstance(error_obj, dict):
+                            error_code = error_obj.get("code", 0)
+                            error_status = error_obj.get("status", "")
+                            error_message = error_obj.get("message", str(error_obj))
+                            prefix = (
+                                f"{error_code} {error_status}"
+                                if error_status
+                                else str(error_code)
+                                if error_code
+                                else ""
+                            )
+                            error_text = f"{prefix}: {error_message}" if prefix else error_message
+                        else:
+                            error_text = str(error_obj)
+                        return ProviderResult(success=False, error=error_text)
+
+                    candidate = data.get("candidates", [{}])[0]
+                    content_parts = candidate.get("content", {}).get("parts", [])
+
+                    for part in content_parts:
+                        # Capture thought signature if present
+                        sig = part.get("thoughtSignature") or part.get("thought_signature")
+                        if sig:
+                            last_signature = sig
+
+                        # Handle thinking content (thought: true)
+                        if part.get("thought") is True and part.get("text"):
+                            thinking_text = part["text"]
+                            accumulated_thinking += thinking_text
+                            callback(CallbackType.THINKING, thinking_text)
+                            last_content_time = time.time()
+
+                        # Handle regular text
+                        elif "text" in part and not part.get("thought"):
+                            text = part["text"]
+                            accumulated_content += text
+                            callback(CallbackType.TEXT, text)
+                            last_content_time = time.time()
+
+                        # Handle function calls
+                        elif "functionCall" in part:
+                            fc = part["functionCall"]
+                            tool_call = {
+                                "id": fc.get("id", f"call_{len(accumulated_tool_calls)}"),
+                                "type": "function",
+                                "function": {
+                                    "name": fc.get("name", ""),
+                                    "arguments": json.dumps(fc.get("args", {})),
+                                },
+                            }
+                            accumulated_tool_calls.append(tool_call)
+                            callback(CallbackType.TOOL_CALLS, [tool_call])
+                            last_content_time = time.time()
+
+                    # Check for blocked finish reasons (SAFETY, RECITATION, etc.)
+                    if isinstance(candidate, dict):
+                        finish_reason = candidate.get("finishReason")
+                        if finish_reason in (
+                            "SAFETY",
+                            "RECITATION",
+                            "BLOCKED",
+                            "PROHIBITED",
+                        ):
+                            if not accumulated_content.strip() and not accumulated_tool_calls:
+                                block_msg = f"Response blocked: {finish_reason}"
+                                return ProviderResult(success=False, error=block_msg)
+
+                    # Capture usage metadata
+                    if "usageMetadata" in data:
+                        usage = data["usageMetadata"]
+                        usage_data = UsageData(
+                            prompt_tokens=usage.get("promptTokenCount", 0),
+                            completion_tokens=usage.get("candidatesTokenCount", 0),
+                            total_tokens=usage.get("totalTokenCount", 0),
                         )
-                        error_text = f"{prefix}: {error_message}" if prefix else error_message
-                    else:
-                        error_text = str(error_obj)
-                    return ProviderResult(success=False, error=error_text)
+                        callback(CallbackType.USAGE, usage_data.to_dict())
 
-                candidate = data.get("candidates", [{}])[0]
-                content_parts = candidate.get("content", {}).get("parts", [])
-
-                for part in content_parts:
-                    # Capture thought signature if present
-                    sig = part.get("thoughtSignature") or part.get("thought_signature")
-                    if sig:
-                        last_signature = sig
-
-                    # Handle thinking content (thought: true)
-                    if part.get("thought") is True and part.get("text"):
-                        thinking_text = part["text"]
-                        accumulated_thinking += thinking_text
-                        callback(CallbackType.THINKING, thinking_text)
-                        last_content_time = time.time()
-
-                    # Handle regular text
-                    elif "text" in part and not part.get("thought"):
-                        text = part["text"]
-                        accumulated_content += text
-                        callback(CallbackType.TEXT, text)
-                        last_content_time = time.time()
-
-                    # Handle function calls
-                    elif "functionCall" in part:
-                        fc = part["functionCall"]
-                        tool_call = {
-                            "id": fc.get("id", f"call_{len(accumulated_tool_calls)}"),
-                            "type": "function",
-                            "function": {
-                                "name": fc.get("name", ""),
-                                "arguments": json.dumps(fc.get("args", {})),
-                            },
-                        }
-                        accumulated_tool_calls.append(tool_call)
-                        callback(CallbackType.TOOL_CALLS, [tool_call])
-                        last_content_time = time.time()
-
-                # Check for blocked finish reasons (SAFETY, RECITATION, etc.)
-                if isinstance(candidate, dict):
-                    finish_reason = candidate.get("finishReason")
-                    if finish_reason in (
-                        "SAFETY",
-                        "RECITATION",
-                        "BLOCKED",
-                        "PROHIBITED",
-                    ):
-                        if not accumulated_content.strip() and not accumulated_tool_calls:
-                            block_msg = f"Response blocked: {finish_reason}"
-                            return ProviderResult(success=False, error=block_msg)
-
-                # Capture usage metadata
-                if "usageMetadata" in data:
-                    usage = data["usageMetadata"]
-                    usage_data = UsageData(
-                        prompt_tokens=usage.get("promptTokenCount", 0),
-                        completion_tokens=usage.get("candidatesTokenCount", 0),
-                        total_tokens=usage.get("totalTokenCount", 0),
-                    )
-                    callback(CallbackType.USAGE, usage_data.to_dict())
-
-            except json.JSONDecodeError:
-                continue
+                except json.JSONDecodeError:
+                    continue
+        finally:
+            response.close()
 
         # Reconstruct Gemini native parts for storage/preservation
         gemini_parts = []

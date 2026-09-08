@@ -459,6 +459,166 @@ class TestStreamingRetry(unittest.TestCase):
         self.assertEqual(result.thinking_content, "Thinking")
         self.assertEqual(result.retry_count, 1)
 
+    @patch("requests.post")
+    def test_openai_abort_event_pre_set(self, mock_post):
+        """Test that if abort_event is already set, no requests are made and abort is returned"""
+        import threading
+
+        provider = OpenAICompatibleProvider("custom", "http://fake.url", self.key_manager, self.config)
+        abort_event = threading.Event()
+        abort_event.set()
+
+        callback = MagicMock()
+        result = provider.generate_stream(
+            messages=[{"role": "user", "content": "hi"}],
+            model="test-model",
+            params={},
+            callback=callback,
+            abort_event=abort_event,
+        )
+
+        self.assertFalse(result.success)
+        self.assertTrue(result.aborted)
+        self.assertEqual(result.error, "Request aborted")
+        mock_post.assert_not_called()
+        callback.assert_called_once_with(CallbackType.ABORTED, None)
+
+    @patch("requests.post")
+    def test_openai_abort_during_streaming_halts_and_closes_response(self, mock_post):
+        """Test that setting abort_event during streaming halts iteration and does not retry"""
+        import threading
+
+        provider = OpenAICompatibleProvider("custom", "http://fake.url", self.key_manager, self.config)
+        abort_event = threading.Event()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        def iter_lines(decode_unicode=True):
+            yield 'data: {"choices": [{"delta": {"content": "Chunk 1"}}]}'
+            # Abort after first chunk
+            abort_event.set()
+            yield 'data: {"choices": [{"delta": {"content": "Chunk 2"}}]}'
+
+        mock_response.iter_lines.side_effect = iter_lines
+        mock_post.return_value = mock_response
+
+        callback = MagicMock()
+        result = provider.generate_stream(
+            messages=[{"role": "user", "content": "hi"}],
+            model="test-model",
+            params={},
+            callback=callback,
+            abort_event=abort_event,
+        )
+
+        self.assertFalse(result.success)
+        self.assertTrue(result.aborted)
+        self.assertEqual(result.error, "Request aborted")
+        # Only 1 attempt made - did not retry
+        self.assertEqual(mock_post.call_count, 1)
+        # Response was closed
+        mock_response.close.assert_called()
+        # Callback was notified of abort, not error
+        callback.assert_any_call(CallbackType.ABORTED, None)
+        # Error callback was NOT called
+        error_calls = [call for call in callback.call_args_list if call[0][0] == CallbackType.ERROR]
+        self.assertEqual(len(error_calls), 0)
+
+    @patch("requests.post")
+    def test_openai_abort_during_retry_delay_halts_immediately(self, mock_post):
+        """Test that setting abort_event during retry delay cancels retry immediately"""
+        import threading
+
+        provider = OpenAICompatibleProvider("custom", "http://fake.url", self.key_manager, self.config)
+        abort_event = threading.Event()
+
+        # 500 Server Error response that would normally trigger a retry delay
+        mock_response_500 = MagicMock()
+        mock_response_500.status_code = 500
+        mock_response_500.text = "Internal Server Error"
+        mock_post.return_value = mock_response_500
+
+        # Set abort_event when abort_event.wait is called during the retry delay
+        orig_wait = abort_event.wait
+
+        def mock_wait(timeout=None):
+            abort_event.set()
+            return orig_wait(0.001)
+
+        abort_event.wait = mock_wait
+
+        callback = MagicMock()
+        result = provider.generate_stream(
+            messages=[{"role": "user", "content": "hi"}],
+            model="test-model",
+            params={},
+            callback=callback,
+            abort_event=abort_event,
+        )
+
+        self.assertFalse(result.success)
+        self.assertTrue(result.aborted)
+        self.assertEqual(result.error, "Request aborted")
+        # Halts immediately after attempt 1 - does not attempt retry 2 or 3
+        self.assertEqual(mock_post.call_count, 1)
+        callback.assert_called_once_with(CallbackType.ABORTED, None)
+
+    @patch("requests.post")
+    def test_gemini_abort_during_streaming_halts_immediately(self, mock_post):
+        """Test that GeminiNativeProvider aborts immediately during streaming and does not retry"""
+        import threading
+
+        provider = GeminiNativeProvider(self.key_manager, self.config)
+        abort_event = threading.Event()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        def iter_lines(decode_unicode=True):
+            yield 'data: {"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}'
+            abort_event.set()
+            yield 'data: {"candidates": [{"content": {"parts": [{"text": " world"}]}}]}'
+
+        mock_response.iter_lines.side_effect = iter_lines
+        mock_post.return_value = mock_response
+
+        callback = MagicMock()
+        result = provider.generate_stream(
+            messages=[{"role": "user", "content": "hi"}],
+            model="gemini-2.5-flash",
+            params={},
+            callback=callback,
+            abort_event=abort_event,
+        )
+
+        self.assertFalse(result.success)
+        self.assertTrue(result.aborted)
+        self.assertEqual(mock_post.call_count, 1)
+        mock_response.close.assert_called()
+        callback.assert_any_call(CallbackType.ABORTED, None)
+
+    @patch("requests.post")
+    def test_nonstreaming_abort_event_halts_immediately(self, mock_post):
+        """Test that non-streaming generate() respects abort_event and does not retry"""
+        import threading
+
+        provider = OpenAICompatibleProvider("custom", "http://fake.url", self.key_manager, self.config)
+        abort_event = threading.Event()
+        abort_event.set()
+
+        result = provider.generate(
+            messages=[{"role": "user", "content": "hi"}],
+            model="test-model",
+            params={},
+            abort_event=abort_event,
+        )
+
+        self.assertFalse(result.success)
+        self.assertTrue(result.aborted)
+        self.assertEqual(result.error, "Request aborted")
+        mock_post.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
