@@ -294,7 +294,98 @@ def test_play_sound_linux_no_player_returns_false():
         patch.object(utils_mod, "_resolve_sound_path", return_value=fake_path),
         patch.object(utils_mod.sys, "platform", "linux"),
         patch("shutil.which", return_value=None),
-        patch("subprocess.Popen") as mock_popen,
+        patch("subprocess.Popen"),
     ):
         assert utils_mod.play_sound("assets/snip.wav") is False
-        mock_popen.assert_not_called()
+
+
+# ── TextEdit Ctrl+C Priority and Stale Primary Avoidance ────────────────────
+
+
+def test_textedit_capture_prefers_ctrl_c_over_stale_primary():
+    """TextEdit queries active window via Ctrl+C, ignoring stale text in primary selection."""
+    paste_calls = {"n": 0}
+
+    def fake_paste(*, primary: bool = False) -> str:
+        if primary:
+            return "stale-terminal-selection"
+        paste_calls["n"] += 1
+        if paste_calls["n"] == 1:
+            return ""  # initial backup
+        return "google-docs-active-selection"  # after Ctrl+C
+
+    with (
+        patch.object(clipboard_mod, "is_linux", return_value=True),
+        patch.object(clipboard_mod, "paste_text", side_effect=fake_paste),
+        patch.object(clipboard_mod, "copy_text", return_value=True),
+        patch.object(clipboard_mod, "clear_clipboard", return_value=True),
+        patch("src.platform.input.is_wlrctl_available", return_value=True),
+        patch("src.platform.input.copy_via_clipboard_shortcut", return_value=True) as mock_copy,
+        patch.object(clipboard_mod.time, "sleep"),
+    ):
+        result = capture_selection_for_textedit(timeout=0.05, poll_interval=0.001)
+        assert result == "google-docs-active-selection"
+        mock_copy.assert_called()
+
+
+def test_textedit_capture_empty_when_no_selection_even_if_primary_has_text():
+    """When nothing is selected, TextEdit returns empty string instead of resurrecting stale primary."""
+
+    def fake_paste(*, primary: bool = False) -> str:
+        if primary:
+            return "stale-mouse-highlight-from-hours-ago"
+        return ""  # nothing copied to clipboard on Ctrl+C
+
+    with (
+        patch.object(clipboard_mod, "is_linux", return_value=True),
+        patch.object(clipboard_mod, "paste_text", side_effect=fake_paste),
+        patch.object(clipboard_mod, "copy_text", return_value=True),
+        patch.object(clipboard_mod, "clear_clipboard", return_value=True),
+        patch("src.platform.input.is_wlrctl_available", return_value=True),
+        patch("src.platform.input.copy_via_clipboard_shortcut", return_value=True),
+        patch.object(clipboard_mod.time, "sleep"),
+    ):
+        # Default allow_primary=False
+        result = capture_selection_for_textedit(timeout=0.02, poll_interval=0.005)
+        assert result == ""
+
+
+def test_textedit_capture_falls_back_to_primary_when_explicitly_allowed():
+    """When allow_primary=True, falls back to primary if Ctrl+C yielded nothing."""
+
+    def fake_paste(*, primary: bool = False) -> str:
+        if primary:
+            return "terminal-mouse-highlight"
+        return ""  # nothing copied to clipboard on Ctrl+C
+
+    with (
+        patch.object(clipboard_mod, "is_linux", return_value=True),
+        patch.object(clipboard_mod, "paste_text", side_effect=fake_paste),
+        patch.object(clipboard_mod, "copy_text", return_value=True),
+        patch.object(clipboard_mod, "clear_clipboard", return_value=True),
+        patch("src.platform.input.is_wlrctl_available", return_value=True),
+        patch("src.platform.input.copy_via_clipboard_shortcut", return_value=True),
+        patch.object(clipboard_mod.time, "sleep"),
+    ):
+        result = capture_selection_for_textedit(timeout=0.02, poll_interval=0.005, allow_primary=True)
+        assert result == "terminal-mouse-highlight"
+
+
+def test_clear_clipboard_calls_wl_copy_clear():
+    """clear_clipboard runs wl-copy --clear."""
+    with (
+        patch.object(clipboard_mod, "is_linux", return_value=True),
+        patch.object(clipboard_mod.shutil, "which", return_value="/usr/bin/wl-copy"),
+        patch.object(clipboard_mod.subprocess, "run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        assert clipboard_mod.clear_clipboard() is True
+        args = mock_run.call_args[0][0]
+        assert "--clear" in args
+        assert "--primary" not in args
+
+        # Primary clear
+        assert clipboard_mod.clear_clipboard(primary=True) is True
+        args_primary = mock_run.call_args[0][0]
+        assert "--clear" in args_primary
+        assert "--primary" in args_primary

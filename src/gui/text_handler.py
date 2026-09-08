@@ -5,6 +5,7 @@ Text selection and clipboard handler
 
 import logging
 import time
+from typing import Optional
 
 # Soft import: Linux can run without pyperclip when using the platform clipboard service.
 try:
@@ -103,7 +104,8 @@ class TextHandler:
     Handles text selection capture and clipboard operations.
     """
 
-    def __init__(self):
+    def __init__(self, config: Optional[dict] = None):
+        self.config = config or {}
         self.keyboard = pykeyboard.Controller()
         self.is_copying = False
         self.last_copy_time = 0.0
@@ -265,7 +267,16 @@ class TextHandler:
         """
         if is_linux():
             try:
-                return capture_selection_for_textedit(timeout=max_wait, allow_ctrl_c=True)
+                allow_primary = (
+                    bool(self.config.get("linux_selection_fallback_primary", False))
+                    if hasattr(self, "config") and self.config
+                    else False
+                )
+                return capture_selection_for_textedit(
+                    timeout=max_wait,
+                    allow_ctrl_c=True,
+                    allow_primary=allow_primary,
+                )
             except Exception as e:
                 logging.error(f"Linux selection capture failed: {e}")
                 return ""
@@ -391,11 +402,17 @@ class TextHandler:
         """
         if is_linux():
             try:
+                allow_primary = (
+                    bool(self.config.get("linux_selection_fallback_primary", False))
+                    if hasattr(self, "config") and self.config
+                    else False
+                )
                 return capture_selection_for_textedit(
                     timeout=1.2,
                     poll_interval=0.02,
                     allow_ctrl_c=True,
                     resend_after=0.4,
+                    allow_primary=allow_primary,
                 )
             except Exception as e:
                 logging.error(f"Linux slow-app selection capture failed: {e}")

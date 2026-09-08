@@ -1,10 +1,10 @@
 # AIPromptBridge
 
-**AIPromptBridge** is a system-wide app that brings AI assistance to your fingertips. Use global hotkeys (Windows) or window-manager IPC triggers (Linux Wayland / niri) to edit text with AI, capture and analyze audio or screen content, and chat with models — all from a lightweight system tray app.
+**AIPromptBridge** is a system-wide app that brings AI assistance to your fingertips. Use global hotkeys to edit text with AI, capture and analyze audio or screen content, and chat with models — all from a lightweight system tray app.
 
 <details>
   <summary>🎬 Click to expand video demo</summary>
-  
+
 https://github.com/user-attachments/assets/3f3620fd-eae5-4b4d-80d9-2f7826da61b8
 
 </details>
@@ -149,16 +149,18 @@ The **TTS Processor** tool enables batch text-to-speech generation:
 
 Grab the latest assets from [GitHub Releases](https://github.com/zaxx-q/AIPromptBridge/releases):
 
-| Platform | Asset | Run |
-|----------|-------|-----|
-| **Windows** | `AIPromptBridge-v*-windows-x86_64.zip` | `AIPromptBridge.exe` (or `AIPromptBridge-NoConsole.exe` to hide console) |
-| **Linux** (x86_64, glibc ≈ Ubuntu 24.04+) | `AIPromptBridge-v*-linux-x86_64.tar.gz` | `./AIPromptBridge` |
+| Platform                                  | Asset                                   | Run                                                                      |
+| ----------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------ |
+| **Windows**                               | `AIPromptBridge-v*-windows-x86_64.zip`  | `AIPromptBridge.exe` (or `AIPromptBridge-NoConsole.exe` to hide console) |
+| **Linux** (x86_64, glibc ≈ Ubuntu 24.04+) | `AIPromptBridge-v*-linux-x86_64.tar.gz` | `./AIPromptBridge`                                                       |
 
 1. Extract the archive for your OS.
 2. On first launch, a setup wizard guides API keys / connection setup.
 3. If you skip the wizard or need changes later: **Profiles**, **Settings**, and tool configuration.
 4. **Windows:** runs minimized to the system tray (double-click tray icon to hide/unhide the console).  
    **Linux:** tray needs a StatusNotifier host (e.g. waybar/dms); use `./AIPromptBridge --trigger …` from compositor binds. Runtime tools: `wl-clipboard`, `wlrctl`, `grim`, `slurp`, `pactl`, `ffmpeg` — see [docs/LINUX.md](docs/LINUX.md).
+
+> ⚠️ **Linux Compatibility Note:** Linux support is for now currently tailored to a specific Wayland setup (**niri**, **Sway**, **Hyprland** with `wlrctl`/`grim`/`slurp`). Traditional desktop environments like **KDE Plasma**, **GNOME**, or **X11** are **not supported**.
 
 ### From Source (Alternative)
 
@@ -171,6 +173,7 @@ uv run main.py --show-console        # or: python main.py
 ```
 
 **Linux (Wayland / niri):** install system tools (`wl-clipboard`, `wlrctl`, `grim`, `slurp`, PortAudio, `pactl`, `ffmpeg`) and use `uv run main.py --trigger snip` (etc.) from compositor binds. Prefer distro `python3.13` + `python3.13-tkinter` for full GUI fonts. Full guide: [docs/LINUX.md](docs/LINUX.md).
+
 ## 📋 Usage
 
 ### System Tray
@@ -382,8 +385,10 @@ AIPromptBridge.exe --no-wt            # Skip Windows Terminal detection and redi
 
 **Linux (Wayland):**
 
+> ⚠️ **Note:** Linux support is currently limited to specific Wayland tiling setups (**niri**, **Sway**, **Hyprland**). Desktop environments like **KDE Plasma**, **GNOME**, or **X11** sessions are **not supported**.
+
 - **Wayland compositor** — validated on niri / wlroots compositors (Sway, Hyprland, etc.)
-- **System tools:** `wl-clipboard`, `wlrctl`, `grim`, `slurp`, `pactl`, `ffmpeg`
+- **System tools:** `wl-clipboard`, `wtype` (or `wlrctl`), `grim`, `slurp`, `pactl`, `ffmpeg`
 - **Optional:** `paplay` / `pw-play` (sound feedback), StatusNotifier tray host (waybar, dms)
 - **Python 3.13+** (if running from source; distro `python3.13-tkinter` recommended for source builds; compiled releases include Xft Tk)
 - API keys for at least one provider (Google Gemini recommended)

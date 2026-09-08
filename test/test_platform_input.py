@@ -20,10 +20,12 @@ from src.platform.input import (
 @pytest.fixture(autouse=True)
 def _reset_input_cache():
     """Reset process-lifetime binary cache between tests."""
+    input_mod._wtype_path = None
     input_mod._wlrctl_path = None
     input_mod._availability_checked = False
     input_mod._missing_warned = False
     yield
+    input_mod._wtype_path = None
     input_mod._wlrctl_path = None
     input_mod._availability_checked = False
     input_mod._missing_warned = False
@@ -273,3 +275,117 @@ def test_never_uses_shell_true():
         args = run.call_args[0][0]
         assert args[3] == "safe; rm -rf /"
         assert run.call_args[1].get("shell") in (None, False)
+
+
+# ── wtype backend tests ───────────────────────────────────────────────────
+
+
+def test_wtype_preferred_over_wlrctl():
+    def fake_which(name: str):
+        if name == "wtype":
+            return "/usr/bin/wtype"
+        if name == "wlrctl":
+            return "/usr/bin/wlrctl"
+        return None
+
+    with (
+        patch.object(input_mod, "is_linux", return_value=True),
+        patch.object(input_mod.shutil, "which", side_effect=fake_which),
+    ):
+        assert input_mod.get_keyboard_backend() == "wtype"
+        assert input_mod.backend_supports_keystroke_delay() is True
+        assert input_mod.is_keyboard_input_available() is True
+
+
+def test_wtype_press_chord_syntax():
+    def fake_which(name: str):
+        if name == "wtype":
+            return "/usr/bin/wtype"
+        return None
+
+    with (
+        patch.object(input_mod, "is_linux", return_value=True),
+        patch.object(input_mod.shutil, "which", side_effect=fake_which),
+        patch.object(input_mod.subprocess, "run", return_value=_completed()) as run,
+    ):
+        assert copy_via_clipboard_shortcut() is True
+        args = run.call_args[0][0]
+        assert args == ["/usr/bin/wtype", "-M", "ctrl", "-k", "c", "-m", "ctrl"]
+
+        assert paste_via_clipboard_shortcut() is True
+        args_paste = run.call_args[0][0]
+        assert args_paste == ["/usr/bin/wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"]
+
+
+def test_wtype_type_text_piped_to_stdin_with_delay():
+    def fake_which(name: str):
+        if name == "wtype":
+            return "/usr/bin/wtype"
+        return None
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append({"cmd": cmd, "input": kwargs.get("input")})
+        return _completed()
+
+    with (
+        patch.object(input_mod, "is_linux", return_value=True),
+        patch.object(input_mod.shutil, "which", side_effect=fake_which),
+        patch.object(input_mod.subprocess, "run", side_effect=fake_run),
+    ):
+        assert type_text("Hello — world! 🚀", delay_ms=15) is True
+        assert len(calls) == 1
+        assert calls[0]["cmd"] == ["/usr/bin/wtype", "-d", "15", "-"]
+        assert calls[0]["input"] == "Hello — world! 🚀".encode()
+
+
+def test_wtype_newlines_use_shift_return():
+    def fake_which(name: str):
+        if name == "wtype":
+            return "/usr/bin/wtype"
+        return None
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append({"cmd": cmd, "input": kwargs.get("input")})
+        return _completed()
+
+    with (
+        patch.object(input_mod, "is_linux", return_value=True),
+        patch.object(input_mod.shutil, "which", side_effect=fake_which),
+        patch.object(input_mod.subprocess, "run", side_effect=fake_run),
+    ):
+        assert type_text("Line 1\nLine 2") is True
+        assert len(calls) == 3
+        # First text segment
+        assert calls[0]["cmd"] == ["/usr/bin/wtype", "-"]
+        assert calls[0]["input"] == b"Line 1"
+        # Shift+Return
+        assert calls[1]["cmd"] == ["/usr/bin/wtype", "-M", "shift", "-k", "Return", "-m", "shift"]
+        # Second text segment
+        assert calls[2]["cmd"] == ["/usr/bin/wtype", "-"]
+        assert calls[2]["input"] == b"Line 2"
+
+
+def test_wlrctl_unicode_fallback_to_paste():
+    """When wlrctl fails on non-ASCII characters, it falls back to paste so typing does not abort."""
+
+    def fake_run(cmd, **kwargs):
+        if "keyboard" in cmd and "type" in cmd:
+            # Simulate wlrctl failing on non-ASCII
+            return _completed(returncode=1, stderr=b"Only ascii strings are currently supported\n")
+        return _completed()
+
+    with (
+        patch.object(input_mod, "is_linux", return_value=True),
+        patch.object(input_mod.shutil, "which", return_value="/usr/bin/wlrctl"),
+        patch.object(input_mod.subprocess, "run", side_effect=fake_run),
+        patch("src.platform.clipboard.copy_text", return_value=True) as mock_copy,
+        patch("src.platform.clipboard.paste_text", return_value=""),
+        patch.object(input_mod, "paste_via_clipboard_shortcut", return_value=True) as mock_paste_shortcut,
+    ):
+        assert type_text("Smart quote: “hello”") is True
+        mock_copy.assert_called()
+        mock_paste_shortcut.assert_called()

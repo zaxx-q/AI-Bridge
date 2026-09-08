@@ -301,6 +301,34 @@ def copy_rich_text(html: str, plain: str, *, primary: bool = False) -> bool:
         return False
 
 
+def clear_clipboard(*, primary: bool = False) -> bool:
+    """
+    Clear the Wayland clipboard (or primary selection) via ``wl-copy --clear``.
+
+    Returns False on non-Linux, missing wl-clipboard, or command failure.
+    """
+    if not is_linux() or not is_wl_clipboard_available():
+        return False
+    try:
+        args = _wl_args([_wl_copy_path or "wl-copy", "--clear"], primary=primary)
+        result = subprocess.run(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=_DEFAULT_TIMEOUT,
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        logger.warning("wl-copy --clear timed out after %ss", _DEFAULT_TIMEOUT)
+        return False
+    except FileNotFoundError:
+        return False
+    except Exception as e:
+        logger.debug("clear_clipboard failed: %s", e)
+        return False
+
+
 def get_selected_text_wayland(*, include_clipboard: bool = True) -> str:
     """
     Read currently selected text on Wayland.
@@ -359,11 +387,17 @@ def _capture_via_ctrl_c(
     except Exception:
         backup = ""
 
+    # Clear clipboard so we can unambiguously detect when the active window
+    # responds to Ctrl+C, even if the selected text happens to match backup.
+    cleared = clear_clipboard(primary=False)
+
     # Baseline used to detect whether Ctrl+C actually changed the clipboard.
-    # Empty backup: any non-empty paste is a success. Non-empty backup: require
-    # content different from backup (and non-empty after strip).
     captured = ""
     try:
+        # Give compositor a tiny moment (10ms) to ensure hotkey modifiers from the
+        # trigger bind are settled before sending Ctrl+C.
+        time.sleep(0.01)
+
         if not copy_via_clipboard_shortcut():
             if not _hybrid_fail_warned:
                 _hybrid_fail_warned = True
@@ -422,24 +456,34 @@ def capture_selection_hybrid(
     allow_ctrl_c: bool = True,
     include_clipboard: bool = True,
     resend_after: Optional[float] = None,
+    prefer_ctrl_c: bool = False,
+    allow_primary: bool = True,
 ) -> str:
     """
     Capture selected text on Wayland with optional Ctrl+C hybrid fallback.
 
-    Order:
+    When ``prefer_ctrl_c`` is True (recommended for TextEdit):
+      1. Inject Ctrl+C into focused window (queries active selection directly;
+         works in Google Docs, browser inputs, text editors).
+      2. If captured, return it.
+      3. If empty and ``allow_primary`` is True, fall back to primary selection.
+      4. If empty and ``include_clipboard`` is True, fall back to clipboard.
+
+    When ``prefer_ctrl_c`` is False (passive selection preferred):
       1. Primary selection (mouse highlight — no clipboard pollution).
       2. Optional read-only clipboard (user may already have copied).
-      3. If still empty and ``allow_ctrl_c``: backup clipboard → wlrctl Ctrl+C →
-         poll clipboard until change/timeout → restore backup → return text.
+      3. If still empty and ``allow_ctrl_c``: inject Ctrl+C.
 
     Args:
         timeout: Max seconds to wait for clipboard after Ctrl+C.
         poll_interval: Sleep between clipboard polls.
-        allow_ctrl_c: When False, only steps 1–2 (same as get_selected_text_wayland).
+        allow_ctrl_c: When False, only read passive selection.
         include_clipboard: Whether step 2 may treat ordinary clipboard content as
             a selection. TextEdit disables this to avoid stale copied text.
         resend_after: If set, re-send Ctrl+C once after this many seconds of polling
             (slow-app retry). Only applies to the Ctrl+C path.
+        prefer_ctrl_c: When True, query focused window via Ctrl+C before passive selection.
+        allow_primary: Whether primary selection can be used as fallback when Ctrl+C yields nothing.
 
     Returns:
         Captured text, or empty string.
@@ -447,8 +491,39 @@ def capture_selection_hybrid(
     if not is_linux():
         return ""
 
-    # Prefer primary / optional existing clipboard — never inject when already
-    # have text. TextEdit deliberately excludes ordinary clipboard contents.
+    if prefer_ctrl_c and allow_ctrl_c:
+        from .input import is_wlrctl_available
+
+        if is_wlrctl_available():
+            captured = _capture_via_ctrl_c(
+                timeout=timeout,
+                poll_interval=poll_interval,
+                resend_after=resend_after,
+            )
+            if captured and captured.strip():
+                return captured
+
+            # Ctrl+C yielded nothing. On Wayland, primary selection persists
+            # indefinitely after any highlight, so only fall back to it if explicitly requested.
+            if allow_primary:
+                primary = paste_text(primary=True)
+                if primary and primary.strip():
+                    return primary
+
+            if include_clipboard:
+                clipboard = paste_text(primary=False)
+                if clipboard and clipboard.strip():
+                    return clipboard
+
+            return ""
+
+        # Virtual keyboard not available — fall through to passive query
+        existing = get_selected_text_wayland(include_clipboard=include_clipboard)
+        if existing and existing.strip():
+            return existing
+        return ""
+
+    # Passive-first order:
     existing = get_selected_text_wayland(include_clipboard=include_clipboard)
     if existing and existing.strip():
         return existing
@@ -469,13 +544,16 @@ def capture_selection_for_textedit(
     poll_interval: float = _HYBRID_POLL_INTERVAL,
     allow_ctrl_c: bool = True,
     resend_after: Optional[float] = None,
+    allow_primary: bool = False,
 ) -> str:
     """Capture an active selection for TextEdit without trusting stale clipboard text.
 
-    Primary selection remains first for terminals and mouse selection. If it is
-    empty, the Ctrl+C path confirms that the normal clipboard changed before
-    accepting it; it is then restored. This intentionally does not clear the
-    primary selection, preserving middle-click paste behavior.
+    Active query via Ctrl+C is used first to ask the currently focused window for
+    its selection (supports Google Docs, browser inputs, text editors, etc.).
+    On Wayland, primary selection persists indefinitely after mouse highlights and
+    is never cleared on window change or deselect; therefore, ``allow_primary``
+    defaults to False so that empty selections correctly open the input popup
+    rather than using stale text from earlier activities.
     """
     return capture_selection_hybrid(
         timeout=timeout,
@@ -483,6 +561,8 @@ def capture_selection_for_textedit(
         allow_ctrl_c=allow_ctrl_c,
         include_clipboard=False,
         resend_after=resend_after,
+        prefer_ctrl_c=True,
+        allow_primary=allow_primary,
     )
 
 

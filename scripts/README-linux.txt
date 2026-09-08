@@ -35,7 +35,7 @@ symlink. The launcher always chdirs there.
 Runtime system packages (not bundled)
 -------------------------------------
   wl-clipboard   clipboard / primary selection
-  wlrctl         type / paste into apps (wlroots)
+  wtype / wlrctl type / paste into apps (wtype recommended for smooth typing)
   grim, slurp    screen snip
   pactl          Pulse/PipeWire monitor discovery (system audio)
   ffmpeg         pulse capture for system audio (+ optional sounds)

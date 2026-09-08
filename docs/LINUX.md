@@ -45,15 +45,15 @@ binds {
 
 ## System packages
 
-| Package / binary | Role |
-|------------------|------|
+| Package / binary                                 | Role                                                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | **`python3.13` + `python3.13-tkinter`** (distro) | **GUI:** Xft-capable Tk (real fonts + rounded CTk widgets). Prefer over uv’s standalone CPython for the venv. |
-| `wl-clipboard` (`wl-copy`, `wl-paste`) | Clipboard + primary selection |
-| `wlrctl` | Virtual keyboard: type, Ctrl+V/C (TextEdit replace/type, hybrid capture) |
-| `grim`, `slurp` | Screen region capture (SnipTool) |
-| PortAudio (+ `PyAudio` wheel) | Mic + desktop-monitor recording |
-| Optional: `paplay` / `pw-play` / `ffplay` | Snip/textedit feedback sounds |
-| StatusNotifier host (e.g. dms, waybar) | Tray icon via `pystray` |
+| `wl-clipboard` (`wl-copy`, `wl-paste`)           | Clipboard + primary selection                                                                                 |
+| `wtype` (recommended) / `wlrctl`                 | Virtual keyboard: smooth Unicode/emoji typing, Ctrl+V/C (TextEdit replace/type, selection capture)            |
+| `grim`, `slurp`                                  | Screen region capture (SnipTool)                                                                              |
+| PortAudio (+ `PyAudio` wheel)                    | Mic + desktop-monitor recording                                                                               |
+| Optional: `paplay` / `pw-play` / `ffplay`        | Snip/textedit feedback sounds                                                                                 |
+| StatusNotifier host (e.g. dms, waybar)           | Tray icon via `pystray`                                                                                       |
 
 Python deps with markers: `pystray` and `PyAudio` on Linux; `infi.systray` and `PyAudioWPatch` on Windows only.
 
@@ -63,10 +63,10 @@ CustomTkinter draws rounded corners with a special shapes font (`font_shapes`) a
 
 **uv’s standalone CPython** (python-build-standalone) ships Tk built **`no-xft`**. On those interpreters Tk only exposes the bitmap font `fixed`, so:
 
-| Symptom | Cause |
-|---------|--------|
+| Symptom                                          | Cause                                                          |
+| ------------------------------------------------ | -------------------------------------------------------------- |
 | Broken / “corrupted” corners on every CTk widget | Shapes font falls back to `fixed`; `font_shapes` drawing fails |
-| Pixelated / horrendous UI text | No Xft → no Roboto/Noto/DejaVu in Tk |
+| Pixelated / horrendous UI text                   | No Xft → no Roboto/Noto/DejaVu in Tk                           |
 
 **App mitigation** (`src/gui/ctk_bootstrap.py`, runs once on GUI start):
 
@@ -91,29 +91,29 @@ Do **not** try to `LD_LIBRARY_PATH` over uv’s `libtcl9tk9.0.so` with distro Tk
 
 ## How Linux maps to features
 
-| Feature | Windows | Linux (Wayland / niri) |
-|---------|---------|-------------------------|
-| Start tools | Global hotkeys (pynput) + tray | **IPC** `--trigger` + tray (if SNI host) |
-| Launch at login | Registry `HKCU\…\Run` | **XDG autostart** `~/.config/autostart/aipromptbridge.desktop` |
-| Single instance | Named mutex | Unix socket bind (same path as IPC) |
-| Tray | `infi.systray` | `pystray` (AppIndicator / StatusNotifier) |
-| Selection capture | SendInput Ctrl+C + clipboard sequence | Primary selection first; hybrid **Ctrl+C** via `wlrctl` if empty (ordinary clipboard is not treated as a selection) |
-| Type / paste into apps | pynput / SendInput | `wlrctl` (+ `wl-copy` for paste) |
-| Snip | Tk overlay + `PIL.ImageGrab` | `slurp` geometry + `grim -g` → same `CaptureResult` |
-| System audio | WASAPI loopback (PyAudioWPatch) | PipeWire/Pulse **monitor** sources via `pactl` + `ffmpeg -f pulse` (PortAudio often has no Pulse host API) |
-| Sounds | `winsound` | `paplay` / `pw-play` / `ffplay` |
-| Settings → Tools hotkeys | Editable global hotkey fields | Read-only **IPC trigger** command list |
+| Feature                  | Windows                               | Linux (Wayland / niri)                                                                                                                                         |
+| ------------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start tools              | Global hotkeys (pynput) + tray        | **IPC** `--trigger` + tray (if SNI host)                                                                                                                       |
+| Launch at login          | Registry `HKCU\…\Run`                 | **XDG autostart** `~/.config/autostart/aipromptbridge.desktop`                                                                                                 |
+| Single instance          | Named mutex                           | Unix socket bind (same path as IPC)                                                                                                                            |
+| Tray                     | `infi.systray`                        | `pystray` (AppIndicator / StatusNotifier)                                                                                                                      |
+| Selection capture        | SendInput Ctrl+C + clipboard sequence | Active Ctrl+C query directly to focused window (supports Google Docs, browser inputs, text editors) without stale primary pollution; optional primary fallback |
+| Type / paste into apps   | pynput / SendInput                    | `wtype` (smooth per-keystroke typing, Unicode/emojis) or `wlrctl` (+ `wl-copy` for paste)                                                                      |
+| Snip                     | Tk overlay + `PIL.ImageGrab`          | `slurp` geometry + `grim -g` → same `CaptureResult`                                                                                                            |
+| System audio             | WASAPI loopback (PyAudioWPatch)       | PipeWire/Pulse **monitor** sources via `pactl` + `ffmpeg -f pulse` (PortAudio often has no Pulse host API)                                                     |
+| Sounds                   | `winsound`                            | `paplay` / `pw-play` / `ffplay`                                                                                                                                |
+| Settings → Tools hotkeys | Editable global hotkey fields         | Read-only **IPC trigger** command list                                                                                                                         |
 
 ## Autostart (XDG `.desktop`)
 
 Settings → **General** → **Launch at Login** toggles an XDG autostart entry (same Settings toggle that uses the Windows Run registry on Windows).
 
-| | |
-|--|--|
-| File | `$XDG_CONFIG_HOME/autostart/aipromptbridge.desktop` (default `~/.config/autostart/`) |
-| `Exec` (source) | Current interpreter + absolute `main.py` (same venv as the running app) |
-| `Exec` (compiled) | Outer launcher `…/AIPromptBridge` (shell wrapper) when present; else `sys.executable` |
-| `Path` | Deploy / project root (CWD-relative `config.ini` / `keys.json` / sessions; for `bin/` internals = parent of `bin/`) |
+|                   |                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| File              | `$XDG_CONFIG_HOME/autostart/aipromptbridge.desktop` (default `~/.config/autostart/`)                                |
+| `Exec` (source)   | Current interpreter + absolute `main.py` (same venv as the running app)                                             |
+| `Exec` (compiled) | Outer launcher `…/AIPromptBridge` (shell wrapper) when present; else `sys.executable`                               |
+| `Path`            | Deploy / project root (CWD-relative `config.ini` / `keys.json` / sessions; for `bin/` internals = parent of `bin/`) |
 
 Implemented in `src/startup_manager.py` (`set_startup` / `is_startup_enabled` / `get_startup_info`).
 
@@ -157,7 +157,7 @@ AIPromptBridge-…-linux-x86_64/
   README-linux.txt
 ```
 
-**Runtime packages** are still required (same table as [System packages](#system-packages)): `wl-clipboard`, `wlrctl`, `grim`, `slurp`, `pactl`, `ffmpeg`, PortAudio, StatusNotifier host.
+**Runtime packages** are still required (same table as [System packages](#system-packages)): `wl-clipboard`, `wtype` (or `wlrctl`), `grim`, `slurp`, `pactl`, `ffmpeg`, PortAudio, StatusNotifier host.
 
 **glibc:** built on **Ubuntu 24.04** x86_64. Older distributions may not run the binary; use a source install instead.
 
@@ -171,15 +171,15 @@ CI entry points: `.github/workflows/release.yml` (`platform: linux` on `workflow
 
 OS-facing helpers live under **`src/platform/`** (no GUI imports):
 
-| Module | Responsibility |
-|--------|----------------|
-| `detect.py` | `is_windows` / `is_linux` / `is_wayland` |
-| `ipc.py` / `single_instance.py` | Trigger protocol + instance lock |
-| `clipboard.py` | `wl-copy` / `wl-paste`, primary, hybrid selection helper |
-| `pointer.py` | Best-effort compositor cursor lookup (Hyprland; optional Sway seat fields) |
-| `input.py` | `wlrctl` type and key chords |
-| `console_input.py` | Non-blocking single-key TTY input (`termios` cbreak / Windows `msvcrt`) |
-| `screenshot.py` | `grim` / `slurp` |
+| Module                          | Responsibility                                                             |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `detect.py`                     | `is_windows` / `is_linux` / `is_wayland`                                   |
+| `ipc.py` / `single_instance.py` | Trigger protocol + instance lock                                           |
+| `clipboard.py`                  | `wl-copy` / `wl-paste`, primary, hybrid selection helper                   |
+| `pointer.py`                    | Best-effort compositor cursor lookup (Hyprland; optional Sway seat fields) |
+| `input.py`                      | `wtype` / `wlrctl` type and key chords                                     |
+| `console_input.py`              | Non-blocking single-key TTY input (`termios` cbreak / Windows `msvcrt`)    |
+| `screenshot.py`                 | `grim` / `slurp`                                                           |
 
 Audio import dispatch: `src/audio/backend.py` (WPatch on Windows, stock PyAudio on Linux). Device enumeration: `src/audio/devices.py`. Linux system-audio monitors: `src/audio/pulse_monitors.py` (`pactl list sources`) + ffmpeg pulse capture in `recorder.py`. Mic capture still uses PortAudio. Need `pactl` (pulseaudio-utils / PipeWire) and `ffmpeg` with pulse input for loopback when PortAudio is ALSA-only.
 
@@ -189,7 +189,7 @@ Interactive console commands (`--show-console`) and batch Pause/Stop keys use `s
 
 - Pure Wayland apps that ignore virtual keyboard or selection protocols may not accept type/paste/hybrid capture.
 - **Direct Chat:** tray **Direct Chat** and `--trigger chat` always open the input popup; they never capture the primary selection or clipboard. Use `--trigger textedit` for selection-based actions.
-- **Selections:** Wayland primary selection can remain after a mouse highlight. TextEdit intentionally ignores ordinary clipboard contents, but a non-empty primary selection is still used so terminal mouse selections and middle-click paste remain intact.
+- **Selections:** Wayland primary selection can remain indefinitely after a mouse highlight even after deselecting. TextEdit uses an active Ctrl+C query directly into the focused application (works with Google Docs, browser canvas/DOM, and text editors) to avoid resurrecting stale primary selections. Terminal mouse selection fallback can be enabled via `linux_selection_fallback_primary = true` in `config.ini`.
 - **Popup position:** Hyprland cursor IPC places popups near the visible cursor. niri 26.04 has no public cursor-position IPC, so Tk/Xwayland coordinates are the fallback and may be stale when the focused app is native Wayland.
 - Snip UX uses **slurp** (not the Windows frozen dim overlay).
 - Interactive console keys require a real TTY (`stdin.isatty()`); piped/redirected stdin falls back to tray / `--trigger`.

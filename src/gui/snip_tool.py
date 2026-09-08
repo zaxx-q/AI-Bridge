@@ -23,7 +23,7 @@ from .prompts import PromptsConfig
 from .screen_snip import CaptureResult
 
 # Minimum characters to buffer before typing during streaming (matches text_edit_tool).
-_STREAM_BUFFER_CHARS = 80 if is_linux() else 20
+_STREAM_BUFFER_CHARS = 20
 
 
 class SnipToolApp:
