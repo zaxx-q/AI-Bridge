@@ -1,6 +1,6 @@
 # AIPromptBridge
 
-**AIPromptBridge** is a Windows system-wide app that brings AI assistance to your fingertips. Use global hotkeys to edit text using AI, capture and analyze audio or screen content, and chat with models, all from a lightweight system tray app.
+**AIPromptBridge** is a system-wide app that brings AI assistance to your fingertips. Use global hotkeys (Windows) or window-manager IPC triggers (Linux Wayland / niri) to edit text with AI, capture and analyze audio or screen content, and chat with models — all from a lightweight system tray app.
 
 <details>
   <summary>🎬 Click to expand video demo</summary>
@@ -16,6 +16,8 @@ https://github.com/user-attachments/assets/3f3620fd-eae5-4b4d-80d9-2f7826da61b8
 <img src="docs/images/feature_text_edit.png" align="right" width="200" />
 
 Press **Ctrl+Space** anywhere to invoke AI on selected text:
+
+> **Linux:** `AIPromptBridge --trigger textedit` (bind to compositor hotkey)
 
 - **Understand** - **Explain**, **Generate Summaries**, or **Keypoints**
 - **Edit** - **Proofread** (✏️), **Rewrite** (📝), or make it **Casual** (😎)
@@ -33,6 +35,8 @@ Works in any application: browsers, IDEs, Notepad, Word, everywhere.
 
 Press **Ctrl+Alt+X** to capture a region of your screen and analyze it with AI:
 
+> **Linux:** `AIPromptBridge --trigger snip` (uses `slurp` + `grim`)
+
 - **OCR** - **Extract Text** or **OCR to Markdown** for clean formatting
 - **Analysis** - **Describe**, **Summarize**, or **Explain Code**
 - **Data** - **Extract Data** to tables, **Transcribe** handwriting, or **Smart Cleanup** notes
@@ -47,6 +51,8 @@ Press **Ctrl+Alt+X** to capture a region of your screen and analyze it with AI:
 
 Press **Ctrl+Alt+A** to record and analyze audio:
 
+> **Linux:** `AIPromptBridge --trigger audio` (system audio via PipeWire/Pulse monitors)
+
 - **Record** - Capture microphone input or system audio (loopback)
 - **Transcribe** - High-fidelity transcription with timestamps and speaker identification
 - **Analyze** - Summarize meetings, extract key points, or analyze tone
@@ -58,6 +64,8 @@ Press **Ctrl+Alt+A** to record and analyze audio:
 ![TTS Tool](docs/images/feature_tts.png)
 
 Convert text into expressive speech using Gemini TTS models:
+
+> **Linux:** `AIPromptBridge --trigger tts`
 
 - **30 Voices** - Choose from 30 prebuilt voices with distinct styles (Bright, Firm, Upbeat, etc.)
 - **AI Director** - Automatically generates style instructions for expressive, nuanced speech
@@ -139,23 +147,30 @@ The **TTS Processor** tool enables batch text-to-speech generation:
 
 ### Download (Recommended)
 
-1. Download `AIPromptBridge.zip` from [GitHub Releases](https://github.com/zaxx-q/AIPromptBridge/releases)
-2. Extract and run `AIPromptBridge.exe` (use `AIPromptBridge-NoConsole.exe` to hide console)
-3. On first launch, a setup wizard will automatically run to guide you step-by-step to quickly get started
-4. If you skip setup wizard or need to make changes later:
-   - Access **Profiles** to edit and test your connection profiles.
-   - Access **Settings** to customize theme modes, general behavior, and tool configurations.
-5. The app runs minimized to the Windows system tray. Double-click tray icon to hide/unhide the console.
+Grab the latest assets from [GitHub Releases](https://github.com/zaxx-q/AIPromptBridge/releases):
+
+| Platform | Asset | Run |
+|----------|-------|-----|
+| **Windows** | `AIPromptBridge-v*-windows-x86_64.zip` | `AIPromptBridge.exe` (or `AIPromptBridge-NoConsole.exe` to hide console) |
+| **Linux** (x86_64, glibc ≈ Ubuntu 24.04+) | `AIPromptBridge-v*-linux-x86_64.tar.gz` | `./AIPromptBridge` |
+
+1. Extract the archive for your OS.
+2. On first launch, a setup wizard guides API keys / connection setup.
+3. If you skip the wizard or need changes later: **Profiles**, **Settings**, and tool configuration.
+4. **Windows:** runs minimized to the system tray (double-click tray icon to hide/unhide the console).  
+   **Linux:** tray needs a StatusNotifier host (e.g. waybar/dms); use `./AIPromptBridge --trigger …` from compositor binds. Runtime tools: `wl-clipboard`, `wlrctl`, `grim`, `slurp`, `pactl`, `ffmpeg` — see [docs/LINUX.md](docs/LINUX.md).
 
 ### From Source (Alternative)
 
 ```bash
 git clone https://github.com/zaxx-q/AIPromptBridge.git
 cd AIPromptBridge
-pip install -r requirements.txt
-python main.py
+# Python 3.13.x recommended (see .python-version)
+uv pip install -r requirements.txt   # or: pip install -r requirements.txt
+uv run main.py --show-console        # or: python main.py
 ```
 
+**Linux (Wayland / niri):** install system tools (`wl-clipboard`, `wlrctl`, `grim`, `slurp`, PortAudio, `pactl`, `ffmpeg`) and use `uv run main.py --trigger snip` (etc.) from compositor binds. Prefer distro `python3.13` + `python3.13-tkinter` for full GUI fonts. Full guide: [docs/LINUX.md](docs/LINUX.md).
 ## 📋 Usage
 
 ### System Tray
@@ -186,6 +201,8 @@ Right-click the tray icon for:
 3. Choose an action (Proofread, Rewrite, etc.)
 4. Text is replaced or opened in chat
 
+> **Linux:** use `AIPromptBridge --trigger textedit` from a compositor bind.
+
 **Without selection**: Opens a quick input bar for direct questions.
 
 ### SnipTool (Screen Snipping)
@@ -195,6 +212,8 @@ Right-click the tray icon for:
 3. Choose an action (Describe, Extract Text, etc.) or ask a question
 4. Results open in a chat window with the image attached, can also be copied to clipboard or typed directly into the active field.
 
+> **Linux:** use `AIPromptBridge --trigger snip`; selection uses `slurp` + `grim`.
+
 ### Audio Tool
 
 1. Press **Ctrl+Alt+A** to open the Audio Analyzer
@@ -202,6 +221,8 @@ Right-click the tray icon for:
 3. Click **Record** to capture audio
 4. Choose an action (Transcribe, Analyze, etc.)
 5. Results are streamed to a chat window or displayed in the result panel
+
+> **Linux:** use `AIPromptBridge --trigger audio`; PipeWire/Pulse monitors provide system audio.
 
 ### Console Commands
 
@@ -347,16 +368,26 @@ AIPromptBridge.exe --no-wt            # Skip Windows Terminal detection and redi
 
 - [Project Structure](docs/PROJECT_STRUCTURE.md) - File organization
 - [Architecture](docs/ARCHITECTURE.md) - Technical details
+- [Linux Support](docs/LINUX.md) - Linux Wayland / niri setup, compositor binds, and platform details
 
 ## 📝 Requirements
 
-- **Windows 10/11** (uses Windows-specific APIs for tray, console, snipping, and audio capture mechanims)
-- **Windows Terminal** (Highly recommended for better console view and colors)
+**Windows:**
+
+- **Windows 10/11** (uses Windows-specific APIs for tray, console, snipping, and audio capture)
+- **Windows Terminal** (recommended for console colors)
 - **Python 3.13+** (if running from source)
-- **FFmpeg** (Required for audio compression and conversion features)
-  - [Download FFmpeg](https://ffmpeg.org/download.html)
-  - [Install Guide](https://www.wikihow.com/Install-FFmpeg-on-Windows) - Ensure it is added to your system PATH
+- **FFmpeg** (for audio compression/conversion) — [Download](https://ffmpeg.org/download.html)
 - API keys for at least one provider (Google Gemini recommended)
+
+**Linux (Wayland):**
+
+- **Wayland compositor** — validated on niri / wlroots compositors (Sway, Hyprland, etc.)
+- **System tools:** `wl-clipboard`, `wlrctl`, `grim`, `slurp`, `pactl`, `ffmpeg`
+- **Optional:** `paplay` / `pw-play` (sound feedback), StatusNotifier tray host (waybar, dms)
+- **Python 3.13+** (if running from source; distro `python3.13-tkinter` recommended for source builds; compiled releases include Xft Tk)
+- API keys for at least one provider (Google Gemini recommended)
+- See [Linux Support Guide](docs/LINUX.md) for full details
 
 ## 📄 License
 

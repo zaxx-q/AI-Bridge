@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 from ...model_defaults import get_fallback_models
 from ...session_manager import add_session
 from ..core import get_next_window_id, register_window, unregister_window
-from ..custom_widgets import ScrollableComboBox, SplitButton
+from ..custom_widgets import ScrollableComboBox, SplitButton, post_popup_menu
 from ..emoji_renderer import prepare_emoji_content
 from ..platform import HAVE_CTK, ctk
 from ..themes import (
@@ -244,7 +244,7 @@ class ChatWindowBase(ABC):
             self.info_label.grid(row=0, column=0, sticky="w", padx=15, pady=(5, 2))
         else:
             self.info_label = tk.Label(
-                self.root, text=info_text, font=("Segoe UI", 9), bg=self.colors["bg"], fg=self.colors["blockquote"]
+                self.root, text=info_text, font=get_tk_font(9), bg=self.colors["bg"], fg=self.colors["blockquote"]
             )
             self.info_label.grid(row=0, column=0, sticky=tk.W, padx=15, pady=(5, 2))
 
@@ -488,7 +488,7 @@ class ChatWindowBase(ABC):
             self.rename_btn = tk.Button(
                 btn_frame,
                 text="✏️",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors.get("accent_yellow", "#f9e2af"),
                 fg=self.colors["bg"],
                 relief=tk.FLAT,
@@ -502,7 +502,7 @@ class ChatWindowBase(ABC):
             self.delete_btn = tk.Button(
                 btn_frame,
                 text="🗑️",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors.get("accent_red", "#f38ba8"),
                 fg=self.colors["accent_fg"],
                 relief=tk.FLAT,
@@ -517,7 +517,7 @@ class ChatWindowBase(ABC):
             self.wrap_btn = tk.Button(
                 btn_frame,
                 text="Wrap: ON",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=self.colors["button_bg"],
                 fg=self.colors["fg"],
                 relief=tk.FLAT,
@@ -531,7 +531,7 @@ class ChatWindowBase(ABC):
             self.md_btn = tk.Button(
                 btn_frame,
                 text="Markdown",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=self.colors["button_bg"],
                 fg=self.colors["fg"],
                 relief=tk.FLAT,
@@ -545,7 +545,7 @@ class ChatWindowBase(ABC):
             self.scroll_btn = tk.Button(
                 btn_frame,
                 text="Scroll: ON",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=self.colors["button_bg"],
                 fg=self.colors["fg"],
                 relief=tk.FLAT,
@@ -565,7 +565,7 @@ class ChatWindowBase(ABC):
             self.manual_toggle_btn = tk.Button(
                 right_container,
                 text=toggle_text,
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=self.colors["button_bg"],
                 fg=self.colors["fg"],
                 relief=tk.FLAT,
@@ -591,7 +591,7 @@ class ChatWindowBase(ABC):
             self.model_label_widget = tk.Label(
                 self._profile_widgets_frame,
                 text=dropdown_label,
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=self.colors["bg"],
                 fg=self.colors["fg"],
             )
@@ -621,7 +621,7 @@ class ChatWindowBase(ABC):
             self.provider_label_widget = tk.Label(
                 self._manual_widgets_frame,
                 text="Provider:",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=self.colors["bg"],
                 fg=self.colors["fg"],
             )
@@ -638,7 +638,7 @@ class ChatWindowBase(ABC):
             self.manual_model_label_widget = tk.Label(
                 self._manual_widgets_frame,
                 text="Model:",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=self.colors["bg"],
                 fg=self.colors["fg"],
             )
@@ -869,7 +869,7 @@ class ChatWindowBase(ABC):
             self.input_text = tk.Text(
                 input_frame,
                 height=4,
-                font=("Segoe UI", 11),
+                font=get_tk_font(11),
                 bg=self.colors["input_bg"],
                 fg=self.colors["fg"],
                 insertbackground=self.colors["fg"],
@@ -884,14 +884,14 @@ class ChatWindowBase(ABC):
 
             # Pending attachments indicator
             self._attachments_label = tk.Label(
-                input_frame, text="", font=("Segoe UI", 9), bg=self.colors["bg"], fg=self.colors["accent"]
+                input_frame, text="", font=get_tk_font(9), bg=self.colors["bg"], fg=self.colors["accent"]
             )
 
             # Attachment button
             self.attach_btn = tk.Button(
                 input_frame,
                 text="📎",
-                font=("Segoe UI", 14),
+                font=get_tk_font(14),
                 bg=self.colors["button_bg"],
                 fg=self.colors["fg"],
                 relief=tk.FLAT,
@@ -1033,7 +1033,7 @@ class ChatWindowBase(ABC):
             self.send_btn = tk.Button(
                 btn_row,
                 text="Send",
-                font=("Segoe UI", 10, "bold"),
+                font=get_tk_font(10, "bold"),
                 bg=self.colors["accent"],
                 fg=self.colors["accent_fg"],
                 relief=tk.FLAT,
@@ -1048,7 +1048,7 @@ class ChatWindowBase(ABC):
             self.regen_btn = tk.Button(
                 btn_row,
                 text="🔄 Regen",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors.get("accent_yellow", "#f9e2af"),
                 fg=self.colors["bg"],
                 relief=tk.FLAT,
@@ -1093,7 +1093,7 @@ class ChatWindowBase(ABC):
             btn = tk.Button(
                 btn_row,
                 text="Close",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors["button_bg"],
                 fg=self.colors["fg"],
                 relief=tk.FLAT,
@@ -1105,7 +1105,7 @@ class ChatWindowBase(ABC):
             btn.pack(side=tk.LEFT, padx=2)
 
             self.status_label = tk.Label(
-                btn_row, text="", font=("Segoe UI", 9), bg=self.colors["bg"], fg=self.colors["accent"]
+                btn_row, text="", font=get_tk_font(9), bg=self.colors["bg"], fg=self.colors["accent"]
             )
             self.status_label.pack(side=tk.LEFT, padx=15)
 
@@ -2152,6 +2152,37 @@ class ChatWindowBase(ABC):
     def _on_paste(self, event):
         """Handle Ctrl+V: attach clipboard image if present, otherwise allow normal text paste."""
         try:
+            import os
+            import sys
+            import tempfile
+
+            # Linux/Wayland: PIL ImageGrab often cannot see the Wayland clipboard.
+            # Prefer wl-paste image/png via the platform clipboard service.
+            if sys.platform.startswith("linux"):
+                from ...platform.clipboard import paste_image_png
+
+                png_data = paste_image_png(primary=False)
+                if png_data:
+                    fd, tmp_path = tempfile.mkstemp(suffix=".png", prefix="clipboard_")
+                    os.close(fd)
+                    with open(tmp_path, "wb") as f:
+                        f.write(png_data)
+                    self._clipboard_temp_files.append(tmp_path)
+                    self._add_pending_attachment(tmp_path)
+
+                    if self._has_placeholder:
+                        if HAVE_CTK:
+                            self.input_text.delete("0.0", "end")
+                            self.input_text.configure(text_color=self.theme.fg)
+                        else:
+                            self.input_text.delete("1.0", tk.END)
+                            self.input_text.configure(fg=self.colors["fg"])
+                        self._has_placeholder = False
+
+                    return "break"  # Consume the event — don't paste image as text
+                # No image — fall through to default text paste
+                return None
+
             from PIL import ImageGrab
 
             clip = ImageGrab.grabclipboard()
@@ -2162,9 +2193,6 @@ class ChatWindowBase(ABC):
 
             # Case 1: PIL Image (bitmap from clipboard — screenshot, snip, etc.)
             if hasattr(clip, "save"):
-                import os
-                import tempfile
-
                 # Save clipboard image to a temp .png file
                 fd, tmp_path = tempfile.mkstemp(suffix=".png", prefix="clipboard_")
                 os.close(fd)
@@ -2462,20 +2490,20 @@ class ChatWindowBase(ABC):
             open_btn.pack(side="left", padx=(0, 8))
         else:
             icon_label = tk.Label(
-                player_frame, text="🔊", font=("Segoe UI", 12), bg=self.colors["surface0"], fg=self.colors["fg"]
+                player_frame, text="🔊", font=get_tk_font(12), bg=self.colors["surface0"], fg=self.colors["fg"]
             )
             icon_label.pack(side=tk.LEFT, padx=(8, 4))
 
             display_name = filename[:30] + "..." if len(filename) > 30 else filename
             name_label = tk.Label(
-                player_frame, text=display_name, font=("Segoe UI", 10), bg=self.colors["surface0"], fg=self.colors["fg"]
+                player_frame, text=display_name, font=get_tk_font(10), bg=self.colors["surface0"], fg=self.colors["fg"]
             )
             name_label.pack(side=tk.LEFT, padx=4)
 
             play_btn = tk.Button(
                 player_frame,
                 text="▶",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors["accent"],
                 fg=self.colors["accent_fg"],
                 relief=tk.FLAT,
@@ -2491,7 +2519,7 @@ class ChatWindowBase(ABC):
             open_btn = tk.Button(
                 player_frame,
                 text="📂",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors["surface0"],
                 fg=self.colors["fg"],
                 relief=tk.FLAT,
@@ -2510,12 +2538,16 @@ class ChatWindowBase(ABC):
         """Toggle audio playback - play if stopped, stop if playing."""
         import os
 
-        if not os.path.exists(file_path):
+        from ...attachment_manager import AttachmentManager
+
+        resolved_path = str(AttachmentManager.resolve_path(file_path))
+
+        if not os.path.exists(resolved_path):
             self._update_status("Audio file not found")
             return
 
         # Check if this file is currently playing
-        if self._audio_playing_path == file_path:
+        if self._audio_playing_path in (file_path, resolved_path):
             # Stop playback
             self._stop_audio()
             return
@@ -2532,26 +2564,26 @@ class ChatWindowBase(ABC):
                 self._audio_recorder = AudioRecorder()
 
             # Read the audio file
-            with open(file_path, "rb") as f:
+            with open(resolved_path, "rb") as f:
                 audio_data = f.read()
 
             self._audio_recorder.play(audio_data)
-            self._audio_playing_path = file_path
+            self._audio_playing_path = resolved_path
 
-            # Update button to show stop icon
-            btn = self._audio_play_buttons.get(file_path)
+            # Update button to show stop icon (check both original and resolved path)
+            btn = self._audio_play_buttons.get(file_path) or self._audio_play_buttons.get(resolved_path)
             if btn:
                 if HAVE_CTK:
                     btn.configure(text="■", fg_color=self.theme.accent_red)
                 else:
                     btn.configure(text="■", bg=self.colors.get("accent_red", "#f38ba8"))
 
-            self._update_status(f"Playing: {os.path.basename(file_path)}")
+            self._update_status(f"Playing: {os.path.basename(resolved_path)}")
 
         except Exception as e:
             print(f"[ChatWindow] AudioRecorder playback failed: {e}")
             # Fallback to system player
-            self._open_file_external(file_path)
+            self._open_file_external(resolved_path)
 
     def _stop_audio(self):
         """Stop current audio playback and reset button state."""
@@ -2575,27 +2607,37 @@ class ChatWindowBase(ABC):
         self._update_status("Playback stopped")
         self._audio_playing_path = None
 
-    def _open_file_external(self, file_path: str):
-        """Open file in system default application."""
+    def _resolve_and_open_external(self, file_path: str, status_label: str = "File") -> bool:
+        """Resolve attachment path and open in system default application."""
         import os
         import subprocess
         import sys
 
-        if not os.path.exists(file_path):
-            self._update_status("File not found")
-            return
+        from ...attachment_manager import AttachmentManager
+
+        resolved_path = str(AttachmentManager.resolve_path(file_path))
+
+        if not os.path.exists(resolved_path):
+            self._update_status(f"{status_label} not found")
+            return False
 
         try:
             if sys.platform == "win32":
-                os.startfile(file_path)
+                os.startfile(resolved_path)
             elif sys.platform == "darwin":
-                subprocess.run(["open", file_path])
+                subprocess.run(["open", resolved_path], check=False)
             else:
-                subprocess.run(["xdg-open", file_path])
-            self._update_status(f"Opened: {os.path.basename(file_path)}")
+                subprocess.run(["xdg-open", resolved_path], check=False)
+            self._update_status(f"Opened: {os.path.basename(resolved_path)}")
+            return True
         except Exception as e:
-            print(f"[ChatWindow] Failed to open file: {e}")
-            self._update_status("Failed to open file")
+            print(f"[ChatWindow] Failed to open {file_path}: {e}")
+            self._update_status(f"Failed to open {status_label.lower()}")
+            return False
+
+    def _open_file_external(self, file_path: str):
+        """Open file in system default application."""
+        self._resolve_and_open_external(file_path, status_label="File")
 
     def _on_image_left_click(self, event, file_path: str):
         """Show enlarged image in a modal window on left click."""
@@ -2680,25 +2722,7 @@ class ChatWindowBase(ABC):
 
     def _on_image_right_click(self, event, file_path: str):
         """Open image in system default viewer on right click."""
-        import os
-        import subprocess
-        import sys
-
-        if not os.path.exists(file_path):
-            self._update_status("Image file not found")
-            return
-
-        try:
-            if sys.platform == "win32":
-                os.startfile(file_path)
-            elif sys.platform == "darwin":
-                subprocess.run(["open", file_path])
-            else:
-                subprocess.run(["xdg-open", file_path])
-            self._update_status("Opened in external viewer")
-        except Exception as e:
-            print(f"[ChatWindow] Failed to open image: {e}")
-            self._update_status("Failed to open image")
+        self._resolve_and_open_external(file_path, status_label="Image file")
 
     def _update_attachments_display(self):
         """Update the attachments preview frame."""
@@ -2778,7 +2802,7 @@ class ChatWindowBase(ABC):
                     thumb_label.pack(side=tk.LEFT, padx=4, pady=4)
                 else:
                     tk.Label(
-                        item_frame, text="📄", font=("Segoe UI", 16), bg=self.colors["surface0"], fg=self.colors["fg"]
+                        item_frame, text="📄", font=get_tk_font(16), bg=self.colors["surface0"], fg=self.colors["fg"]
                     ).pack(side=tk.LEFT, padx=4, pady=4)
 
                 # Filename
@@ -2786,14 +2810,14 @@ class ChatWindowBase(ABC):
                 if len(attach.get("filename", "")) > 20:
                     name += "..."
                 tk.Label(
-                    item_frame, text=name, font=("Segoe UI", 9), bg=self.colors["surface0"], fg=self.colors["fg"]
+                    item_frame, text=name, font=get_tk_font(9), bg=self.colors["surface0"], fg=self.colors["fg"]
                 ).pack(side=tk.LEFT, padx=2)
 
                 # Remove button
                 remove_btn = tk.Button(
                     item_frame,
                     text="×",
-                    font=("Segoe UI", 10),
+                    font=get_tk_font(10),
                     bg=self.colors["surface0"],
                     fg=self.colors["fg"],
                     relief=tk.FLAT,
@@ -3109,7 +3133,7 @@ class ChatWindowBase(ABC):
             activeforeground=self.colors.get("bg", "#1e1e2e"),
             relief=tk.FLAT,
             borderwidth=1,
-            font=("Segoe UI", 10),
+            font=get_tk_font(10),
         )
 
         label_edit = "Edit Message" if is_user else "Edit Response"
@@ -3125,12 +3149,12 @@ class ChatWindowBase(ABC):
         menu.add_command(label="  Branch From Here", command=lambda: self._branch_from_here(index))
 
         try:
-            menu.post(event.x_root, event.y_root)
+            post_popup_menu(menu, event.x_root, event.y_root)
         except (tk.TclError, AttributeError):
             # Fallback for events without x_root/y_root
             x = self.chat_text.winfo_rootx() + event.x
             y = self.chat_text.winfo_rooty() + event.y
-            menu.post(x, y)
+            post_popup_menu(menu, x, y)
 
     def _delete_message(self, index: int):
         """Delete a single message from the session."""
@@ -3362,13 +3386,13 @@ class ChatWindowBase(ABC):
             ).pack(side="right")
         else:
             tk.Label(
-                dialog, text="Session Title:", font=("Segoe UI", 10), bg=self.colors["bg"], fg=self.colors["fg"]
+                dialog, text="Session Title:", font=get_tk_font(10), bg=self.colors["bg"], fg=self.colors["fg"]
             ).pack(anchor="w", padx=20, pady=(15, 5))
 
             entry = tk.Entry(
                 dialog,
                 textvariable=title_var,
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors.get("input_bg", self.colors["text_bg"]),
                 fg=self.colors["fg"],
                 insertbackground=self.colors["fg"],
@@ -3384,7 +3408,7 @@ class ChatWindowBase(ABC):
             tk.Button(
                 btn_frame,
                 text="Save",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors["accent"],
                 fg=self.colors["accent_fg"],
                 relief=tk.FLAT,
@@ -3397,7 +3421,7 @@ class ChatWindowBase(ABC):
             tk.Button(
                 btn_frame,
                 text="Cancel",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors["button_bg"],
                 fg=self.colors["fg"],
                 relief=tk.FLAT,
@@ -3538,7 +3562,7 @@ class _EditMessageDialog:
                 self.dialog, text=title, font=get_ctk_font(size=14, weight="bold"), text_color=theme.accent
             ).grid(row=0, column=0, padx=15, pady=(15, 5), sticky="w")
         else:
-            tk.Label(self.dialog, text=title, font=("Segoe UI", 12, "bold"), bg=colors["bg"], fg=colors["accent"]).grid(
+            tk.Label(self.dialog, text=title, font=get_tk_font(12, "bold"), bg=colors["bg"], fg=colors["accent"]).grid(
                 row=0, column=0, padx=15, pady=(15, 5), sticky="w"
             )
 
@@ -3553,7 +3577,7 @@ class _EditMessageDialog:
         else:
             self.text_area = tk.Text(
                 self.dialog,
-                font=("Segoe UI", 11),
+                font=get_tk_font(11),
                 wrap=tk.WORD,
                 bg=colors.get("input_bg", colors["text_bg"]),
                 fg=colors["fg"],
@@ -3612,7 +3636,7 @@ class _EditMessageDialog:
             tk.Button(
                 btn_frame,
                 text="Save & Rerun",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=colors.get("accent_yellow", "#f9e2af"),
                 fg=colors["bg"],
                 relief=tk.FLAT,
@@ -3625,7 +3649,7 @@ class _EditMessageDialog:
             tk.Button(
                 btn_frame,
                 text="Save",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=colors["accent"],
                 fg=colors["accent_fg"],
                 relief=tk.FLAT,
@@ -3638,7 +3662,7 @@ class _EditMessageDialog:
             tk.Button(
                 btn_frame,
                 text="Cancel",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=colors["button_bg"],
                 fg=colors["fg"],
                 relief=tk.FLAT,

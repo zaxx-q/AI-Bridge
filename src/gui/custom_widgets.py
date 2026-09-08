@@ -11,7 +11,7 @@ import tkinter as tk
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from .platform import HAVE_CTK, ctk
-from .themes import ThemeColors, get_ctk_button_colors, get_ctk_combobox_colors, get_ctk_font
+from .themes import ThemeColors, get_ctk_button_colors, get_ctk_combobox_colors, get_ctk_font, get_tk_font
 
 try:
     from .emoji_renderer import HAVE_PIL, get_emoji_renderer
@@ -296,7 +296,7 @@ def create_section_header(parent, text: str, colors: ThemeColors, emoji: str | N
     else:
         # Fallback tk
         full_text = f"{emoji} {text}" if emoji else text
-        lbl = tk.Label(parent, text=full_text, font=("Segoe UI", 11, "bold"), bg=colors.bg, fg=colors.accent)
+        lbl = tk.Label(parent, text=full_text, font=get_tk_font(11, "bold"), bg=colors.bg, fg=colors.accent)
         lbl.pack(anchor="w", pady=(top_padding, 10))
         return lbl
 
@@ -360,9 +360,84 @@ def create_emoji_button(
             fg_color = colors.fg
 
         btn = tk.Button(
-            parent, text=full_text, command=command, font=("Segoe UI", 9), bg=bg_color, fg=fg_color, padx=10, pady=5
+            parent, text=full_text, command=command, font=get_tk_font(9), bg=bg_color, fg=fg_color, padx=10, pady=5
         )
         return btn
+
+
+def post_popup_menu(menu: tk.Menu, x: int, y: int):
+    """Post a tk.Menu and ensure it closes when clicking anywhere outside it on Linux and Windows."""
+    try:
+        menu.unpost()
+    except Exception:
+        pass
+
+    try:
+        menu.post(x, y)
+        menu.update_idletasks()
+    except tk.TclError:
+        return
+
+    try:
+        top = menu.winfo_toplevel()
+    except Exception:
+        return
+
+    active = True
+    mw = menu.winfo_reqwidth()
+    mh = menu.winfo_reqheight()
+    x_end = x + mw
+    y_end = y + mh
+
+    def cleanup():
+        nonlocal active
+        if not active:
+            return
+        active = False
+        try:
+            if menu.winfo_exists():
+                menu.unpost()
+        except Exception:
+            pass
+
+    def on_global_click(event):
+        nonlocal active
+        if not active:
+            return
+        try:
+            if not menu.winfo_exists() or not menu.winfo_viewable():
+                cleanup()
+                return
+
+            ex = getattr(event, "x_root", None)
+            ey = getattr(event, "y_root", None)
+
+            if ex is None or ey is None:
+                cleanup()
+                return
+
+            if not (x <= ex <= x_end and y <= ey <= y_end):
+                cleanup()
+        except Exception:
+            cleanup()
+
+    def check_alive():
+        if not active:
+            return
+        try:
+            if not menu.winfo_exists() or not menu.winfo_viewable():
+                cleanup()
+                return
+            top.after(150, check_alive)
+        except Exception:
+            cleanup()
+
+    try:
+        top.bind_all("<Button-1>", on_global_click, add="+")
+        top.bind_all("<Button-3>", on_global_click, add="+")
+        top.after(150, check_alive)
+    except Exception:
+        pass
 
 
 class SplitButton:
@@ -445,7 +520,7 @@ class SplitButton:
             self.main_btn = tk.Button(
                 parent,
                 text=f"  {text}  │  ▼",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=bg_color,
                 fg=fg_color,
                 relief=tk.FLAT,
@@ -465,7 +540,7 @@ class SplitButton:
             activeforeground=colors.accent_fg,
             relief=tk.FLAT,
             borderwidth=1,
-            font=("Segoe UI", 10),
+            font=get_tk_font(10),
         )
         for item in self.menu_items:
             label, callback = item
@@ -504,7 +579,7 @@ class SplitButton:
                 sep_x + (15 * scale),
                 scaled_h / 2,
                 text="▼",
-                font=("Segoe UI", 10, "bold"),
+                font=get_tk_font(10, "bold"),
                 fill=text_color,
                 anchor="center",
                 tags="custom_split",
@@ -542,7 +617,7 @@ class SplitButton:
             # Post menu directly under the right-side arrow index
             x = self.main_btn.winfo_rootx() + self.main_btn.winfo_width() - 110
             y = self.main_btn.winfo_rooty() + self.main_btn.winfo_height()
-            self._menu.post(x, y)
+            post_popup_menu(self._menu, x, y)
         except tk.TclError:
             pass
 
@@ -699,6 +774,20 @@ class ScrollableComboBox:
             self.entry.bind("<Button-1>", self._on_entry_click)
             self.entry.bind("<FocusOut>", self._on_focus_out)
 
+            for w in (self._container, self.entry, self._arrow_btn):
+                w.bind("<MouseWheel>", self._on_mousewheel)
+                w.bind("<Button-4>", self._on_mousewheel)
+                w.bind("<Button-5>", self._on_mousewheel)
+
+            if hasattr(self.entry, "_entry"):
+                self.entry._entry.bind("<MouseWheel>", self._on_mousewheel)
+                self.entry._entry.bind("<Button-4>", self._on_mousewheel)
+                self.entry._entry.bind("<Button-5>", self._on_mousewheel)
+            if hasattr(self._arrow_btn, "_canvas"):
+                self._arrow_btn._canvas.bind("<MouseWheel>", self._on_mousewheel)
+                self._arrow_btn._canvas.bind("<Button-4>", self._on_mousewheel)
+                self._arrow_btn._canvas.bind("<Button-5>", self._on_mousewheel)
+
         else:
             # Tk fallback
             self._container = tk.Frame(
@@ -708,7 +797,7 @@ class ScrollableComboBox:
 
             self.entry = tk.Entry(
                 self._container,
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors.input_bg,
                 fg=self.colors.fg,
                 readonlybackground=self.colors.input_bg,
@@ -722,7 +811,7 @@ class ScrollableComboBox:
             self._arrow_btn = tk.Button(
                 self._container,
                 text="▼",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=self.colors.surface1,
                 fg=self.colors.fg,
                 relief="flat",
@@ -738,6 +827,11 @@ class ScrollableComboBox:
             self.entry.bind("<Escape>", lambda e: self._close_dropdown())
             self.entry.bind("<Button-1>", self._on_entry_click)
             self.entry.bind("<FocusOut>", self._on_focus_out)
+
+            for w in (self._container, self.entry, self._arrow_btn):
+                w.bind("<MouseWheel>", self._on_mousewheel)
+                w.bind("<Button-4>", self._on_mousewheel)
+                w.bind("<Button-5>", self._on_mousewheel)
 
     def _compute_filtered_values(self):
         """Recompute _filtered_values from current entry text.
@@ -916,7 +1010,7 @@ class ScrollableComboBox:
         # Use tk.Text for high performance (handles 1000+ items smoothly)
         self._text_widget = tk.Text(
             inner,
-            font=("Segoe UI", 10),
+            font=get_tk_font(10),
             bg=self.colors.surface0,
             fg=self.colors.fg,
             cursor="hand2",
@@ -930,6 +1024,7 @@ class ScrollableComboBox:
         )
 
         # Add scrollbar if needed
+        scrollbar = None
         if num_items > self.MAX_VISIBLE_ITEMS:
             scrollbar = tk.Scrollbar(inner, orient="vertical", command=self._text_widget.yview)
             scrollbar.pack(side="right", fill="y")
@@ -952,8 +1047,18 @@ class ScrollableComboBox:
         self._text_widget.bind("<Button-1>", self._on_text_click)
         self._text_widget.bind("<Motion>", self._on_text_motion)
         self._text_widget.bind("<Leave>", self._on_text_leave)
-        # Stop scroll propagation
-        self._text_widget.bind("<MouseWheel>", self._on_mousewheel)
+
+        # Stop scroll propagation on Linux and Windows
+        for w in (self._text_widget, inner, self._dropdown_window):
+            w.bind("<MouseWheel>", self._on_mousewheel)
+            w.bind("<Button-4>", self._on_mousewheel)
+            w.bind("<Button-5>", self._on_mousewheel)
+
+        if scrollbar:
+            scrollbar.bind("<MouseWheel>", self._on_mousewheel)
+            scrollbar.bind("<Button-4>", self._on_mousewheel)
+            scrollbar.bind("<Button-5>", self._on_mousewheel)
+
         self._dropdown_window.bind("<Escape>", lambda e: self._close_dropdown())
 
         # Position and show
@@ -1009,11 +1114,29 @@ class ScrollableComboBox:
         self._populate_dropdown_items()
 
     def _on_mousewheel(self, event):
-        """Handle mousewheel scrolling - stop propagation and boost speed."""
-        if self._text_widget:
-            # Scroll the text widget (3x faster speed)
-            units = int(-1 * (event.delta / 120) * 3)
-            self._text_widget.yview_scroll(units, "units")
+        """Handle mousewheel scrolling - stop propagation and scroll dropdown list."""
+        if not self._dropdown_open or not self._text_widget:
+            return
+
+        try:
+            if hasattr(event, "num") and event.num == 4:
+                units = -3  # Linux scroll up
+            elif hasattr(event, "num") and event.num == 5:
+                units = 3  # Linux scroll down
+            elif getattr(event, "delta", 0):
+                delta = event.delta
+                if abs(delta) >= 120:
+                    units = int(-1 * (delta / 120) * 3)
+                else:
+                    units = -3 if delta > 0 else 3
+            else:
+                units = 0
+
+            if units != 0:
+                self._text_widget.yview_scroll(units, "units")
+        except tk.TclError:
+            pass
+
         return "break"
 
     def _on_text_click(self, event):
@@ -1129,7 +1252,7 @@ class ScrollableComboBox:
             label = tk.Label(
                 frame,
                 text=text,
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors.surface0,
                 fg=self.colors.text,
                 padx=8,
@@ -1537,10 +1660,10 @@ class ThemedInputDialog(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
             )
             self.entry.pack(fill="x", pady=(0, 15))
         else:
-            tk.Label(main_frame, text=prompt, font=("Segoe UI", 11), bg=colors.bg, fg=colors.fg).pack(
+            tk.Label(main_frame, text=prompt, font=get_tk_font(11), bg=colors.bg, fg=colors.fg).pack(
                 anchor="w", pady=(0, 10)
             )
-            self.entry = tk.Entry(main_frame, font=("Segoe UI", 11), bg=colors.input_bg, fg=colors.fg, width=40)
+            self.entry = tk.Entry(main_frame, font=get_tk_font(11), bg=colors.input_bg, fg=colors.fg, width=40)
             self.entry.pack(fill="x", pady=(0, 15), ipady=6)
 
         self.entry.focus_set()

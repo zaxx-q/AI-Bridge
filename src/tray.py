@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-System Tray implementation for AIPromptBridge
-Uses infi.systray for Windows with native .ico support (no Pillow needed)
+System Tray implementation for AIPromptBridge.
+
+Backends:
+  - Windows: infi.systray (native .ico)
+  - Linux:   pystray (AppIndicator / StatusNotifier; needs a tray host)
 """
 
 import ctypes
@@ -12,10 +15,12 @@ import sys
 import threading
 from pathlib import Path
 
+from .platform.detect import is_linux, is_windows
 from .utils import is_compiled
 
-# Try to import infi.systray
-HAVE_SYSTRAY = False
+# ─── Backend availability ─────────────────────────────────────────────────────
+
+HAVE_INFI_SYSTRAY = False
 SysTrayIcon = None
 try:
     from infi.systray import SysTrayIcon
@@ -69,9 +74,82 @@ try:
 
     # Use our custom class instead
     SysTrayIcon = CustomSysTrayIcon
-    HAVE_SYSTRAY = True
+    HAVE_INFI_SYSTRAY = True
 except ImportError:
     pass
+
+HAVE_PYSTRAY = False
+PystrayIcon = None
+PystrayMenu = None
+PystrayMenuItem = None
+try:
+    from pystray import Icon as PystrayIcon
+    from pystray import Menu as PystrayMenu
+    from pystray import MenuItem as PystrayMenuItem
+
+    HAVE_PYSTRAY = True
+except ImportError:
+    pass
+
+# Pure D-Bus StatusNotifierItem (preferred on Linux Wayland — works with dms/waybar)
+HAVE_STATUS_NOTIFIER = False
+try:
+    from .platform.status_notifier import (
+        StatusNotifierIcon,
+        TrayMenuEntry,
+        is_status_notifier_available,
+        is_status_notifier_host_registered,
+    )
+
+    HAVE_STATUS_NOTIFIER = is_status_notifier_available()
+except ImportError:
+    StatusNotifierIcon = None  # type: ignore[assignment,misc]
+    TrayMenuEntry = None  # type: ignore[assignment,misc]
+
+    def is_status_notifier_host_registered(timeout: float = 2.0) -> bool:  # type: ignore[misc]
+        return False
+
+
+# True when a tray backend is available for the current OS.
+# Linux: StatusNotifier (jeepney) preferred; pystray kept as optional fallback
+# only when AppIndicator GI bindings exist (otherwise pystray uses broken XEmbed).
+HAVE_SYSTRAY = (is_windows() and HAVE_INFI_SYSTRAY) or (is_linux() and (HAVE_STATUS_NOTIFIER or HAVE_PYSTRAY))
+
+# Tray icon max edge (px) for StatusNotifier / AppIndicator hosts
+_TRAY_ICON_MAX_SIZE = 64
+
+
+def load_tray_image(icon_path=None):
+    """
+    Load a Pillow RGBA image for pystray (Linux).
+
+    Prefers ``icon.ico`` / given path; falls back to a simple branded square
+    so the tray can still start if the asset is missing or unreadable.
+    """
+    import warnings
+
+    from PIL import Image
+
+    if icon_path:
+        path = Path(icon_path)
+        if path.exists():
+            try:
+                # Multi-size .ico files often warn "Image was not the expected size"
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="Image was not the expected size")
+                    with Image.open(path) as im:
+                        image = im.convert("RGBA")
+                if max(image.size) > _TRAY_ICON_MAX_SIZE:
+                    image.thumbnail((_TRAY_ICON_MAX_SIZE, _TRAY_ICON_MAX_SIZE), Image.Resampling.LANCZOS)
+                elif max(image.size) < 16:
+                    # Tiny glyphs are hard to see in some hosts
+                    image = image.resize((_TRAY_ICON_MAX_SIZE, _TRAY_ICON_MAX_SIZE), Image.Resampling.NEAREST)
+                return image
+            except Exception as e:
+                print(f"[Warning] Failed to load tray icon {path}: {e}")
+
+    # Fallback: solid brand-ish blue square
+    return Image.new("RGBA", (_TRAY_ICON_MAX_SIZE, _TRAY_ICON_MAX_SIZE), (66, 133, 244, 255))
 
 
 # ─── Console Window Control (Windows) ─────────────────────────────────────────
@@ -377,13 +455,16 @@ class TrayApp:
         Args:
             icon_path: Path to the .ico file (default: icon.ico in project root)
             on_exit_callback: Function to call when exiting
-            allow_console_toggle: Whether to show "Toggle Console" option
+            allow_console_toggle: Whether to show "Toggle Console" option (Windows only)
             show_edit_file_items: Whether to show direct file editing options (debug mode)
         """
-        self.systray = None
+        self.systray = None  # Windows infi.systray instance
+        self._pystray_icon = None  # Linux pystray Icon instance (AppIndicator fallback)
+        self._sni_icon = None  # Linux StatusNotifierItem (jeepney) instance
         self.on_exit_callback = on_exit_callback
         self.console_visible = True
-        self.allow_console_toggle = allow_console_toggle
+        # Console toggle is Windows-only (Win32 HWND); never show on Linux
+        self.allow_console_toggle = bool(allow_console_toggle) and is_windows()
         self.show_edit_file_items = show_edit_file_items
 
         # Find icon path
@@ -400,7 +481,9 @@ class TrayApp:
             if not icon_path.exists():
                 # Fallback: try current directory/assets (for fallback)
                 cwd = Path.cwd()
-                if (cwd / "icon.ico").exists():
+                if (cwd / "bin" / "icon.ico").exists():
+                    icon_path = cwd / "bin" / "icon.ico"
+                elif (cwd / "icon.ico").exists():
                     icon_path = cwd / "icon.ico"
                 else:
                     icon_path = Path("icon.ico")
@@ -408,8 +491,15 @@ class TrayApp:
         self.icon_path = str(icon_path) if Path(icon_path).exists() else None
 
         if not HAVE_SYSTRAY:
-            print("[Warning] infi.systray not available - tray functionality disabled")
-            print("         Install with: pip install infi.systray")
+            if is_windows():
+                print("[Warning] infi.systray not available - tray functionality disabled")
+                print("         Install with: pip install infi.systray")
+            elif is_linux():
+                print("[Warning] Linux tray backend not available - tray functionality disabled")
+                print("         Install with: pip install jeepney  (StatusNotifier / dms / waybar)")
+                print("         Optional: pip install pystray + system AppIndicator GI bindings")
+            else:
+                print("[Warning] System tray not available on this platform")
 
     def _on_toggle_console(self, systray):
         """Toggle console visibility based on actual window state"""
@@ -465,29 +555,44 @@ class TrayApp:
         except Exception:
             pass
 
-        # Strategy 1: Compiled Mode - Restart via Launcher
+        # Strategy 1: Compiled Mode - Restart via outer launcher
         if app_is_compiled and launched_mode:
             try:
-                bin_dir = Path(sys.executable).parent
-                root_dir = bin_dir.parent
+                from .startup_manager import get_launcher_path
 
-                # Determine correct launcher
-                # Console mode is AIPromptBridge.exe
-                # GUI mode is AIPromptBridge-NoConsole.exe
-                launcher_name = "AIPromptBridge-NoConsole.exe" if launched_mode == "gui" else "AIPromptBridge.exe"
-                launcher_path = root_dir / launcher_name
+                launcher_path_str = get_launcher_path()
+                launcher_path = Path(launcher_path_str) if launcher_path_str else None
 
-                if launcher_path.exists():
-                    print(f"🔄 Restarting via launcher: {launcher_name}")
+                # Fallback name search if helper returns None
+                if launcher_path is None or not launcher_path.is_file():
+                    bin_dir = Path(sys.executable).parent
+                    root_dir = bin_dir.parent
+                    if sys.platform == "win32":
+                        names = (
+                            ["AIPromptBridge-NoConsole.exe", "AIPromptBridge.exe"]
+                            if launched_mode == "gui"
+                            else ["AIPromptBridge.exe", "AIPromptBridge-NoConsole.exe"]
+                        )
+                    else:
+                        names = ["AIPromptBridge"]
+                    for name in names:
+                        candidate = root_dir / name
+                        if candidate.is_file():
+                            launcher_path = candidate
+                            break
+
+                if launcher_path is not None and launcher_path.is_file():
+                    print(f"🔄 Restarting via launcher: {launcher_path.name}")
 
                     # Remove --launched-mode arg as launcher adds it
                     new_args = [arg for arg in sys.argv[1:] if not arg.startswith("--launched-mode")]
-
                     cmd = [str(launcher_path), *new_args]
 
-                    # Detached process group
-                    subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
-                    os._exit(0)
+                    if sys.platform == "win32":
+                        subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+                        os._exit(0)
+                    else:
+                        os.execv(str(launcher_path), cmd)
             except Exception as e:
                 print(f"[Error] Launcher restart failed, falling back: {e}")
 
@@ -509,6 +614,7 @@ class TrayApp:
                 print(f"[Error] Failed to start new process: {e}")
                 return
         else:
+            # Linux/macOS: re-exec current process image with same argv
             os.execv(sys.executable, [sys.executable, script, *args])
 
         os._exit(0)
@@ -565,15 +671,13 @@ class TrayApp:
             print(f"[Error] Could not open connection profiles: {e}")
 
     def _on_direct_chat(self, systray):
-        """Show direct chat popup (equivalent to Ctrl+Space with no selection)"""
+        """Show Direct Chat without capturing a selection."""
         try:
             from .gui.text_edit_tool import get_instance
 
             app = get_instance()
-            if app:
-                # Trigger hotkey action - since tray is focused, likely no text is selected,
-                # so it will open the direct chat input popup.
-                app._on_hotkey_pressed()
+            if app and hasattr(app, "show_direct_chat"):
+                app.show_direct_chat()
             else:
                 print("[Warning] TextEditTool not running")
         except Exception as e:
@@ -721,11 +825,11 @@ class TrayApp:
         else:
             subprocess.run(["xdg-open", path])
 
-    def _on_exit(self, systray):
+    def _on_exit(self, systray=None):
         """Exit the application"""
         print("\n👋 Exiting AIPromptBridge...")
 
-        # Show console before exit so user sees the message
+        # Show console before exit so user sees the message (Windows no-op on Linux)
         show_console()
         enable_console_close_button()  # Re-enable close button before exit
 
@@ -745,26 +849,28 @@ class TrayApp:
         # Force exit
         os._exit(0)
 
+    def _on_exit_pystray(self, icon, item=None):
+        """Quit handler for pystray (stops icon then runs shared exit path)."""
+        try:
+            if icon is not None:
+                icon.stop()
+        except Exception:
+            pass
+        self._on_exit(icon)
+
     def start(self, hide_console_on_start=True):
         """
         Start the system tray icon
 
         Args:
-            hide_console_on_start: Whether to hide console when tray starts
+            hide_console_on_start: Whether to hide console when tray starts (Windows)
         """
         if not HAVE_SYSTRAY:
             print("[Warning] System tray not available")
             return False
 
         if not self.icon_path:
-            print("[Warning] Icon file not found - using default icon")
-
-        # Disable the console close button (X) to prevent accidental closure
-        # Users should use tray icon's Quit option instead
-        disable_console_close_button()
-
-        # Enable dark mode for menus if applicable
-        self._enable_dark_mode()
+            print("[Warning] Icon file not found - using default/fallback icon")
 
         # Subscribe to config changes to rebuild menu dynamically
         try:
@@ -774,9 +880,25 @@ class TrayApp:
         except Exception as e:
             print(f"[Warning] Could not subscribe to config changes in tray: {e}")
 
+        if is_windows() and HAVE_INFI_SYSTRAY:
+            return self._start_windows(hide_console_on_start=hide_console_on_start)
+        if is_linux():
+            return self._start_linux()
+
+        print("[Warning] No tray backend for this platform")
+        return False
+
+    def _start_windows(self, hide_console_on_start=True):
+        """Start Windows infi.systray backend (blocks until quit)."""
+        # Disable the console close button (X) to prevent accidental closure
+        # Users should use tray icon's Quit option instead
+        disable_console_close_button()
+
+        # Enable dark mode for menus if applicable
+        self._enable_dark_mode()
+
         menu_options = self.build_menu_options()
 
-        # Create the system tray icon
         try:
             # Standard initialization: Let library handle the Quit button
             # We removed "Quit" from raw_options to ensure only one button appears
@@ -785,7 +907,7 @@ class TrayApp:
                 "AIPromptBridge",
                 tuple(menu_options),
                 on_quit=self._on_exit,
-                default_menu_index=0,  # "Show Console" is default action on double-click
+                default_menu_index=0,  # First item is default action on double-click
             )
 
             # Hide console if requested
@@ -813,6 +935,159 @@ class TrayApp:
         except Exception as e:
             print(f"[Error] Failed to start system tray: {e}")
             return False
+
+    def _start_linux(self):
+        """
+        Start Linux tray backend (blocks until quit).
+
+        Prefer pure D-Bus StatusNotifierItem (works with dms/waybar on Wayland).
+        Fall back to pystray only when its AppIndicator backend is usable —
+        the XEmbed fallback cannot dock on pure Wayland.
+        """
+        image = load_tray_image(self.icon_path)
+
+        # 1) StatusNotifierItem via jeepney (correct protocol for dms / SNI hosts)
+        if HAVE_STATUS_NOTIFIER and StatusNotifierIcon is not None:
+            try:
+                if not is_status_notifier_host_registered():
+                    print(
+                        "[Warning] No StatusNotifier host registered yet "
+                        "(start dms/waybar/etc.). Trying SNI registration anyway..."
+                    )
+                menu_entries = self._build_sni_menu_entries()
+                default_cb = None
+                for entry in menu_entries:
+                    if entry.default and entry.callback is not None:
+                        default_cb = entry.callback
+                        break
+                self._sni_icon = StatusNotifierIcon(
+                    image=image,
+                    title="AIPromptBridge",
+                    app_id="aipromptbridge",
+                    menu=menu_entries,
+                    on_activate=default_cb,
+                )
+                # Blocks until stop() (Quit) or process exit
+                self._sni_icon.run()
+                return True
+            except Exception as e:
+                print(f"[Warning] StatusNotifier tray failed: {e}")
+                self._sni_icon = None
+
+        # 2) pystray AppIndicator (needs PyGObject + libappindicator GI)
+        if HAVE_PYSTRAY and self._pystray_backend_is_appindicator():
+            try:
+                menu = self._build_pystray_menu()
+                self._pystray_icon = PystrayIcon(
+                    "aipromptbridge",
+                    image,
+                    "AIPromptBridge",
+                    menu,
+                )
+                self._pystray_icon.run()
+                return True
+            except Exception as e:
+                print(f"[Warning] pystray AppIndicator tray failed: {e}")
+                self._pystray_icon = None
+
+        print("[Error] Failed to start system tray on Linux")
+        print("         Need a StatusNotifier host (dms, waybar, …) and: pip install jeepney")
+        print("         (pystray XEmbed backend cannot dock on pure Wayland)")
+        return False
+
+    @staticmethod
+    def _pystray_backend_is_appindicator() -> bool:
+        """True if pystray selected the AppIndicator backend (not broken XEmbed)."""
+        if not HAVE_PYSTRAY or PystrayIcon is None:
+            return False
+        module = getattr(PystrayIcon, "__module__", "") or ""
+        return "appindicator" in module
+
+    def _wrap_tray_action(self, callback):
+        """Adapt TrayApp handlers ``(systray)`` for backends that pass different args."""
+
+        def action(*_args, **_kwargs):
+            callback(None)
+
+        return action
+
+    def _build_sni_menu_entries(self):
+        """Build StatusNotifier/dbusmenu entries from shared menu option logic."""
+        if TrayMenuEntry is None:
+            return []
+
+        menu_options = self.build_menu_options()
+        entries = []
+
+        for entry in menu_options:
+            text = entry[0]
+            callback = entry[2] if len(entry) >= 3 else entry[1]
+
+            if text == "---":
+                entries.append(TrayMenuEntry(label=None))
+                continue
+
+            is_default = "Session Browser" in text
+            entries.append(
+                TrayMenuEntry(
+                    label=text,
+                    callback=self._wrap_tray_action(callback),
+                    default=is_default,
+                )
+            )
+
+        if entries and entries[-1].label is not None:
+            entries.append(TrayMenuEntry(label=None))
+        entries.append(TrayMenuEntry(label="Quit", callback=self._on_exit_sni))
+        return entries
+
+    def _on_exit_sni(self):
+        """Quit handler for StatusNotifier backend."""
+        try:
+            if self._sni_icon is not None:
+                self._sni_icon.stop()
+        except Exception:
+            pass
+        self._on_exit(None)
+
+    def _wrap_pystray_action(self, callback):
+        """Adapt TrayApp handlers ``(systray)`` to pystray ``(icon, item)``."""
+
+        def action(icon, item=None):
+            callback(icon)
+
+        return action
+
+    def _build_pystray_menu(self):
+        """Build a pystray.Menu from shared menu option logic."""
+        menu_options = self.build_menu_options()
+        items = []
+
+        for entry in menu_options:
+            # Windows format: (text, icon_path, callback)
+            text = entry[0]
+            callback = entry[2] if len(entry) >= 3 else entry[1]
+
+            if text == "---":
+                items.append(PystrayMenu.SEPARATOR)
+                continue
+
+            # Primary-click default: Session Browser (no Toggle Console on Linux)
+            is_default = "Session Browser" in text
+            items.append(
+                PystrayMenuItem(
+                    text,
+                    self._wrap_pystray_action(callback),
+                    default=is_default,
+                )
+            )
+
+        # Quit is auto-added by infi.systray; add explicitly for pystray
+        if items and items[-1] is not PystrayMenu.SEPARATOR:
+            items.append(PystrayMenu.SEPARATOR)
+        items.append(PystrayMenuItem("Quit", self._on_exit_pystray))
+
+        return PystrayMenu(*items)
 
     def _enable_dark_mode(self):
         """
@@ -862,6 +1137,18 @@ class TrayApp:
             unsubscribe_config_change(self._on_config_changed)
         except Exception:
             pass
+        if self._sni_icon is not None:
+            try:
+                self._sni_icon.stop()
+            except Exception:
+                pass
+            self._sni_icon = None
+        if self._pystray_icon is not None:
+            try:
+                self._pystray_icon.stop()
+            except Exception:
+                pass
+            self._pystray_icon = None
         if self.systray:
             self.systray.shutdown()
 
@@ -888,7 +1175,8 @@ class TrayApp:
         # Define menu options with dynamic emoji icon support
         raw_options = []
 
-        if self.allow_console_toggle:
+        # Toggle Console is Windows-only (Win32 console HWND)
+        if self.allow_console_toggle and is_windows():
             raw_options.append(("💻 Toggle Console", self._on_toggle_console))
             raw_options.append(SEP)
 
@@ -968,6 +1256,19 @@ class TrayApp:
 
     def update_tray_menu(self):
         """Rebuild and update the tray menu options dynamically based on config changes."""
+        if self._sni_icon is not None:
+            try:
+                self._sni_icon.update_menu(self._build_sni_menu_entries())
+            except Exception as e:
+                print(f"[Warning] Failed to update StatusNotifier menu: {e}")
+            return
+        if self._pystray_icon is not None:
+            try:
+                self._pystray_icon.menu = self._build_pystray_menu()
+                self._pystray_icon.update_menu()
+            except Exception as e:
+                print(f"[Warning] Failed to update pystray menu: {e}")
+            return
         if not self.systray:
             return
         menu_options = self.build_menu_options()

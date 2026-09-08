@@ -11,19 +11,13 @@ Provides:
 - Large file handling (Files API or FFmpeg chunking)
 """
 
+import contextlib
+import os
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
-# Windows-specific non-blocking keyboard input
-try:
-    import msvcrt
-
-    HAVE_MSVCRT = True
-except ImportError:
-    HAVE_MSVCRT = False
 
 # Import console utilities
 from src.console import (
@@ -38,10 +32,15 @@ from src.console import (
     print_warning,
 )
 
+# Cross-platform non-blocking keyboard input (msvcrt / termios)
+from src.platform.console_input import RawConsole, get_key, is_console_input_available
+
 from .audio_processor import (
+    ARNNDN_MODELS,
     BITRATE_OPTIONS,
     SAMPLE_RATE_OPTIONS,
     TARGET_CHUNK_SIZE_BYTES,
+    AudioChunk,
     AudioEffect,
     AudioInfo,
     AudioPreset,
@@ -49,11 +48,14 @@ from .audio_processor import (
     Intensity,
     OutputOptimization,
     ProcessingResult,
+    adjust_transcript_timestamps,
     check_ffmpeg_available,
     get_all_presets,
     get_preset,
     get_presets_by_category,
+    get_transcribe_max_duration,
     is_audio_file,
+    merge_transcribe_transcripts,
     needs_chunking,
 )
 from .base import BaseTool, ToolResult, ToolStatus
@@ -64,6 +66,7 @@ from .config import (
     get_setting,
     list_available_prompts,
     load_tools_config,
+    save_tools_config,
 )
 from .file_handler import FileHandler, FileInfo, ScanResult
 
@@ -186,15 +189,30 @@ class FileProcessor(BaseTool):
                 if prompt_key is None:
                     return ToolResult(success=False, message="Cancelled")
 
-                # Step 2.5: Custom instructions (optional)
-                custom_result = self._step_custom_instructions(prompt_key, len(scan_result.files))
-                if custom_result is None:
-                    return ToolResult(success=False, message="Cancelled")
+                # Check if this is a transcribe model prompt
+                prompt_config = get_prompt_by_key(self.tools_config, prompt_key) or {}
+                is_transcribe_prompt = prompt_config.get("transcribe_model", False)
+                transcribe_config = None
 
-                self._custom_instructions, self._ask_per_file = custom_result
+                if is_transcribe_prompt:
+                    transcribe_config = self._step_transcribe_configuration(prompt_config)
+                    if transcribe_config is None:
+                        return ToolResult(success=False, message="Cancelled")
 
-                # Step 2.6: Filename context (optional)
-                self._include_filename = self._step_filename_context()
+                # Step 2.5: Custom instructions (optional - skipped for transcribe model)
+                if not is_transcribe_prompt:
+                    custom_result = self._step_custom_instructions(prompt_key, len(scan_result.files))
+                    if custom_result is None:
+                        return ToolResult(success=False, message="Cancelled")
+
+                    self._custom_instructions, self._ask_per_file = custom_result
+
+                    # Step 2.6: Filename context (optional)
+                    self._include_filename = self._step_filename_context()
+                else:
+                    self._custom_instructions = None
+                    self._ask_per_file = False
+                    self._include_filename = False
 
                 # Step 3: Output configuration
                 output_config = self._step_output_configuration(scan_result, prompt_key)
@@ -206,7 +224,7 @@ class FileProcessor(BaseTool):
                 if exec_settings is None:
                     return ToolResult(success=False, message="Cancelled")
 
-                # Create checkpoint (include audio preprocessing and custom instructions)
+                # Create checkpoint (include audio preprocessing, transcribe config, and custom instructions)
                 input_files = [str(f.path) for f in scan_result.files]
                 self._current_checkpoint = self.checkpoint_manager.create(
                     input_path=str(scan_result.input_path),
@@ -220,6 +238,7 @@ class FileProcessor(BaseTool):
                     delay=exec_settings["delay"],
                     use_batch=exec_settings.get("use_batch", False),
                     audio_preprocessing=self._audio_preprocessing,
+                    transcribe_config=transcribe_config,
                     custom_instructions=self._custom_instructions,
                     skip_per_file_prompts=not self._ask_per_file,
                     include_filename=self._include_filename,
@@ -297,12 +316,24 @@ class FileProcessor(BaseTool):
         """
         self._print_header("📁 FILE PROCESSOR - Step 1: Input Selection")
 
+        # Load previous input path from settings for prefill
+        last_input = get_setting(self.tools_config, "last_input_path", "")
+
         while True:
-            print("\nEnter path to file or folder (or 'q' to cancel):")
+            if last_input:
+                print("\nEnter path to file or folder (or 'q' to cancel):")
+                print(f"  (previous: {last_input})")
+            else:
+                print("\nEnter path to file or folder (or 'q' to cancel):")
             try:
                 path_str = input("> ").strip()
             except (EOFError, KeyboardInterrupt):
                 return None
+
+            # Use previous input if user just pressed Enter
+            if not path_str and last_input:
+                path_str = last_input
+                print(f"  Using: {path_str}")
 
             if path_str.lower() == "q":
                 return None
@@ -311,11 +342,14 @@ class FileProcessor(BaseTool):
                 print_warning("Please enter a path")
                 continue
 
-            # Handle quoted paths
-            if path_str.startswith('"') and path_str.endswith('"'):
+            # Strip surrounding quotes (single or double)
+            if (path_str.startswith('"') and path_str.endswith('"')) or (
+                path_str.startswith("'") and path_str.endswith("'")
+            ):
                 path_str = path_str[1:-1]
 
-            path = Path(path_str)
+            # Expand ~ and environment variables
+            path = Path(os.path.expandvars(os.path.expanduser(path_str)))
 
             if not path.exists():
                 print_error(f"Path does not exist: {path}")
@@ -381,6 +415,10 @@ class FileProcessor(BaseTool):
             if confirm == "n":
                 self._cleanup_pdf_temp_dirs()
                 continue
+
+            # Save last input path to tools config for prefill next time
+            self.tools_config.setdefault("_settings", {})["last_input_path"] = path_str
+            save_tools_config(self.tools_config)
 
             return scan_result
 
@@ -480,6 +518,11 @@ class FileProcessor(BaseTool):
             print("  [6] Phone Recording - Enhance low-quality audio")
             print("  [7] More presets...")
 
+            print("\n🧠 AI-Powered Presets:")
+            print("  [8] AI Noise Reduction - Neural network noise removal")
+            print("  [9] AI Lecture Cleanup - Full AI lecture pipeline")
+            print("  [10] AI Deep Denoise - Premium DeepFilterNet (requires install)")
+
             print("\n🔧 Advanced:")
             print("  [A] Advanced mode - Custom effect chains")
 
@@ -518,6 +561,10 @@ class FileProcessor(BaseTool):
                 "4": "noise_reduction",
                 "5": "podcast",
                 "6": "phone_recording",
+                # AI presets
+                "8": "ai_noise_reduction",
+                "9": "ai_lecture_cleanup",
+                "10": "ai_deep_denoise",
             }
 
             if choice in preset_map:
@@ -556,6 +603,55 @@ class FileProcessor(BaseTool):
             if current_config:
                 print_info("Press [C] to continue with current settings or choose an option")
 
+    def _select_arnndn_model(self) -> Optional[str]:
+        """
+        Show sub-menu for selecting an arnndn model.
+
+        Returns:
+            Model name (e.g., "sh"), or None if cancelled.
+            Returns empty string "" to go back.
+        """
+        if not self.audio_processor.is_arnndn_available():
+            print_warning(
+                "\n⚠️  Your FFmpeg installation does not appear to have the 'arnndn' filter.\n"
+                "  This filter requires FFmpeg compiled with RNNoise support.\n"
+                "  The preset may fail. Consider upgrading FFmpeg or using\n"
+                "  the standard Noise Reduction preset instead."
+            )
+
+        print("\n🧠 Select AI Noise Model:")
+        print("  Each model is trained for different noise/signal combinations.\n")
+
+        model_keys = list(ARNNDN_MODELS.keys())
+        for i, key in enumerate(model_keys, 1):
+            info = ARNNDN_MODELS[key]
+            recommended = " ◄ recommended" if key == "sh" else ""
+            print(f"  [{i}] {info['name']}{recommended}")
+            print(f"      {info['description']}")
+            print(f"      Best for: {info['recommended_for']}")
+
+        print("\n  [B] Back")
+
+        try:
+            choice = input("\nChoice [1]: ").strip() or "1"
+        except (EOFError, KeyboardInterrupt):
+            return None
+
+        if choice.lower() == "b":
+            return ""
+
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(model_keys):
+                selected = model_keys[idx]
+                print(f"  ✓ Selected: {ARNNDN_MODELS[selected]['name']} ({selected}.rnnn)")
+                return selected
+        except ValueError:
+            pass
+
+        # Default to "sh"
+        return "sh"
+
     def _select_preset_intensity(self, preset_id: str) -> Optional[Dict[str, Any]]:
         """
         Select intensity level for a preset.
@@ -570,6 +666,36 @@ class FileProcessor(BaseTool):
         if not preset:
             print_error(f"Preset not found: {preset_id}")
             return {}
+
+        # Check if this is a DeepFilterNet preset
+        if preset_id == "ai_deep_denoise":
+            if not self.audio_processor.is_deep_filter_available():
+                print_warning(
+                    "\n⚠️  DeepFilterNet is not installed.\n"
+                    "  Install via:\n"
+                    "    • Standalone binary (~25MB, recommended for Windows & Linux):\n"
+                    "      https://github.com/Rikorose/DeepFilterNet/releases\n"
+                    "      (download 'deep-filter' / 'deep-filter.exe' and place on your system PATH)\n"
+                    "    • Cargo git:    cargo install --git https://github.com/Rikorose/DeepFilterNet.git deep-filter\n"
+                    "    • Python:       pipx install deepfilternet (or pip install deepfilternet)\n"
+                    "  Then ensure 'deep-filter' or 'deepFilter' is on your PATH."
+                )
+                try:
+                    input("\nPress Enter to go back...")
+                except (EOFError, KeyboardInterrupt):
+                    pass
+                return {}
+
+        # For arnndn-based AI presets, show model selection
+        arnndn_model = None
+        is_arnndn_preset = preset.category == "ai" and preset_id != "ai_deep_denoise"
+
+        if is_arnndn_preset:
+            arnndn_model = self._select_arnndn_model()
+            if arnndn_model is None:
+                return None  # Cancelled
+            if arnndn_model == "":
+                return {}  # Back
 
         print(f"\n{preset.name}")
         print(f"  {preset.description}")
@@ -597,7 +723,11 @@ class FileProcessor(BaseTool):
 
         print(f"✅ Will apply {preset.name} ({intensity.value})")
 
-        return {"type": "preset", "preset_id": preset_id, "intensity": intensity.value}
+        config = {"type": "preset", "preset_id": preset_id, "intensity": intensity.value}
+        if arnndn_model:
+            config["arnndn_model"] = arnndn_model
+
+        return config
 
     def _show_all_presets(self) -> Optional[Dict[str, Any]]:
         """
@@ -623,7 +753,7 @@ class FileProcessor(BaseTool):
         preset_list = []
 
         for cat_name, presets in categories.items():
-            cat_icon = {"voice": "🎤", "cleanup": "🔇", "volume": "🔊"}.get(cat_name, "📌")
+            cat_icon = {"voice": "🎤", "cleanup": "🔇", "volume": "🔊", "ai": "🧠"}.get(cat_name, "📌")
             print(f"\n{cat_icon} {cat_name.upper()}")
 
             for preset in presets:
@@ -847,10 +977,16 @@ class FileProcessor(BaseTool):
             else:
                 print("  Optimization: None (Original quality/size)")
 
+            if current_config.get("force_no_chunking"):
+                print("  ⚠️  Force no-chunking: ON (entire file sent as one request)")
+
             print("\n📋 Options:")
             print("  [1] Quick presets (Voice, Podcast, etc.)")
             print("  [2] Custom settings (Mono, Sample Rate, Bitrate)")
             print("  [3] Skip optimization (Keep original)")
+            force_no_chunk = current_config.get("force_no_chunking", False)
+            status = "ON ✓" if force_no_chunk else "OFF"
+            print(f"  [4] Toggle: Force send entire file (no chunking) [{status}]")
 
             print("\n  [E] Estimate file size & check chunking")
 
@@ -895,6 +1031,12 @@ class FileProcessor(BaseTool):
                 print("✅ Optimization cleared")
                 continue
 
+            if choice == "4":
+                current_config["force_no_chunking"] = not current_config.get("force_no_chunking", False)
+                status = "ON ✓" if current_config["force_no_chunking"] else "OFF"
+                print(f"  ✅ Force no-chunking: {status}")
+                continue
+
             if choice == "e":
                 self._preview_file_size(audio_files, current_config)
                 continue
@@ -913,6 +1055,9 @@ class FileProcessor(BaseTool):
 
     def _display_preprocessing_settings(self, config: Dict[str, Any], label: str = "Current"):
         """Display current preprocessing settings"""
+        if config.get("force_no_chunking"):
+            print("  ⚠️  No-chunking: Send entire file (no splitting)")
+
         preprocess_type = config.get("type", "")
 
         if preprocess_type == "amplify":
@@ -931,11 +1076,13 @@ class FileProcessor(BaseTool):
         elif preprocess_type == "preset":
             preset_id = config.get("preset_id", "")
             intensity = config.get("intensity", "medium")
+            arnndn_model = config.get("arnndn_model")
             preset = get_preset(preset_id)
+            model_info = f" [{arnndn_model}]" if arnndn_model else ""
             if preset:
-                print(f"  {label}: {preset.name} ({intensity})")
+                print(f"  {label}: {preset.name}{model_info} ({intensity})")
             else:
-                print(f"  {label}: Preset {preset_id} ({intensity})")
+                print(f"  {label}: Preset {preset_id}{model_info} ({intensity})")
 
         elif preprocess_type == "custom":
             effects = config.get("effects", [])
@@ -998,13 +1145,18 @@ class FileProcessor(BaseTool):
             # Preview preset
             preset_id = config.get("preset_id", "")
             intensity_str = config.get("intensity", "medium")
+            arnndn_model = config.get("arnndn_model")
             intensity = Intensity(intensity_str)
 
             preset = get_preset(preset_id)
             if preset:
                 print(f"Playing with {preset.name} ({intensity_str})...")
                 self.audio_processor.preview_preset(
-                    audio_path, preset_id, intensity=intensity, duration_seconds=duration
+                    audio_path,
+                    preset_id,
+                    intensity=intensity,
+                    duration_seconds=duration,
+                    arnndn_model=arnndn_model,
                 )
             else:
                 print_error(f"Preset not found: {preset_id}")
@@ -1577,9 +1729,10 @@ class FileProcessor(BaseTool):
                     config = get_prompt_by_key(self.tools_config, prompt_key)
                     if config:
                         prompt_text = config.get("prompt", "")
+                        is_transcribe = config.get("transcribe_model", False)
 
                         # Handle prompts that require input
-                        if config.get("requires_input") or not prompt_text:
+                        if not is_transcribe and (config.get("requires_input") or not prompt_text):
                             print(f"\nEnter prompt for '{prompt_key}':")
                             try:
                                 prompt_text = input("> ").strip()
@@ -1590,8 +1743,9 @@ class FileProcessor(BaseTool):
                                 continue
                     else:
                         prompt_text = ""
+                        is_transcribe = False
 
-                    if not prompt_text:
+                    if not prompt_text and not is_transcribe:
                         print_error("Prompt not found")
                         continue
 
@@ -1725,6 +1879,96 @@ class FileProcessor(BaseTool):
 
         return include
 
+    def _step_transcribe_configuration(self, prompt_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Configure transcription options for gemini-3.5-transcribe.
+
+        Args:
+            prompt_config: The prompt config dict (contains transcribe_mode)
+
+        Returns:
+            Transcription config dict or None if cancelled
+        """
+        mode = prompt_config.get("transcribe_mode", "VERBATIM")
+
+        print("\n🎙️ Gemini Native Transcription Configuration")
+        print("─" * 50)
+        print(f"  Mode: {mode}")
+
+        config = {
+            "model": "gemini-3.5-transcribe",
+            "mode": mode,
+            "diarization": False,
+            "word_timestamp": False,
+            "language_codes": [],
+            "custom_vocabulary": [],
+        }
+
+        # SMART mode is incompatible with diarization and timestamps
+        if mode == "VERBATIM":
+            # Diarization
+            print("\n👥 Speaker Diarization (identify different speakers)?")
+            print("  [Y] Yes - label speakers (spk_1, spk_2, etc.)")
+            print("  [N] No (default)")
+            try:
+                diar_choice = input("\nChoice [N]: ").strip().lower() or "n"
+            except (EOFError, KeyboardInterrupt):
+                return None
+            config["diarization"] = diar_choice == "y"
+
+            # Word timestamps
+            print("\n⏱️ Word-level timestamps?")
+            print("  Note: May slightly reduce transcription accuracy")
+            print("  [Y] Yes")
+            print("  [N] No (default)")
+            try:
+                ts_choice = input("\nChoice [N]: ").strip().lower() or "n"
+            except (EOFError, KeyboardInterrupt):
+                return None
+            config["word_timestamp"] = ts_choice == "y"
+        else:
+            print("\n  ℹ️  Smart mode: diarization and timestamps are not available")
+
+        # Language hint (both modes)
+        print("\n🌐 Language hint (improves accuracy if known)?")
+        print("  Enter BCP-47 code (e.g., 'en-US', 'es-ES', 'ja-JP')")
+        print("  Leave empty for auto-detection")
+        try:
+            lang = input("\nLanguage [auto]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if lang:
+            config["language_codes"] = [lang]
+
+        # Custom vocabulary
+        print("\n📝 Custom vocabulary (domain terms, names, acronyms)?")
+        print("  Enter terms separated by commas, or leave empty")
+        print("  Example: Kubernetes, BigQuery, gRPC")
+        try:
+            vocab = input("\nVocabulary []: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if vocab:
+            config["custom_vocabulary"] = [v.strip() for v in vocab.split(",") if v.strip()]
+
+        # Summary
+        print("\n📋 Transcription Config:")
+        print("  Model: gemini-3.5-transcribe")
+        print(f"  Mode: {config['mode']}")
+        if config["diarization"]:
+            print("  Diarization: ON")
+        if config["word_timestamp"]:
+            print("  Word timestamps: ON")
+        if config["language_codes"]:
+            print(f"  Language: {', '.join(config['language_codes'])}")
+        if config["custom_vocabulary"]:
+            vocab_preview = ", ".join(config["custom_vocabulary"][:5])
+            if len(config["custom_vocabulary"]) > 5:
+                vocab_preview += "..."
+            print(f"  Vocabulary: {vocab_preview}")
+
+        return config
+
     def _prompt_per_file_instructions(self, filepath: Path, file_index: int, total_files: int) -> Optional[str]:
         """
         Prompt for per-file instructions during processing.
@@ -1740,44 +1984,45 @@ class FileProcessor(BaseTool):
             - "SKIP_ALL": User wants to skip all remaining prompts
             - None: User cancelled
         """
-        print(f"\n[{file_index + 1}/{total_files}] About to process: {filepath.name}")
-        print("\n📝 Add instructions for this file?")
-        print("   [Y] Yes, add instructions")
-        print("   [N] No, use batch instructions only")
-        print("   [A] Apply to All remaining - skip this prompt for rest")
-        print("   [Q] Quit and save progress")
+        with self._interactive_prompt():
+            print(f"\n[{file_index + 1}/{total_files}] About to process: {filepath.name}")
+            print("\n📝 Add instructions for this file?")
+            print("   [Y] Yes, add instructions")
+            print("   [N] No, use batch instructions only")
+            print("   [A] Apply to All remaining - skip this prompt for rest")
+            print("   [Q] Quit and save progress")
 
-        try:
-            choice = input("\nChoice [N]: ").strip().lower() or "n"
-        except (EOFError, KeyboardInterrupt):
-            return None
-
-        if choice == "q":
-            return None
-
-        if choice == "a":
-            return "SKIP_ALL"
-
-        if choice == "y":
-            print("\nEnter file-specific instructions (end with empty line):")
-            lines = []
             try:
-                while True:
-                    line = input()
-                    if not line:
-                        break
-                    lines.append(line)
+                choice = input("\nChoice [N]: ").strip().lower() or "n"
             except (EOFError, KeyboardInterrupt):
                 return None
 
-            if lines:
+            if choice == "q":
+                return None
+
+            if choice == "a":
+                return "SKIP_ALL"
+
+            if choice == "y":
+                print("\nEnter file-specific instructions (end with empty line):")
+                lines = []
+                try:
+                    while True:
+                        line = input()
+                        if not line:
+                            break
+                        lines.append(line)
+                except (EOFError, KeyboardInterrupt):
+                    return None
+
                 instructions = "\n".join(lines)
+                if not instructions:
+                    return ""
+
                 print("✅ Instructions saved for this file")
                 return instructions
-            else:
-                return ""
 
-        return ""
+            return ""
 
     def _build_final_prompt(
         self, base_prompt: str, batch_instructions: Optional[str], per_file_instructions: Optional[str]
@@ -2024,47 +2269,66 @@ class FileProcessor(BaseTool):
     # ─────────────────────────────────────────────────────────────────
 
     def _start_keyboard_listener(self):
-        """Start a background thread to listen for keyboard input (Windows only)"""
-        if not HAVE_MSVCRT:
+        """Start a background thread to listen for [P]ause / [S]top keys."""
+        if not is_console_input_available():
             return None
+
+        # Stop any existing listener first
+        self._stop_keyboard_listener()
 
         self._keyboard_stop_event = threading.Event()
         self._stop_requested = False  # Track if stop (vs pause) was requested
 
         def keyboard_listener():
-            """Listen for keyboard input in background"""
-            while not self._keyboard_stop_event.is_set():
-                try:
-                    if msvcrt.kbhit():
-                        key = msvcrt.getch()
-                        # Handle special keys (arrows, function keys start with 0x00 or 0xE0)
-                        if key in (b"\x00", b"\xe0"):
-                            msvcrt.getch()  # Consume the second byte
-                            continue
-
-                        key_lower = key.lower()
-
-                        if key_lower == b"p":
+            """Listen for keyboard input in background (Windows msvcrt / Linux termios)."""
+            event = self._keyboard_stop_event
+            if event is None:
+                return
+            # Hold cbreak for the listener lifetime so Linux keys work without Enter.
+            with RawConsole():
+                while not event.is_set():
+                    try:
+                        key = get_key(timeout=0.05)
+                        if key == "p":
                             self.request_pause()
                             print("\n⏸️  Pause requested... (will pause after current file)")
-                        elif key_lower == b"s":
+                        elif key == "s":
                             self.request_pause()  # Stop is implemented as pause + immediate exit
                             self._stop_requested = True  # Mark as stop (vs pause)
                             print("\n⏹️  Stop requested... (saving progress after current file)")
+                    except Exception:
+                        break
 
-                    # Small sleep to prevent CPU spinning
-                    time.sleep(0.05)
-                except Exception:
-                    break
-
-        thread = threading.Thread(target=keyboard_listener, daemon=True)
+        thread = threading.Thread(target=keyboard_listener, daemon=True, name="file_keyboard_listener")
+        self._keyboard_thread = thread
         thread.start()
         return thread
 
     def _stop_keyboard_listener(self):
-        """Stop the keyboard listener thread"""
-        if hasattr(self, "_keyboard_stop_event"):
-            self._keyboard_stop_event.set()
+        """Stop the keyboard listener thread and wait for it to release raw mode."""
+        stop_event = getattr(self, "_keyboard_stop_event", None)
+        if stop_event:
+            stop_event.set()
+
+        listener_thread = getattr(self, "_keyboard_thread", None)
+        if listener_thread:
+            if listener_thread.is_alive() and threading.current_thread() != listener_thread:
+                listener_thread.join(timeout=0.3)
+            self._keyboard_thread = None
+        self._keyboard_stop_event = None
+
+    @contextlib.contextmanager
+    def _interactive_prompt(self, interactive: bool = True):
+        """Temporarily suspend keyboard listener during interactive prompts."""
+        stop_event = getattr(self, "_keyboard_stop_event", None)
+        was_listening = stop_event is not None and not stop_event.is_set()
+        if was_listening:
+            self._stop_keyboard_listener()
+        try:
+            yield
+        finally:
+            if was_listening and interactive and is_console_input_available() and not self.is_paused:
+                self._start_keyboard_listener()
 
     def _execute_processing(self, interactive: bool = True) -> ToolResult:
         """
@@ -2085,11 +2349,25 @@ class FileProcessor(BaseTool):
 
         # Start keyboard listener for interactive mode
         keyboard_thread = None
-        if interactive and HAVE_MSVCRT:
+        if interactive and is_console_input_available():
             keyboard_thread = self._start_keyboard_listener()
 
         # Resolve settings to print correct provider and model
         provider, model, _resolved = self._resolve_execution_settings(cp)
+
+        # Auto-detect transcribe model if user selected it in their profile
+        if model and "transcribe" in model.lower() and not cp.transcribe_config:
+            if interactive:
+                print_info(f"\n🎙️ Detected transcribe model: {model}")
+                print_info("Using default verbatim transcription config")
+            cp.transcribe_config = {
+                "model": model,
+                "mode": "VERBATIM",
+                "diarization": False,
+                "word_timestamp": False,
+                "language_codes": [],
+                "custom_vocabulary": [],
+            }
 
         if interactive:
             self._print_header("📁 FILE PROCESSOR - Processing")
@@ -2107,7 +2385,7 @@ class FileProcessor(BaseTool):
             print(f"   Delay:    {cp.delay_between_requests}s")
             if cp.use_batch:
                 print("   Mode:     BATCH API (Async)")
-            if HAVE_MSVCRT:
+            if is_console_input_available():
                 print("\n[P] Pause  [S] Stop (saves progress)")
             else:
                 print("\n(Keyboard controls not available - use Ctrl+C to stop)")
@@ -2147,7 +2425,7 @@ class FileProcessor(BaseTool):
                             self.request_resume()
                             self._stop_requested = False  # Reset stop flag
                             # Restart keyboard listener
-                            if HAVE_MSVCRT:
+                            if is_console_input_available():
                                 keyboard_thread = self._start_keyboard_listener()
                         except (EOFError, KeyboardInterrupt):
                             result.message = "Stopped by user"
@@ -2207,36 +2485,69 @@ class FileProcessor(BaseTool):
                     file_size = process_path.stat().st_size
                     is_large = file_size > MAX_INLINE_SIZE
 
+                    # Check if this is a transcribe model run
+                    is_transcribe_run = bool(cp.transcribe_config)
+
+                    # Check force no-chunking for audio files
+                    force_no_chunk = False
+                    if is_audio and self._audio_preprocessing:
+                        force_no_chunk = self._audio_preprocessing.get("force_no_chunking", False)
+
                     response = None
 
-                    if is_large:
+                    if is_transcribe_run and is_audio:
+                        # Use dedicated transcribe model path
+                        response = self._process_with_transcribe_model(
+                            process_path, cp.transcribe_config, cp, interactive
+                        )
+                    elif is_large:
                         if interactive:
                             print(f"   ⚠️ Large file: {file_size / (1024 * 1024):.1f} MB")
 
-                        # Get handling mode (prompt if needed)
-                        # Note: We pass original path for cache key/display, but logic uses is_audio
-                        mode = self._get_large_file_mode(file_path_obj, is_audio, interactive)
-
-                        if mode == LARGE_FILE_MODE_SKIP:
-                            cp.mark_failed(file_path, "Skipped large file")
+                        if force_no_chunk and is_audio:
+                            # Force no-chunking: send entire file via Files API (or inline if disable_files_api)
                             if interactive:
-                                print("   ⏭️ Skipped")
-                            continue
+                                print("   📤 Force no-chunking: sending entire file...")
 
-                        elif mode == LARGE_FILE_MODE_CHUNKING and is_audio:
-                            # Use FFmpeg chunking on the processed file
-                            response = self._process_audio_with_chunking(
-                                process_path,
-                                final_prompt,
-                                cp,
-                                interactive,
-                                skip_preprocessing=True,
-                                original_name=file_path_obj.name,
-                            )
-
+                            disable_files_api = get_setting(self.tools_config, "disable_files_api", False)
+                            if disable_files_api:
+                                # Send inline even though it's large (user's choice)
+                                response = self._process_file_inline(
+                                    process_path, final_prompt, cp, interactive, original_name=file_path_obj.name
+                                )
+                            else:
+                                response = self._process_with_files_api(process_path, final_prompt, cp, interactive)
                         else:
-                            # Use Files API with the processed file
-                            response = self._process_with_files_api(process_path, final_prompt, cp, interactive)
+                            # Get handling mode (prompt if needed)
+                            # Note: We pass original path for cache key/display, but logic uses is_audio
+                            mode = self._get_large_file_mode(file_path_obj, is_audio, interactive)
+
+                            if mode == LARGE_FILE_MODE_SKIP:
+                                cp.mark_failed(file_path, "Skipped large file")
+                                if interactive:
+                                    print("   ⏭️ Skipped")
+                                continue
+
+                            elif mode == LARGE_FILE_MODE_CHUNKING and is_audio:
+                                # Use FFmpeg chunking on the processed file
+                                response = self._process_audio_with_chunking(
+                                    process_path,
+                                    final_prompt,
+                                    cp,
+                                    interactive,
+                                    skip_preprocessing=True,
+                                    original_name=file_path_obj.name,
+                                )
+
+                            elif mode == LARGE_FILE_MODE_FILES_API:
+                                # Use Files API with the processed file
+                                response = self._process_with_files_api(process_path, final_prompt, cp, interactive)
+
+                            else:
+                                # Fallback: send inline (for disable_files_api case with non-audio)
+                                response = self._process_file_inline(
+                                    process_path, final_prompt, cp, interactive, original_name=file_path_obj.name
+                                )
 
                     # Check for Batch API
                     elif cp.use_batch and provider.lower() == "google":
@@ -2623,56 +2934,73 @@ class FileProcessor(BaseTool):
         Returns:
             Mode string: LARGE_FILE_MODE_FILES_API, LARGE_FILE_MODE_CHUNKING, or LARGE_FILE_MODE_SKIP
         """
+        # Check if Files API is disabled
+        disable_files_api = get_setting(self.tools_config, "disable_files_api", False)
+
         # Check if we already have a default mode (from "Apply to all")
         default_mode = self._large_file_mode.get("_default")
         if default_mode:
-            return default_mode
+            # If Files API is disabled and cached mode is files_api, invalidate
+            if disable_files_api and default_mode == LARGE_FILE_MODE_FILES_API:
+                del self._large_file_mode["_default"]
+            else:
+                return default_mode
 
         # Check if we already have a specific mode for this file
         cached = self._large_file_mode.get(str(filepath))
         if cached:
-            return cached
+            if disable_files_api and cached == LARGE_FILE_MODE_FILES_API:
+                pass  # Re-prompt
+            else:
+                return cached
 
         if not interactive:
-            # Non-interactive: default to Files API
+            if disable_files_api:
+                # Non-interactive: default to chunking for audio, skip for others
+                return LARGE_FILE_MODE_CHUNKING if is_audio else LARGE_FILE_MODE_SKIP
             return LARGE_FILE_MODE_FILES_API
 
-        print(f"\n   Large file detected: {filepath.name}")
-        print("   Options:")
-        print("   [1] Upload via Files API (recommended)")
+        with self._interactive_prompt(interactive):
+            print(f"\n   Large file detected: {filepath.name}")
+            print("   Options:")
 
-        if is_audio and self.audio_processor.is_available():
-            print("   [2] Split into chunks with FFmpeg (local processing)")
-            print("   [3] Skip this file")
-        else:
-            if is_audio and not self.audio_processor.is_available():
-                print("   [2] Skip this file (FFmpeg not available for chunking)")
-            else:
-                print("   [2] Skip this file")
+            option_num = 1
+            options = {}
 
-        try:
-            choice = input("   Choice [1]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            return LARGE_FILE_MODE_SKIP
+            if not disable_files_api:
+                print(f"   [{option_num}] Upload via Files API (recommended)")
+                options[str(option_num)] = LARGE_FILE_MODE_FILES_API
+                option_num += 1
 
-        if choice == "2" and is_audio and self.audio_processor.is_available():
-            mode = LARGE_FILE_MODE_CHUNKING
-        elif choice == "2" or choice == "3":
-            mode = LARGE_FILE_MODE_SKIP
-        else:
-            mode = LARGE_FILE_MODE_FILES_API
+            audio_chunking_available = is_audio and self.audio_processor.is_available()
+            if audio_chunking_available:
+                print(f"   [{option_num}] Split into chunks with FFmpeg (local processing)")
+                options[str(option_num)] = LARGE_FILE_MODE_CHUNKING
+                option_num += 1
 
-        # Ask about applying to all similar files
-        try:
-            apply_all = input("   Apply to all large files? [y/N]: ").strip().lower()
-            if apply_all == "y":
-                # Cache for all large files
-                self._large_file_mode["_default"] = mode
-        except (EOFError, KeyboardInterrupt):
-            pass
+            print(f"   [{option_num}] Skip this file")
+            options[str(option_num)] = LARGE_FILE_MODE_SKIP
 
-        self._large_file_mode[str(filepath)] = mode
-        return mode
+            if disable_files_api:
+                print("\n   ℹ️  Files API is disabled in settings")
+
+            default_option = "1"
+            try:
+                choice = input(f"   Choice [{default_option}]: ").strip() or default_option
+            except (EOFError, KeyboardInterrupt):
+                return LARGE_FILE_MODE_SKIP
+
+            mode = options.get(choice, LARGE_FILE_MODE_SKIP)
+
+            try:
+                apply_all = input("   Apply to all large files? [y/N]: ").strip().lower()
+                if apply_all == "y":
+                    self._large_file_mode["_default"] = mode
+            except (EOFError, KeyboardInterrupt):
+                pass
+
+            self._large_file_mode[str(filepath)] = mode
+            return mode
 
     def _process_file_inline(
         self,
@@ -2800,6 +3128,257 @@ class FileProcessor(BaseTool):
             if interactive:
                 print("   🗑️ Cleaning up uploaded file...")
             provider.delete_file(uploaded.name)
+
+    def _process_with_transcribe_model(
+        self,
+        filepath: Path,
+        transcribe_config: Dict[str, Any],
+        checkpoint: FileProcessorCheckpoint,
+        interactive: bool,
+    ) -> Optional[str]:
+        """
+        Process audio file using gemini-3.5-transcribe.
+
+        Always uploads via Files API (recommended by Google docs).
+        Splits audio if duration exceeds model limit (30m with diarization/timestamps, 60m standard).
+
+        Args:
+            filepath: Path to audio file
+            transcribe_config: Transcription configuration
+            checkpoint: Current checkpoint
+            interactive: Show progress
+
+        Returns:
+            Transcript text or None on failure
+        """
+        # Check force no-chunking
+        force_no_chunk = False
+        if self._audio_preprocessing:
+            force_no_chunk = self._audio_preprocessing.get("force_no_chunking", False)
+
+        max_duration = get_transcribe_max_duration(transcribe_config)
+        audio_info = self.audio_processor.get_audio_info(filepath) if self.audio_processor.is_available() else None
+
+        if audio_info and audio_info.duration_seconds > max_duration:
+            if force_no_chunk:
+                if interactive:
+                    print(
+                        f"   ⚠️ Audio duration ({audio_info.duration_seconds / 60:.1f}m) exceeds limit "
+                        f"({max_duration / 60:.0f}m), but force_no_chunking is enabled. Attempting single request..."
+                    )
+            else:
+                if interactive:
+                    print(
+                        f"   ⚠️ Audio duration ({audio_info.duration_seconds / 60:.1f}m) exceeds transcribe limit "
+                        f"({max_duration / 60:.0f}m)"
+                    )
+                return self._process_transcribe_with_chunking(
+                    filepath, transcribe_config, checkpoint, interactive, max_duration
+                )
+
+        from src.providers import create_provider
+
+        # Check if disable_files_api is set and warn user if so
+        disable_files_api = get_setting(self.tools_config, "disable_files_api", False)
+        if disable_files_api and interactive:
+            print_warning("⚠️  Files API is disabled in settings, but the transcribe model requires Files API upload.")
+            print("  The file will be uploaded via Files API for transcription despite the setting.")
+
+        # Resolve settings
+        provider_name, _model_override, resolved = self._resolve_execution_settings(checkpoint)
+
+        # Transcribe model requires Google/Gemini provider
+        key_manager = resolved.key_managers.get("google")
+        if not key_manager:
+            # Try the resolved provider's key manager
+            key_manager = resolved.key_managers.get(provider_name.lower())
+
+        if not key_manager:
+            raise Exception("Google/Gemini key manager not found (required for transcribe model)")
+
+        provider_config = {
+            "request_timeout": resolved.config.get("request_timeout", 120),
+            "max_retries": resolved.config.get("max_retries", 3),
+            "retry_delay": resolved.config.get("retry_delay", 5),
+            "base_url": resolved.config.get("base_url"),
+        }
+
+        provider = create_provider("google", key_manager, provider_config)
+
+        # Upload file via Files API (always, as recommended by docs)
+        if interactive:
+            print("   📤 Uploading to Files API for transcription...")
+
+        uploaded, error = provider.upload_file(filepath)
+        if error:
+            raise Exception(f"Upload failed: {error}")
+
+        if interactive:
+            print(f"   ✅ Uploaded: {uploaded.name}")
+
+        try:
+            # Call transcription API
+            if interactive:
+                mode = transcribe_config.get("mode", "VERBATIM")
+                extras = []
+                if transcribe_config.get("diarization"):
+                    extras.append("diarization")
+                if transcribe_config.get("word_timestamp"):
+                    extras.append("timestamps")
+                extra_str = f" ({', '.join(extras)})" if extras else ""
+                print(f"   🎙️ Transcribing ({mode}{extra_str})...")
+
+            transcript, error = provider.generate_transcription(
+                file_uri=uploaded.uri,
+                mime_type=uploaded.mime_type,
+                transcribe_config=transcribe_config,
+            )
+
+            if error:
+                raise Exception(error)
+
+            return transcript
+
+        finally:
+            # Cleanup uploaded file
+            if interactive:
+                print("   🗑️ Cleaning up uploaded file...")
+            provider.delete_file(uploaded.name)
+
+    def _process_transcribe_with_chunking(
+        self,
+        filepath: Path,
+        transcribe_config: Dict[str, Any],
+        checkpoint: FileProcessorCheckpoint,
+        interactive: bool,
+        max_duration_seconds: float,
+    ) -> Optional[str]:
+        """
+        Process a long audio file by splitting into chunks under the transcribe duration limit.
+
+        Args:
+            filepath: Path to audio file
+            transcribe_config: Transcription configuration
+            checkpoint: Current checkpoint
+            interactive: Show progress
+            max_duration_seconds: Maximum chunk duration in seconds
+
+        Returns:
+            Merged transcript text or None on failure
+        """
+        from src.providers import create_provider
+
+        # Check if disable_files_api is set and warn user if so
+        disable_files_api = get_setting(self.tools_config, "disable_files_api", False)
+        if disable_files_api and interactive:
+            print_warning("⚠️  Files API is disabled in settings, but the transcribe model requires Files API upload.")
+            print("  The chunks will be uploaded via Files API for transcription despite the setting.")
+
+        # Resolve settings
+        provider_name, _model_override, resolved = self._resolve_execution_settings(checkpoint)
+
+        key_manager = resolved.key_managers.get("google")
+        if not key_manager:
+            key_manager = resolved.key_managers.get(provider_name.lower())
+
+        if not key_manager:
+            raise Exception("Google/Gemini key manager not found (required for transcribe model)")
+
+        provider_config = {
+            "request_timeout": resolved.config.get("request_timeout", 120),
+            "max_retries": resolved.config.get("max_retries", 3),
+            "retry_delay": resolved.config.get("retry_delay", 5),
+            "base_url": resolved.config.get("base_url"),
+        }
+
+        provider = create_provider("google", key_manager, provider_config)
+
+        if interactive:
+            if transcribe_config.get("diarization"):
+                print("   ℹ️ Speaker diarization will be tracked per chunk segment")
+            print("   ✂️ Splitting audio with FFmpeg into duration-compliant chunks...")
+
+        split_result = self.audio_processor.split_audio_by_duration(filepath, max_duration_seconds=max_duration_seconds)
+        if not split_result.success:
+            raise Exception(f"Chunking failed: {split_result.error}")
+
+        if interactive:
+            print(f"   📊 Created {len(split_result.chunks)} chunks")
+
+        try:
+            chunk_outputs: List[Tuple[AudioChunk, str]] = []
+            chunk_errors: List[str] = []
+
+            for i, chunk in enumerate(split_result.chunks):
+                if interactive:
+                    print(f"   [{i + 1}/{len(split_result.chunks)}] Uploading {chunk.time_range_str}...")
+
+                uploaded, error = provider.upload_file(chunk.path)
+                if error:
+                    chunk_errors.append(f"Chunk {i + 1} upload: {error}")
+                    if interactive:
+                        print(f"      ⚠️ Upload error: {error[:50]}")
+                    continue
+
+                try:
+                    if interactive:
+                        mode = transcribe_config.get("mode", "VERBATIM")
+                        extras = []
+                        if transcribe_config.get("diarization"):
+                            extras.append("diarization")
+                        if transcribe_config.get("word_timestamp"):
+                            extras.append("timestamps")
+                        extra_str = f" ({', '.join(extras)})" if extras else ""
+                        print(f"      🎙️ Transcribing ({mode}{extra_str})...")
+
+                    transcript, error = provider.generate_transcription(
+                        file_uri=uploaded.uri,
+                        mime_type=uploaded.mime_type,
+                        transcribe_config=transcribe_config,
+                    )
+
+                    if error:
+                        chunk_errors.append(f"Chunk {i + 1} transcribe: {error}")
+                        if interactive:
+                            print(f"      ⚠️ Transcribe error: {error[:50]}")
+                        continue
+
+                    if transcript:
+                        # Adjust timestamps if chunk start_time > 0
+                        adjusted_transcript = adjust_transcript_timestamps(transcript, chunk.start_time)
+                        chunk_outputs.append((chunk, adjusted_transcript))
+                        if interactive:
+                            print("      ✅ Done")
+                    else:
+                        chunk_errors.append(f"Chunk {i + 1}: Empty response")
+
+                finally:
+                    # Clean up uploaded file for this chunk
+                    provider.delete_file(uploaded.name)
+
+                # Delay between chunks if configured
+                if i < len(split_result.chunks) - 1 and checkpoint.delay_between_requests > 0:
+                    time.sleep(checkpoint.delay_between_requests)
+
+            if chunk_errors:
+                unique_errors = list(dict.fromkeys(chunk_errors))[:3]
+                error_summary = "; ".join(unique_errors)
+                if len(chunk_errors) > 3:
+                    error_summary += f" (+{len(chunk_errors) - 3} more)"
+                raise Exception(f"{len(chunk_errors)}/{len(split_result.chunks)} chunks failed: {error_summary}")
+
+            if not chunk_outputs:
+                raise Exception("All chunks failed to process (no response)")
+
+            if interactive:
+                print(f"   📝 Merging {len(chunk_outputs)} chunk transcripts...")
+
+            return merge_transcribe_transcripts(chunk_outputs)
+
+        finally:
+            split_result.cleanup()
+            if interactive:
+                print("   🗑️ Cleaned up temporary files")
 
     def _preprocess_audio_if_needed(
         self, filepath: Path, interactive: bool
@@ -2940,6 +3519,7 @@ class FileProcessor(BaseTool):
             # Apply a voice enhancement preset
             preset_id = self._audio_preprocessing.get("preset_id", "")
             intensity_str = self._audio_preprocessing.get("intensity", "medium")
+            arnndn_model = self._audio_preprocessing.get("arnndn_model")
 
             preset = get_preset(preset_id)
             if not preset:
@@ -2954,7 +3534,11 @@ class FileProcessor(BaseTool):
 
             # Pass optimization directly to apply_preset
             result = self.audio_processor.apply_preset(
-                filepath, preset_id, intensity=intensity, optimization=optimization
+                filepath,
+                preset_id,
+                intensity=intensity,
+                optimization=optimization,
+                arnndn_model=arnndn_model,
             )
 
             if result.success:
@@ -3192,7 +3776,9 @@ class FileProcessor(BaseTool):
 
         from src.messages import build_file_message, build_inline_message
 
-        if is_large or "video" in mime_type:
+        disable_files_api = get_setting(self.tools_config, "disable_files_api", False)
+
+        if (is_large or "video" in mime_type) and not disable_files_api:
             # Upload first (Files API)
             if hasattr(provider, "upload_file"):
                 if interactive:

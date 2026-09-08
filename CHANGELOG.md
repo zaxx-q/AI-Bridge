@@ -1,5 +1,67 @@
 # Changelog
 
+## [8.2.0] - 2026-09-01
+
+### New Features
+
+- **"Digest" Content Action & Preset**: Added a new built-in action to the TextEditTool ("Digest") and the batch File Processor ("Digest Content") to turn messy, dense, or poorly structured material into a clean reference. Rather than compressing content like a traditional summary, it retains useful context, details, examples, decisions, code, and relationships while removing noise and clutter. It adaptively structures the output based on the content's inferred purpose (study material, meeting transcripts, technical logs, web articles, or notes/archives).
+- **Gemini Native Transcription**: Added dedicated support for Gemini's `gemini-3.5-transcribe` model. The File Processor includes two new built-in prompts — "Transcribe (Native Verbatim)" and "Transcribe (Native Smart)" — with interactive options for speaker diarization, word-level timestamps, language hints, and custom vocabulary. Transcription settings are stored in checkpoints so batch jobs can resume without re-prompting.
+- **Transcription Connection Profiles**: Added a virtual "transcription" provider to Connection Profiles, exposing transcription-specific fields (mode, diarization, timestamps, language hint, custom vocabulary) instead of generation settings. Selecting a transcription profile in the Audio Analyzer runs native transcription instead of prompt-based analysis, and uses the Google API key pool automatically.
+- **File Processor Audio Controls**: Added a "Force send entire file (no chunking)" toggle in audio preprocessing so large recordings can be uploaded as a single request, and a `disable_files_api` setting to skip Google Files API uploads (falling back to FFmpeg chunking or inline send).
+
+### Improvements
+
+- **Even Audio Chunk Splitting**: Large audio files are now split into evenly sized chunks instead of leaving a short leftover segment at the end.
+
+### Fixes
+
+- **Linux Tcl 9 Console Crash**: Fixed an `epoll_ctl: Invalid argument` crash when opening interactive console menus (such as the `P` connection profile menu) while running from source on Linux distributions using Tcl 9.
+- **Console Keyboard Interception in Interactive Prompts**: Suspended the background console keyboard listener (`p` pause / `s` stop) during interactive prompts in the batch File Processor and TTS Processor (such as large file mode selection and per-file instruction inputs). This ensures listener threads release raw terminal console mode before blocking on user input, preventing user-typed characters from being intercepted or falsely triggering stop/pause events.
+
+## [8.1.0] - 2026-08-03
+
+### New Features
+
+- **"Humanize" Text Edit Action**: Added a new built-in prompt to the TextEditTool to transform AI-generated writing into natural, human-sounding text. Based on [Wikipedia's "Signs of AI writing"](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) guide, maintained by WikiProject AI Cleanup. This comprehensive guide comes from observations of thousands of instances of AI-generated text.
+
+### Improvements
+
+- **Linux Eliminated GUI Cold-Start Delay**: GUI initialization and font loading now warm up in the background during application startup, removing the cold-start delay when opening the first popup or window.
+- **Linux Idle CPU Consumption**: Replaced polling-based GUI loops with native event-driven event handling, eliminating idle CPU consumption. Reduced system theme and background IPC polling frequency on Linux.
+
+### Fixes
+
+- **Linux Dropdown & Menu Behavior**: Fixed mousewheel scrolling in dropdown combo boxes and ensured popup menus (such as split button menus and message context menus) dismiss properly when clicking outside of them on Linux.
+- **Linux Terminal Output on Restart**: Fixed restarting the compiled Linux application from the system tray to ensure console output remains attached to the terminal emulator instead of detaching into a new background session.
+- **Cross-Platform Paths**: Fixed an issue where chat attachments (such as images and audio clips) could fail to open, play back, or load when sharing or transferring sessions between Windows and Linux due to platform path differences.
+
+## [8.0.0] - Linux Wayland Support
+
+### Added
+
+- **Linux Wayland support** — full platform layer for wlroots compositors (niri, Sway, Hyprland)
+- **IPC trigger system** — fast `--trigger` client for compositor keybindings (~40ms latency)
+- **Wayland clipboard** — `wl-clipboard` integration with primary selection, hybrid Ctrl+C capture, and rich HTML copy
+- **Virtual keyboard** — `wlrctl` text typing, paste, and key chord injection
+- **Screen capture** — `grim` + `slurp` region snipping for SnipTool
+- **System audio recording** — PipeWire/Pulse monitor sources via `pactl` + `ffmpeg`
+- **StatusNotifier tray** — D-Bus `org.kde.StatusNotifierItem` (jeepney) with pystray fallback
+- **XDG autostart** — `.desktop` entry for Launch at Login on Linux
+- **Sound feedback** — `paplay` / `pw-play` / `ffplay` for notification sounds
+- **Cross-platform console input** — `termios` cbreak single-key polling (replaces Windows `msvcrt`)
+- **CustomTkinter bootstrap** — automatic `circle_shapes` fallback + font installation for no-xft Tk
+- **Linux self-update** — in-place `bin/` swap + `os.execv` relaunch for compiled installs
+- **Nuitka Linux packaging** — GitHub Actions workflow for x86_64 tarball releases
+
+### Changed
+
+- Platform-abstracted all OS I/O into `src/platform/` (clipboard, input, screenshot, IPC, console)
+- Audio backend dispatch: PyAudioWPatch on Windows, stock PyAudio on Linux
+- Tray: `infi.systray` on Windows, StatusNotifier/pystray on Linux
+- Font resolution: `get_tk_font()` / `get_ctk_font()` with per-platform family detection
+
+Other desktop environments (GNOME, KDE, XFCE, Cinnamon, MATE, LXQt) are yet to be tested and likely won't work. If you encounter any issues, please open an issue.
+
 ## [7.2.0] - 2026-06-23
 
 ### New Features

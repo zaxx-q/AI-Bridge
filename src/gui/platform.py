@@ -61,6 +61,23 @@ if not _force_standard_tk:
 
         HAVE_CTK = True
         CTkImage = _CTkImage
+
+        # Increase CTk system theme update loop interval from 30ms (which spawns 33 gsettings/sec on Linux)
+        # to 10000ms (10s) to eliminate idle CPU drain while still supporting system theme changes.
+        try:
+            ctk.AppearanceModeTracker.update_loop_interval = 10000
+        except Exception:
+            pass
+
+        # Safe Linux default only (no temporary Tk — that races the real CTk root).
+        # Full font probe runs in GUICoordinator / ensure_ctk_window_ready().
+        if sys.platform.startswith("linux"):
+            try:
+                from .ctk_bootstrap import configure_ctk_rendering
+
+                configure_ctk_rendering(root=None)
+            except Exception:
+                pass
     except ImportError:
         HAVE_CTK = False
         ctk = None

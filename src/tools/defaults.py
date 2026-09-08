@@ -14,6 +14,7 @@ DEFAULT_TOOLS_CONFIG = {
         "checkpoint_file": ".file_processor_checkpoint.json",
         "warn_on_mixed_file_types": True,
         "allow_mixed_file_types": False,
+        "disable_files_api": False,
     },
     "file_processor": {
         "prompts": {
@@ -71,6 +72,28 @@ DEFAULT_TOOLS_CONFIG = {
                 "output_extension": ".md",
                 "default_naming": "{filename}_transcript",
             },
+            "Transcribe (Native Verbatim)": {
+                "_is_default": True,
+                "icon": "🎙️",
+                "description": "Transcribe audio using Gemini's dedicated transcription model (verbatim)",
+                "input_types": ["audio"],
+                "prompt": "",  # Not used - transcription uses audio_transcription_config
+                "output_extension": ".txt",
+                "default_naming": "{filename}_transcript",
+                "transcribe_model": True,  # Flag to trigger transcribe path
+                "transcribe_mode": "VERBATIM",
+            },
+            "Transcribe (Native Smart)": {
+                "_is_default": True,
+                "icon": "✨",
+                "description": "Smart transcription with disfluency removal and formatting (Gemini native)",
+                "input_types": ["audio"],
+                "prompt": "",  # Not used
+                "output_extension": ".md",
+                "default_naming": "{filename}_transcript",
+                "transcribe_model": True,
+                "transcribe_mode": "SMART",
+            },
             "Describe Audio": {
                 "_is_default": True,
                 "icon": "🔊",
@@ -97,6 +120,15 @@ DEFAULT_TOOLS_CONFIG = {
                 "prompt": "Analyze and summarize the content provided. Create a clear, concise summary that captures:\n\n1. **Main Points**: The key information or arguments\n2. **Key Details**: Important facts, figures, or specifics\n3. **Conclusions**: Any conclusions or takeaways\n\nFormat your summary using Markdown:\n- Use bullet points for multiple items\n- Bold key terms or concepts\n- Keep the summary to approximately 20-30% of the original length\n\nProvide only the summary without preamble.",
                 "output_extension": ".md",
                 "default_naming": "{filename}_summary",
+            },
+            "Digest Content": {
+                "_is_default": True,
+                "icon": "📚",
+                "description": "Clean up and organize content while retaining useful detail",
+                "input_types": ["image", "text"],
+                "prompt": "Turn this content into a clean, digestible reference. This is NOT primarily a summary: retain useful context, details, examples, decisions, names, dates, instructions, and relationships. Remove only noise, duplication, navigation clutter, boilerplate, filler, broken fragments, and information that does not help someone understand or use the material.\n\nFirst infer the content's likely purpose and adapt the result to it:\n- **Study material**: organize concepts, explanations, examples, definitions, and any questions or formulas.\n- **Meeting or conversation transcript**: preserve the discussion in a readable flow; clearly identify decisions, action items, open questions, and important context.\n- **Log or technical output**: retain relevant events, errors, timestamps, commands, configuration, causes, and fixes; remove routine repetition and irrelevant noise.\n- **Web or copied content**: reconstruct the actual article or reference material; remove menus, ads, cookie notices, repeated headers, navigation, and unrelated page fragments.\n- **Notes or archive material**: preserve the useful record with clear chronology, topics, and source details.\n\nUse Markdown only where it improves scanning: headings for real sections, lists for related items, tables for genuinely tabular comparisons or data, and code blocks for commands or code. Reorder or merge fragments when that makes the material easier to follow, but do not invent information, conclusions, or missing context. Preserve uncertainty and conflicting details when present.\n\nOutput only the finished digestible content, with no preamble or commentary.",
+                "output_extension": ".md",
+                "default_naming": "{filename}_digest",
             },
             "Extract Data": {
                 "_is_default": True,

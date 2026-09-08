@@ -37,7 +37,7 @@ if sys.platform == "win32":
 from .platform import HAVE_CTK, ctk
 
 # Import theme system
-from .themes import ThemeColors, ThemeRegistry, get_ctk_font, scaled_tk_size
+from .themes import ThemeColors, ThemeRegistry, get_ctk_font, get_tk_font, scaled_tk_size
 from .themes import get_color_scheme as _get_color_scheme
 from .themes import is_dark_mode as _is_dark_mode
 
@@ -58,6 +58,11 @@ from .latex_renderer import extract_latex_blocks, latex_to_unicode
 # downstream insertion can still apply the latex_inline styling tag.
 _LATEX_SENTINEL_START = "\x02"  # STX control char – safe for tk.Text
 _LATEX_SENTINEL_END = "\x03"  # ETX control char
+
+# Miscellaneous Technical glyphs such as ⎨ / ⎬ used by display math.  Segoe
+# UI Symbol is available on Windows; DejaVu Sans carries the same characters
+# on Linux and is the dependable cross-desktop fallback.
+_SYMBOL_FONT_FAMILY = "Segoe UI Symbol" if sys.platform == "win32" else "DejaVu Sans"
 
 
 def is_dark_mode() -> bool:
@@ -87,8 +92,34 @@ def copy_to_clipboard(text: str, root=None) -> bool:
     """
     Cross-platform clipboard copy.
 
-    Works with both tk.Tk and ctk.CTk root windows.
+    **Linux/Wayland:** prefers ``wl-copy`` via the platform clipboard service
+    (works without X11). Optional Tk clipboard is tried only as a last resort.
+
+    **Windows/macOS:** Tk root clipboard when available, else OS clipboard tools.
     """
+    # Linux: prefer wl-copy so Wayland sessions work without X11/xclip.
+    if sys.platform.startswith("linux"):
+        try:
+            from ..platform.clipboard import copy_text as platform_copy_text
+            from ..platform.clipboard import is_wl_clipboard_available
+
+            if is_wl_clipboard_available() and platform_copy_text(text if text is not None else ""):
+                return True
+        except Exception as e:
+            print(f"[Clipboard Error] wl-copy path failed: {e}")
+
+        # Optional Tk fallback (may be empty/X11-only on pure Wayland)
+        if root:
+            try:
+                root.clipboard_clear()
+                root.clipboard_append(text)
+                root.update()
+                return True
+            except Exception as e:
+                print(f"[Clipboard Error] Tk fallback failed: {e}")
+                return False
+        return False
+
     try:
         if root:
             # Both tk.Tk and ctk.CTk have clipboard methods
@@ -468,7 +499,7 @@ def setup_text_tags(text_widget: tk.Text, colors: Union[Dict[str, str], ThemeCol
     # Technical symbols font (center pieces) - used for characters
     # that are missing or look poor in monospaced fonts.
     text_widget.tag_configure(
-        "latex_symbols", font=("Segoe UI Symbol", _s(24)), foreground=colors.get("accent_yellow", colors["accent"])
+        "latex_symbols", font=(_SYMBOL_FONT_FAMILY, _s(24)), foreground=colors.get("accent_yellow", colors["accent"])
     )
 
     # Raise thinking_block_layout above user_message/assistant_message so its background takes priority
@@ -796,7 +827,8 @@ def render_markdown(
         _font_obj = tkfont.Font(font=widget_font)
     except Exception:
         try:
-            _font_obj = tkfont.Font(family="Segoe UI", size=scaled_tk_size(11))
+            family, size = get_tk_font(11)[:2]
+            _font_obj = tkfont.Font(family=family, size=size)
         except Exception:
             _font_obj = None
 
@@ -1489,7 +1521,17 @@ def copy_as_html_to_clipboard(markdown_text: str, root=None) -> bool:
     html_body = markdown_to_html(markdown_text)
 
     if sys.platform != "win32":
-        # Non-Windows: just copy the HTML as text
+        if sys.platform.startswith("linux"):
+            # Linux/Wayland: offer text/html via wl-copy for rich paste targets.
+            # Plain-text-only targets should use "Copy as Markdown" instead.
+            from ..platform.clipboard import copy_rich_text
+
+            full_html = f"<html><body>{html_body}</body></html>"
+            if copy_rich_text(full_html, markdown_text):
+                return True
+            # wl-copy is unavailable or rejected the rich offer: preserve the
+            # existing plain-markdown fallback rather than failing the action.
+            return copy_to_clipboard(markdown_text, root)
         return copy_to_clipboard(html_body, root)
 
     try:
@@ -1704,7 +1746,7 @@ def get_tk_text_for_ctk_frame(parent_frame, colors: Union[Dict[str, str], ThemeC
 
     # Default font
     if sys.platform == "win32":
-        font = ("Segoe UI", 11)
+        font = get_tk_font(11)
     else:
         font = ("DejaVu Sans", 11)
 

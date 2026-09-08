@@ -35,6 +35,7 @@ from ..themes import (
     get_ctk_button_colors,
     get_ctk_combobox_colors,
     get_ctk_font,
+    get_tk_font,
     sync_ctk_appearance,
 )
 from .utils import set_window_icon
@@ -57,7 +58,11 @@ class AudioAnalyzerWindow:
     DURATION_UPDATE_INTERVAL = 100  # ms between duration display updates
 
     # Level meter sensitivity settings
-    LEVEL_AMPLIFICATION = 6.0  # Amplify raw RMS levels for better visibility
+    # Mic RMS is often quiet → strong boost. System/loopback (esp. PipeWire monitors)
+    # is already near digital full-scale, so the same boost pegs the meter constantly.
+    LEVEL_AMPLIFICATION = 6.0  # Default / microphone
+    LEVEL_AMPLIFICATION_LOOPBACK = 2.0  # Desktop/system capture
+    LEVEL_AMPLIFICATION_LOOPBACK_LINUX = 1.75  # Pulse monitors run hotter than WASAPI
     LEVEL_SMOOTHING = 0.3  # Smoothing factor (0 = no smoothing, 1 = max smoothing)
 
     def __init__(
@@ -815,7 +820,7 @@ class AudioAnalyzerWindow:
         self.result_text_widget = tk.Text(
             text_frame,
             wrap=tk.WORD,
-            font=("Segoe UI", 11),
+            font=get_tk_font(11),
             bg=self.colors.text_bg,
             fg=self.colors.text,
             insertbackground=self.colors.text,
@@ -901,7 +906,7 @@ class AudioAnalyzerWindow:
             from ...audio import is_pyaudio_available
 
             if not is_pyaudio_available():
-                self._update_status("PyAudioWPatch not available", self.colors.red)
+                self._update_status("PyAudio not available", self.colors.red)
                 return
 
             # Refresh device list
@@ -1022,6 +1027,29 @@ class AudioAnalyzerWindow:
         except Exception as e:
             logging.error(f"[AudioAnalyzer] Failed to update recorder: {e}")
 
+    def _level_amplification_factor(self) -> float:
+        """
+        RMS→meter gain. Mics need a large boost; loopback/system audio does not.
+
+        Linux PipeWire monitors are typically hotter than Windows WASAPI loopback,
+        so loopback on Linux uses a slightly lower factor.
+        """
+        dev = self.current_device
+        if dev is not None and getattr(dev, "is_loopback", False):
+            try:
+                from ...platform import is_linux
+
+                if is_linux():
+                    return self.LEVEL_AMPLIFICATION_LOOPBACK_LINUX
+            except Exception:
+                pass
+            return self.LEVEL_AMPLIFICATION_LOOPBACK
+        return self.LEVEL_AMPLIFICATION
+
+    def _amplify_level(self, raw_level: float) -> float:
+        """Map raw 0–1 RMS to display level with device-aware gain."""
+        return min(1.0, max(0.0, float(raw_level) * self._level_amplification_factor()))
+
     def _create_level_callback(self):
         """Create the level callback function (simplified like transcription_popup.py).
 
@@ -1034,8 +1062,8 @@ class AudioAnalyzerWindow:
             if self._destroyed:
                 return
 
-            # Simple amplification for visibility
-            amplified = min(1.0, level * self.LEVEL_AMPLIFICATION)
+            # Device-aware amplification (loopback must not use mic boost)
+            amplified = self._amplify_level(level)
 
             # Update via GUICoordinator (thread-safe like transcription_popup.py)
             try:
@@ -1069,8 +1097,8 @@ class AudioAnalyzerWindow:
             # Get level from recorder (always available when stream is active)
             level = self.recorder.get_level() if self.recorder else 0.0
 
-            # Apply amplification and smoothing
-            amplified = min(1.0, level * self.LEVEL_AMPLIFICATION)
+            # Apply device-aware amplification and smoothing
+            amplified = self._amplify_level(level)
             smoothed = self._current_level * self.LEVEL_SMOOTHING + amplified * (1.0 - self.LEVEL_SMOOTHING)
             self._current_level = smoothed
 
@@ -1291,8 +1319,8 @@ class AudioAnalyzerWindow:
             # Poll the recorder's current level (updated by recording callback)
             level = self.recorder.get_level()
 
-            # Apply our amplification and smoothing
-            amplified = min(1.0, level * self.LEVEL_AMPLIFICATION)
+            # Apply device-aware amplification and smoothing
+            amplified = self._amplify_level(level)
             smoothed = self._current_level * self.LEVEL_SMOOTHING + amplified * (1.0 - self.LEVEL_SMOOTHING)
             self._current_level = smoothed
 
@@ -1812,13 +1840,31 @@ class AudioAnalyzerWindow:
             # Profile mode
             if model == "(Default)":
                 self.selected_profile = None
+                self._update_transcription_indicator(False)
             elif model:
                 self.selected_profile = model
+                try:
+                    from ...connection_profiles import ProfileStore
+
+                    profile = ProfileStore.get_instance().get_profile(model)
+                    is_transcription = profile is not None and profile.provider == "transcription"
+                    self._update_transcription_indicator(is_transcription)
+                except Exception:
+                    self._update_transcription_indicator(False)
             return
 
         if model and model not in ("(loading...)", "(no models)", "(no audio models found)"):
             self.model = model
             # Ensure calling code knows about manually typed models
+
+    def _update_transcription_indicator(self, is_transcription: bool):
+        """Show/hide transcription mode indicator in status."""
+        if not self.status_label or self._destroyed:
+            return
+        if is_transcription:
+            self._update_status("🎙️ Native transcription mode — prompt selection ignored", self.colors.accent)
+        else:
+            self._update_status("Ready")
 
     def _on_device_changed(self, device_name: str):
         """Handle device dropdown change."""
@@ -2011,10 +2057,35 @@ class AudioAnalyzerWindow:
     def _prepare_and_send_audio(self, action_key: str, custom_text: Optional[str] = None):
         """Compress audio then process."""
         try:
-            if not self.compressed_audio:
-                self.compressed_audio = self.recorder.compress_audio(self.recorded_wav, self.compression_preset)
+            # Check if transcription profile is active — use preserve_audio preset
+            # to avoid silence removal stripping speech content
+            is_transcription = False
+            compression_preset = self.compression_preset
+            if self._use_profile_mode and self.selected_profile:
+                try:
+                    from ...connection_profiles import ProfileStore
 
-            audio_data = self.compressed_audio or self.recorded_wav
+                    profile = ProfileStore.get_instance().get_profile(self.selected_profile)
+                    if profile and profile.provider == "transcription":
+                        is_transcription = True
+                        compression_preset = "preserve_audio"
+                except Exception:
+                    pass
+
+            if is_transcription or self.compressed_audio is None:
+                # For transcription, always re-compress with preserve_audio preset
+                # For normal, use cached compressed audio if available
+                if is_transcription:
+                    compressed = self.recorder.compress_audio(self.recorded_wav, compression_preset)
+                else:
+                    compressed = self.compressed_audio or self.recorder.compress_audio(
+                        self.recorded_wav, compression_preset
+                    )
+                    self.compressed_audio = compressed
+            else:
+                compressed = self.compressed_audio
+
+            audio_data = compressed or self.recorded_wav
 
             from ...audio.recorder import COMPRESSION_PRESETS
 
@@ -2034,6 +2105,23 @@ class AudioAnalyzerWindow:
 
     def _process_or_callback(self, action_key, audio_data, mime_type, custom_text: Optional[str] = None):
         """Delegate to callback or process internally."""
+        # Check if transcription profile is active
+        is_transcription = False
+        if self._use_profile_mode and self.selected_profile:
+            try:
+                from ...connection_profiles import ProfileStore
+
+                profile = ProfileStore.get_instance().get_profile(self.selected_profile)
+                if profile and profile.provider == "transcription":
+                    is_transcription = True
+            except Exception:
+                pass
+
+        if is_transcription:
+            # Transcription always processes internally (result panel)
+            self._process_audio_internal(action_key, audio_data, mime_type, custom_text)
+            return
+
         # Check action config for show_chat_window preference
         actions = self.prompts.get_audio_actions()
         action = actions.get(action_key, {})

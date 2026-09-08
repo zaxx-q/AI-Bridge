@@ -12,10 +12,13 @@ Handles:
 - Output text merging after processing
 """
 
+import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
@@ -23,13 +26,23 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.audio.ffmpeg_utils import (
+    format_ffmpeg_error,
     get_creation_flags,
     get_ffmpeg_path,
     get_ffplay_path,
     get_ffprobe_path,
 )
 from src.audio.ffmpeg_utils import (
+    get_deep_filter_path as _get_deep_filter_path,
+)
+from src.audio.ffmpeg_utils import (
     get_ffmpeg_version as _get_ffmpeg_version,
+)
+from src.audio.ffmpeg_utils import (
+    is_arnndn_available as _is_arnndn_available,
+)
+from src.audio.ffmpeg_utils import (
+    is_deep_filter_available as _is_deep_filter_available,
 )
 from src.audio.ffmpeg_utils import (
     is_ffmpeg_available as _is_ffmpeg_available,
@@ -44,6 +57,10 @@ from src.console import console, print_error, print_info, print_success, print_w
 
 # Target chunk size in bytes (~14.5 MB to stay safely under 15 MB limit after base64)
 TARGET_CHUNK_SIZE_BYTES = 14.5 * 1024 * 1024
+
+# Gemini Transcribe duration thresholds in seconds
+TRANSCRIBE_STANDARD_MAX_DURATION = 3000.0  # 50 minutes (safe margin under 60m limit)
+TRANSCRIBE_ADVANCED_MAX_DURATION = 1500.0  # 25 minutes (safe margin under 30m limit for diarization/timestamps)
 
 # Supported audio formats
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".aiff", ".aac", ".ogg", ".flac", ".m4a", ".wma"}
@@ -108,6 +125,89 @@ class AudioPreset:
     def available_intensities(self) -> List[Intensity]:
         """Get list of available intensity levels"""
         return list(self.effects_by_intensity.keys())
+
+
+# =============================================================================
+# ARNNDN MODELS & RESOLUTION
+# =============================================================================
+
+
+def _get_arnndn_model_path(model_name: str) -> Optional[Path]:
+    """
+    Get the path to a bundled arnndn (.rnnn) model file.
+
+    Searches:
+    1. assets/models/arnndn/ relative to project root
+    2. Frozen executable directories (bin/assets/models/arnndn/ or launcher_dir/assets/models/arnndn/)
+    3. CWD fallback
+
+    Args:
+        model_name: Model filename with or without .rnnn extension (e.g., "sh")
+
+    Returns:
+        Path to .rnnn file or None if not found
+    """
+    filename = model_name if model_name.endswith(".rnnn") else f"{model_name}.rnnn"
+    exe_dir = Path(sys.executable).parent
+
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "assets" / "models" / "arnndn" / filename,
+        exe_dir / "assets" / "models" / "arnndn" / filename,
+        exe_dir.parent / "assets" / "models" / "arnndn" / filename,
+        Path("assets") / "models" / "arnndn" / filename,
+    ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+
+    return None
+
+
+ARNNDN_MODELS = {
+    "sh": {
+        "name": "Speech Recording",
+        "description": "Tuned for speech with recording noise (fans, hiss, hum)",
+        "signal": "Speech",
+        "noise": "Recording",
+        "recommended_for": "Lectures, interviews, voice memos",
+    },
+    "bd": {
+        "name": "Voice Recording",
+        "description": "Tuned for voice (incl. laughter, non-speech) with recording noise",
+        "signal": "Voice",
+        "noise": "Recording",
+        "recommended_for": "Meetings, casual conversations",
+    },
+    "cb": {
+        "name": "Crowd/Chatter",
+        "description": "Tuned for general audio with recording/room noise",
+        "signal": "General",
+        "noise": "Recording",
+        "recommended_for": "Noisy rooms, conferences, events",
+    },
+    "std": {
+        "name": "Standard (Baseline)",
+        "description": "Original Xiph RNNoise model, general purpose",
+        "signal": "General",
+        "noise": "General",
+        "recommended_for": "Default fallback, balanced",
+    },
+    "mp": {
+        "name": "Noisy Environment",
+        "description": "Tuned for general audio with heavy environmental noise",
+        "signal": "General",
+        "noise": "Heavy/Environmental",
+        "recommended_for": "Outdoor, traffic, construction",
+    },
+    "lq": {
+        "name": "Voice in Noise",
+        "description": "Tuned for voice extraction from noisy environments",
+        "signal": "Voice",
+        "noise": "Heavy/Environmental",
+        "recommended_for": "Phone calls in noisy places",
+    },
+}
 
 
 # =============================================================================
@@ -364,6 +464,93 @@ def _create_room_echo_reduction_preset() -> AudioPreset:
     )
 
 
+def _create_ai_noise_reduction_preset() -> AudioPreset:
+    """AI Noise Reduction - Neural network noise removal using RNNoise (arnndn)"""
+    return AudioPreset(
+        id="ai_noise_reduction",
+        name="🧠 AI Noise Reduction",
+        description="Neural network noise removal (RNNoise) with model selection",
+        category="ai",
+        effects_by_intensity={
+            Intensity.LOW: [
+                AudioEffect("arnndn", {"m": "__ARNNDN_MODEL__", "mix": 0.7}, "AI noise reduction (light blend)"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+            Intensity.MEDIUM: [
+                AudioEffect("arnndn", {"m": "__ARNNDN_MODEL__", "mix": 0.85}, "AI noise reduction (balanced)"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+            Intensity.HIGH: [
+                AudioEffect("arnndn", {"m": "__ARNNDN_MODEL__", "mix": 1.0}, "AI noise reduction (full)"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+        },
+    )
+
+
+def _create_ai_lecture_cleanup_preset() -> AudioPreset:
+    """AI Lecture Cleanup - Full pipeline for lecture/classroom recordings"""
+    return AudioPreset(
+        id="ai_lecture_cleanup",
+        name="🎓 AI Lecture Cleanup",
+        description="Full AI pipeline for lecture recordings (denoise + clarity + normalize)",
+        category="ai",
+        effects_by_intensity={
+            Intensity.LOW: [
+                AudioEffect("highpass", {"f": 80}, "Remove low rumble"),
+                AudioEffect("arnndn", {"m": "__ARNNDN_MODEL__", "mix": 0.7}, "AI noise reduction (light)"),
+                AudioEffect("speechnorm", {"e": 6.25, "r": 0.00001, "l": 1}, "Light speech normalization"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+            Intensity.MEDIUM: [
+                AudioEffect("highpass", {"f": 80}, "Remove low rumble"),
+                AudioEffect("lowpass", {"f": 12000}, "Remove high-frequency hiss"),
+                AudioEffect("arnndn", {"m": "__ARNNDN_MODEL__", "mix": 0.85}, "AI noise reduction"),
+                AudioEffect("speechnorm", {"e": 12.5, "r": 0.0001, "l": 1}, "Speech normalization"),
+                AudioEffect("equalizer", {"f": 3000, "t": "q", "w": 1.5, "g": 3}, "Boost speech clarity"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+            Intensity.HIGH: [
+                AudioEffect("highpass", {"f": 100}, "Remove rumble"),
+                AudioEffect("lowpass", {"f": 12000}, "Remove high-frequency hiss"),
+                AudioEffect("arnndn", {"m": "__ARNNDN_MODEL__", "mix": 1.0}, "AI noise reduction (full)"),
+                AudioEffect("speechnorm", {"e": 20, "r": 0.0001, "l": 1}, "Strong speech normalization"),
+                AudioEffect("equalizer", {"f": 200, "t": "q", "w": 2, "g": -2}, "Reduce mud"),
+                AudioEffect("equalizer", {"f": 3000, "t": "q", "w": 1.5, "g": 3.5}, "Boost speech clarity"),
+                AudioEffect("equalizer", {"f": 5000, "t": "q", "w": 2, "g": 2}, "Add air/brightness"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+        },
+    )
+
+
+def _create_ai_deep_denoise_preset() -> AudioPreset:
+    """AI Deep Denoise - Premium DeepFilterNet-based noise suppression"""
+    return AudioPreset(
+        id="ai_deep_denoise",
+        name="🔬 AI Deep Denoise",
+        description="Premium AI denoising using DeepFilterNet (requires external install)",
+        category="ai",
+        effects_by_intensity={
+            Intensity.LOW: [
+                AudioEffect("__DEEPFILTER__", {}, "DeepFilterNet external processing"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+            Intensity.MEDIUM: [
+                AudioEffect("__DEEPFILTER__", {}, "DeepFilterNet external processing"),
+                AudioEffect("speechnorm", {"e": 12.5, "r": 0.0001, "l": 1}, "Speech normalization"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+            Intensity.HIGH: [
+                AudioEffect("__DEEPFILTER__", {}, "DeepFilterNet external processing"),
+                AudioEffect("speechnorm", {"e": 20, "r": 0.0001, "l": 1}, "Strong speech normalization"),
+                AudioEffect("equalizer", {"f": 3000, "t": "q", "w": 1.5, "g": 2}, "Boost speech clarity"),
+                AudioEffect("loudnorm", {"I": -16, "LRA": 11, "TP": -1.5}, "EBU R128 loudness"),
+            ],
+        },
+    )
+
+
 # Registry of all built-in presets
 AUDIO_PRESETS: Dict[str, AudioPreset] = {}
 
@@ -380,6 +567,10 @@ def _init_presets():
         _create_boost_quiet_preset(),
         _create_de_ess_preset(),
         _create_room_echo_reduction_preset(),
+        # AI-powered presets
+        _create_ai_noise_reduction_preset(),
+        _create_ai_lecture_cleanup_preset(),
+        _create_ai_deep_denoise_preset(),
     ]
     AUDIO_PRESETS = {p.id: p for p in presets}
 
@@ -614,6 +805,14 @@ class AudioProcessor:
         """Check if FFplay is available for audio preview (cached)."""
         return _is_ffplay_available()
 
+    def is_deep_filter_available(self) -> bool:
+        """Check if DeepFilterNet is available for AI denoising (cached)."""
+        return _is_deep_filter_available()
+
+    def is_arnndn_available(self) -> bool:
+        """Check if FFmpeg has arnndn filter available (cached)."""
+        return _is_arnndn_available()
+
     def get_ffmpeg_version(self) -> Optional[str]:
         """Get FFmpeg version string."""
         return _get_ffmpeg_version()
@@ -810,7 +1009,7 @@ class AudioProcessor:
             if result.returncode != 0:
                 if temp_file:
                     output_path.unlink(missing_ok=True)
-                return ProcessingResult(success=False, error=f"FFmpeg failed: {result.stderr[:500]}")
+                return ProcessingResult(success=False, error=f"FFmpeg failed: {format_ffmpeg_error(result.stderr)}")
 
             return ProcessingResult(
                 success=True, output_path=output_path, original_info=audio_info, temp_file=temp_file
@@ -821,6 +1020,181 @@ class AudioProcessor:
                 output_path.unlink(missing_ok=True)
             return ProcessingResult(success=False, error=str(e))
 
+    def _resolve_arnndn_model(self, filter_chain: str, arnndn_model: Optional[str] = None) -> str:
+        """
+        Replace __ARNNDN_MODEL__ placeholder in filter chain with actual model path.
+
+        Args:
+            filter_chain: FFmpeg filter chain string potentially containing placeholder
+            arnndn_model: Model name (e.g., "sh", "cb"). Defaults to "sh".
+
+        Returns:
+            Filter chain with resolved model path
+
+        Raises:
+            FileNotFoundError: If model file cannot be found
+        """
+        if "__ARNNDN_MODEL__" not in filter_chain:
+            return filter_chain
+
+        model_name = arnndn_model or "sh"
+        model_path = _get_arnndn_model_path(model_name)
+
+        if not model_path:
+            raise FileNotFoundError(f"arnndn model '{model_name}.rnnn' not found. Expected in assets/models/arnndn/")
+
+        escaped_path = str(model_path.as_posix()).replace("\\", "\\\\").replace("'", "'\\''").replace(":", "\\:")
+        return filter_chain.replace("__ARNNDN_MODEL__", f"'{escaped_path}'")
+
+    def _apply_deepfilter_preset(
+        self,
+        filepath: Path,
+        effects: List[AudioEffect],
+        output_path: Optional[Path] = None,
+        optimization: Optional[OutputOptimization] = None,
+    ) -> ProcessingResult:
+        """
+        Apply a preset that includes DeepFilterNet processing.
+
+        Pipeline:
+        1. Convert input to 48kHz WAV (DeepFilterNet requirement)
+        2. Run deep-filter on the WAV
+        3. Apply remaining FFmpeg filters (speechnorm, loudnorm, etc.)
+
+        Args:
+            filepath: Input audio file
+            effects: List of effects (first should be __DEEPFILTER__, rest are FFmpeg filters)
+            output_path: Output path (None = temp file)
+            optimization: Output optimization settings
+
+        Returns:
+            ProcessingResult
+        """
+        if not self.is_deep_filter_available():
+            return ProcessingResult(
+                success=False,
+                error=(
+                    "DeepFilterNet not installed. Install via:\n"
+                    "  • Standalone binary (~25MB, recommended for Windows & Linux):\n"
+                    "    https://github.com/Rikorose/DeepFilterNet/releases\n"
+                    "    (download 'deep-filter' / 'deep-filter.exe' and place on PATH)\n"
+                    "  • Cargo git:    cargo install --git https://github.com/Rikorose/DeepFilterNet.git deep-filter\n"
+                    "  • Python:       pipx install deepfilternet (or pip install deepfilternet)\n"
+                    "Then ensure 'deep-filter' or 'deepFilter' is on your PATH."
+                ),
+            )
+
+        deep_filter_bin = _get_deep_filter_path()
+        if not deep_filter_bin:
+            return ProcessingResult(success=False, error="DeepFilterNet binary not found on PATH")
+
+        audio_info = self.get_audio_info(filepath)
+        if not audio_info:
+            return ProcessingResult(success=False, error=f"Could not analyze audio file: {filepath}")
+
+        # Separate DeepFilterNet marker from remaining FFmpeg effects
+        remaining_effects = [e for e in effects if e.name != "__DEEPFILTER__"]
+        remaining_chain = ",".join(e.to_filter_string() for e in remaining_effects) if remaining_effects else ""
+
+        temp_files_to_cleanup: List[Path] = []
+        is_temp_output = output_path is None
+
+        try:
+            # Step 1: Convert to 48kHz WAV for DeepFilterNet
+            print_info("Converting to 48kHz WAV for DeepFilterNet...")
+            fd_wav, wav_path_str = tempfile.mkstemp(suffix=".wav", prefix="df_input_")
+            os.close(fd_wav)
+            wav_path = Path(wav_path_str)
+            temp_files_to_cleanup.append(wav_path)
+
+            convert_cmd = [
+                get_ffmpeg_path(),
+                "-y",
+                "-i",
+                str(filepath),
+                "-ar",
+                "48000",
+                "-ac",
+                "1",  # mono for best results
+                "-c:a",
+                "pcm_s16le",
+                str(wav_path),
+            ]
+            result = subprocess.run(
+                convert_cmd,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                creationflags=get_creation_flags(),
+            )
+            if result.returncode != 0:
+                return ProcessingResult(
+                    success=False, error=f"WAV conversion failed: {format_ffmpeg_error(result.stderr)}"
+                )
+
+            # Step 2: Run DeepFilterNet
+            print_info("Running DeepFilterNet AI denoising...")
+            df_output_dir = Path(tempfile.mkdtemp(prefix="df_output_"))
+            temp_files_to_cleanup.append(df_output_dir)
+
+            df_cmd = [deep_filter_bin, str(wav_path), "-o", str(df_output_dir)]
+            result = subprocess.run(
+                df_cmd,
+                capture_output=True,
+                text=True,
+                timeout=1200,
+                creationflags=get_creation_flags(),
+            )
+            if result.returncode != 0:
+                return ProcessingResult(success=False, error=f"DeepFilterNet failed: {result.stderr[:200]}")
+
+            # Find output file (deep-filter puts it in output dir with same name or .wav extension)
+            df_output_files = list(df_output_dir.glob("*.wav"))
+            if not df_output_files:
+                df_output_files = [f for f in df_output_dir.iterdir() if f.is_file()]
+            if not df_output_files:
+                return ProcessingResult(success=False, error="DeepFilterNet produced no output file")
+            df_cleaned = df_output_files[0]
+
+            # Step 3: Apply remaining FFmpeg filters
+            target_output_path = output_path
+            if target_output_path is None:
+                suffix = filepath.suffix or ".mp3"
+                fd, temp_final_path = tempfile.mkstemp(suffix=suffix, prefix="df_final_")
+                os.close(fd)
+                target_output_path = Path(temp_final_path)
+
+            if remaining_chain or optimization or (target_output_path.suffix.lower() != df_cleaned.suffix.lower()):
+                print_info("Applying post-processing filters...")
+                final_result = self.apply_filter_chain(df_cleaned, remaining_chain, target_output_path, optimization)
+                if final_result.success and is_temp_output:
+                    final_result.temp_file = True
+                return final_result
+            else:
+                shutil.copy2(df_cleaned, target_output_path)
+                return ProcessingResult(
+                    success=True,
+                    output_path=target_output_path,
+                    original_info=audio_info,
+                    temp_file=is_temp_output,
+                )
+
+        except Exception as e:
+            if is_temp_output and output_path and output_path.exists():
+                output_path.unlink(missing_ok=True)
+            return ProcessingResult(success=False, error=str(e))
+
+        finally:
+            # Cleanup temp files
+            for tmp in temp_files_to_cleanup:
+                try:
+                    if tmp.is_dir():
+                        shutil.rmtree(tmp, ignore_errors=True)
+                    elif tmp.exists():
+                        tmp.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
     def apply_preset(
         self,
         filepath: Path,
@@ -828,6 +1202,7 @@ class AudioProcessor:
         intensity: Intensity = Intensity.MEDIUM,
         output_path: Optional[Path] = None,
         optimization: Optional[OutputOptimization] = None,
+        arnndn_model: Optional[str] = None,
     ) -> ProcessingResult:
         """
         Apply a voice enhancement preset to an audio file.
@@ -838,6 +1213,7 @@ class AudioProcessor:
             intensity: Intensity level (LOW, MEDIUM, HIGH)
             output_path: Where to save output. If None, creates temp file.
             optimization: Optional output optimization settings (mono, bitrate, sample rate)
+            arnndn_model: Optional arnndn neural model name (e.g., "sh", "cb")
 
         Returns:
             ProcessingResult with output path
@@ -846,11 +1222,24 @@ class AudioProcessor:
         if not preset:
             return ProcessingResult(success=False, error=f"Unknown preset: {preset_id}")
 
+        # Check if this is a DeepFilterNet preset
+        effects = preset.get_effects(intensity)
+        has_deepfilter = any(e.name == "__DEEPFILTER__" for e in effects)
+
+        if has_deepfilter:
+            return self._apply_deepfilter_preset(filepath, effects, output_path, optimization)
+
         filter_chain = preset.to_filter_chain(intensity)
         if not filter_chain:
             return ProcessingResult(
                 success=False, error=f"Preset {preset_id} has no effects for intensity {intensity.value}"
             )
+
+        # Resolve arnndn model path if needed
+        try:
+            filter_chain = self._resolve_arnndn_model(filter_chain, arnndn_model)
+        except FileNotFoundError as e:
+            return ProcessingResult(success=False, error=str(e))
 
         print_info(f"Applying preset: {preset.name} ({intensity.value})")
         return self.apply_filter_chain(filepath, filter_chain, output_path, optimization)
@@ -965,7 +1354,7 @@ class AudioProcessor:
             if result.returncode != 0:
                 if temp_file:
                     output_path.unlink(missing_ok=True)
-                return ProcessingResult(success=False, error=f"FFmpeg failed: {result.stderr[:500]}")
+                return ProcessingResult(success=False, error=f"FFmpeg failed: {format_ffmpeg_error(result.stderr)}")
 
             return ProcessingResult(
                 success=True, output_path=output_path, original_info=audio_info, temp_file=temp_file
@@ -999,6 +1388,7 @@ class AudioProcessor:
         intensity: Intensity = Intensity.MEDIUM,
         duration_seconds: float = 10.0,
         start_seconds: float = 0.0,
+        arnndn_model: Optional[str] = None,
     ) -> bool:
         """
         Preview a preset without creating a file.
@@ -1009,6 +1399,7 @@ class AudioProcessor:
             intensity: Intensity level
             duration_seconds: Preview duration
             start_seconds: Start position
+            arnndn_model: Optional arnndn neural model name (e.g., "sh", "cb")
 
         Returns:
             True if preview played successfully
@@ -1018,9 +1409,88 @@ class AudioProcessor:
             print_error(f"Unknown preset: {preset_id}")
             return False
 
+        effects = preset.get_effects(intensity)
+        has_deepfilter = any(e.name == "__DEEPFILTER__" for e in effects)
+
+        if has_deepfilter:
+            if not self.is_deep_filter_available():
+                print_error(
+                    "DeepFilterNet not installed - cannot preview audio.\n"
+                    "  • Standalone binary (Windows & Linux): https://github.com/Rikorose/DeepFilterNet/releases\n"
+                    "  • Cargo git:  cargo install --git https://github.com/Rikorose/DeepFilterNet.git deep-filter\n"
+                    "  • Python:     pip install deepfilternet (or pipx install deepfilternet)"
+                )
+                return False
+
+            if not self.is_ffplay_available():
+                print_error("FFplay not available - cannot preview audio")
+                return False
+
+            temp_snippet: Optional[Path] = None
+            processed_result: Optional[ProcessingResult] = None
+            try:
+                fd, temp_snippet_path = tempfile.mkstemp(suffix=filepath.suffix or ".wav", prefix="df_prev_in_")
+                os.close(fd)
+                temp_snippet = Path(temp_snippet_path)
+
+                cut_cmd = [
+                    get_ffmpeg_path(),
+                    "-y",
+                    "-ss",
+                    str(start_seconds),
+                    "-t",
+                    str(duration_seconds),
+                    "-i",
+                    str(filepath),
+                    str(temp_snippet),
+                ]
+                cut_res = subprocess.run(
+                    cut_cmd, capture_output=True, text=True, timeout=60, creationflags=get_creation_flags()
+                )
+                if cut_res.returncode != 0:
+                    print_error(f"Failed to prepare preview clip: {format_ffmpeg_error(cut_res.stderr)}")
+                    return False
+
+                processed_result = self._apply_deepfilter_preset(temp_snippet, effects)
+                if not processed_result.success or not processed_result.output_path:
+                    print_error(f"Preview processing failed: {processed_result.error}")
+                    return False
+
+                play_cmd = [
+                    get_ffplay_path(),
+                    "-nodisp",
+                    "-autoexit",
+                    "-i",
+                    str(processed_result.output_path),
+                ]
+                print_info(f"Previewing {duration_seconds}s DeepFilterNet output... (press 'q' to stop)")
+                process = subprocess.Popen(
+                    play_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=get_creation_flags(),
+                )
+                self._wait_with_keypress(process, duration_seconds + 10)
+                return True
+            except Exception as e:
+                print_error(f"Preview failed: {e}")
+                return False
+            finally:
+                if temp_snippet and temp_snippet.exists():
+                    temp_snippet.unlink(missing_ok=True)
+                if processed_result:
+                    processed_result.cleanup()
+
         filter_chain = preset.to_filter_chain(intensity)
         if not filter_chain:
             print_error("Preset has no effects for this intensity")
+            return False
+
+        # Resolve arnndn model path if needed
+        try:
+            filter_chain = self._resolve_arnndn_model(filter_chain, arnndn_model)
+        except FileNotFoundError as e:
+            print_error(str(e))
             return False
 
         print_info(f"Previewing: {preset.name} ({intensity.value})")
@@ -1083,7 +1553,12 @@ class AudioProcessor:
             ]
 
             print_info(f"Previewing {duration_seconds}s... (press 'q' to stop)")
-            process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=get_creation_flags(),
+            )
 
             self._wait_with_keypress(process, duration_seconds + 10)
             return True
@@ -1105,29 +1580,28 @@ class AudioProcessor:
         """
         import time
 
-        try:
-            import msvcrt  # Windows-only
+        from src.platform.console_input import RawConsole, get_key, is_console_input_available
 
-            has_msvcrt = True
-        except ImportError:
-            has_msvcrt = False
-
+        can_keys = is_console_input_available()
         start = time.time()
-        while process.poll() is None:
-            elapsed = time.time() - start
-            if elapsed > timeout:
-                process.terminate()
-                break
 
-            # Check for 'q' key press (Windows only)
-            if has_msvcrt and msvcrt.kbhit():
-                key = msvcrt.getch()
-                if key.lower() == b"q":
+        # Hold cbreak for the wait so Linux can stop with 'q' without Enter.
+        key_ctx = RawConsole() if can_keys else contextlib.nullcontext()
+        with key_ctx:
+            while process.poll() is None:
+                elapsed = time.time() - start
+                if elapsed > timeout:
                     process.terminate()
-                    print("\n⏹️ Stopped by user")
-                    return False
+                    break
 
-            time.sleep(0.1)  # Small delay to prevent CPU spinning
+                if can_keys:
+                    key = get_key(timeout=0.1)
+                    if key == "q":
+                        process.terminate()
+                        print("\n⏹️ Stopped by user")
+                        return False
+                else:
+                    time.sleep(0.1)  # Small delay to prevent CPU spinning
 
         return True
 
@@ -1349,13 +1823,36 @@ class AudioProcessor:
             chunk_duration = self.estimate_chunk_duration(audio_info, target_kbps)
             total_duration = audio_info.duration_seconds
 
-            print_info(f"Splitting {audio_info.size_mb:.1f} MB audio into ~{chunk_duration:.0f}s chunks")
+            # Even distribution: if we need multiple chunks, divide evenly
+            # instead of having a short final chunk
+            if total_duration > chunk_duration:
+                num_chunks = max(2, -(-int(total_duration) // int(chunk_duration)))  # ceil division
+                # But also check that each chunk stays under the target size
+                even_duration = total_duration / num_chunks
 
-            current_time = 0.0
-            chunk_index = 0
+                # If even_duration exceeds our estimated safe chunk duration, add more chunks
+                while even_duration > chunk_duration and num_chunks < 100:
+                    num_chunks += 1
+                    even_duration = total_duration / num_chunks
 
-            while current_time < total_duration:
-                end_time = min(current_time + chunk_duration, total_duration)
+                chunk_duration = even_duration
+            else:
+                num_chunks = 1
+                chunk_duration = total_duration
+
+            print_info(
+                f"Splitting {audio_info.size_mb:.1f} MB audio into {num_chunks} chunks (~{chunk_duration:.0f}s each)"
+            )
+
+            for chunk_index in range(num_chunks):
+                start_time = chunk_index * total_duration / num_chunks
+                end_time = (
+                    total_duration if chunk_index == num_chunks - 1 else (chunk_index + 1) * total_duration / num_chunks
+                )
+                duration = end_time - start_time
+                if duration <= 0.001:
+                    continue
+
                 chunk_path = temp_dir / f"chunk_{chunk_index:03d}.{output_format}"
 
                 # Build FFmpeg command
@@ -1365,9 +1862,9 @@ class AudioProcessor:
                     "-i",
                     str(filepath),
                     "-ss",
-                    str(current_time),
+                    f"{start_time:.6f}",
                     "-t",
-                    str(end_time - current_time),
+                    f"{duration:.6f}",
                     "-vn",  # No video
                 ]
 
@@ -1391,7 +1888,29 @@ class AudioProcessor:
                 )
 
                 if result.returncode != 0:
-                    raise RuntimeError(f"FFmpeg failed: {result.stderr[:500]}")
+                    # Retry without -c:a copy if copy failed
+                    if "-c:a" in cmd and "copy" in cmd:
+                        cmd_fallback = [
+                            get_ffmpeg_path(),
+                            "-y",
+                            "-i",
+                            str(filepath),
+                            "-ss",
+                            f"{start_time:.6f}",
+                            "-t",
+                            f"{duration:.6f}",
+                            "-vn",
+                            str(chunk_path),
+                        ]
+                        result = subprocess.run(
+                            cmd_fallback,
+                            capture_output=True,
+                            text=True,
+                            timeout=300,
+                            creationflags=get_creation_flags(),
+                        )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"FFmpeg failed: {format_ffmpeg_error(result.stderr)}")
 
                 # Get actual chunk size
                 chunk_size = chunk_path.stat().st_size
@@ -1400,15 +1919,12 @@ class AudioProcessor:
                     AudioChunk(
                         path=chunk_path,
                         index=chunk_index,
-                        start_time=current_time,
+                        start_time=start_time,
                         end_time=end_time,
-                        duration=end_time - current_time,
+                        duration=duration,
                         size_bytes=chunk_size,
                     )
                 )
-
-                current_time = end_time
-                chunk_index += 1
 
             print_info(f"Created {len(chunks)} chunks in {temp_dir}")
 
@@ -1416,6 +1932,143 @@ class AudioProcessor:
 
         except Exception as e:
             # Cleanup on failure
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return ChunkingResult(success=False, error=str(e))
+
+    def split_audio_by_duration(
+        self,
+        filepath: Path,
+        max_duration_seconds: float,
+        output_format: Optional[str] = None,
+    ) -> ChunkingResult:
+        """
+        Split audio file into even chunks where each chunk's duration <= max_duration_seconds.
+
+        Args:
+            filepath: Path to audio file
+            max_duration_seconds: Maximum allowed duration per chunk in seconds
+            output_format: Output format for chunks (default: follows input or mp3)
+
+        Returns:
+            ChunkingResult with list of AudioChunk objects
+        """
+        if not self.is_available():
+            return ChunkingResult(success=False, error="FFmpeg not available on PATH")
+
+        audio_info = self.get_audio_info(filepath)
+        if not audio_info:
+            return ChunkingResult(success=False, error=f"Could not analyze audio file: {filepath}")
+
+        if output_format is None:
+            output_format = filepath.suffix.lstrip(".").lower()
+            if not output_format:
+                output_format = "mp3"
+
+        total_duration = audio_info.duration_seconds
+
+        # If audio is already within limit, return single chunk without splitting
+        if total_duration <= max_duration_seconds:
+            return ChunkingResult(
+                success=True,
+                chunks=[
+                    AudioChunk(
+                        path=filepath,
+                        index=0,
+                        start_time=0.0,
+                        end_time=total_duration,
+                        duration=total_duration,
+                        size_bytes=audio_info.size_bytes,
+                    )
+                ],
+                original_info=audio_info,
+            )
+
+        # Create temp directory for chunks
+        temp_dir = Path(tempfile.mkdtemp(prefix="transcribe_chunks_"))
+        chunks = []
+
+        try:
+            # Even distribution: divide evenly under the threshold
+            num_chunks = max(2, -(-int(total_duration) // int(max_duration_seconds)))
+            even_duration = total_duration / num_chunks
+
+            while even_duration > max_duration_seconds and num_chunks < 200:
+                num_chunks += 1
+                even_duration = total_duration / num_chunks
+
+            chunk_duration = even_duration
+            print_info(
+                f"Splitting {total_duration / 60:.1f}m audio into {num_chunks} chunks (~{chunk_duration / 60:.1f}m each)"
+            )
+
+            for chunk_index in range(num_chunks):
+                start_time = chunk_index * total_duration / num_chunks
+                end_time = (
+                    total_duration if chunk_index == num_chunks - 1 else (chunk_index + 1) * total_duration / num_chunks
+                )
+                duration = end_time - start_time
+                if duration <= 0.001:
+                    continue
+
+                chunk_path = temp_dir / f"chunk_{chunk_index:03d}.{output_format}"
+
+                cmd = [
+                    get_ffmpeg_path(),
+                    "-y",
+                    "-i",
+                    str(filepath),
+                    "-ss",
+                    f"{start_time:.6f}",
+                    "-t",
+                    f"{duration:.6f}",
+                    "-vn",
+                ]
+
+                if filepath.suffix.lstrip(".").lower() == output_format:
+                    cmd.extend(["-c:a", "copy"])
+
+                cmd.append(str(chunk_path))
+
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=600, creationflags=get_creation_flags()
+                )
+
+                if result.returncode != 0:
+                    # Retry without -c:a copy if copy failed
+                    cmd_fallback = [
+                        get_ffmpeg_path(),
+                        "-y",
+                        "-i",
+                        str(filepath),
+                        "-ss",
+                        f"{start_time:.6f}",
+                        "-t",
+                        f"{duration:.6f}",
+                        "-vn",
+                        str(chunk_path),
+                    ]
+                    result = subprocess.run(
+                        cmd_fallback, capture_output=True, text=True, timeout=600, creationflags=get_creation_flags()
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"FFmpeg splitting failed: {format_ffmpeg_error(result.stderr)}")
+
+                chunk_size = chunk_path.stat().st_size
+                chunks.append(
+                    AudioChunk(
+                        path=chunk_path,
+                        index=chunk_index,
+                        start_time=start_time,
+                        end_time=end_time,
+                        duration=duration,
+                        size_bytes=chunk_size,
+                    )
+                )
+
+            print_info(f"Created {len(chunks)} duration chunks in {temp_dir}")
+            return ChunkingResult(success=True, chunks=chunks, temp_dir=temp_dir, original_info=audio_info)
+
+        except Exception as e:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return ChunkingResult(success=False, error=str(e))
 
@@ -1445,6 +2098,183 @@ class AudioProcessor:
                 parts.append(text.strip())
 
         return "\n\n".join(parts)
+
+    @staticmethod
+    def merge_transcribe_transcripts(chunk_outputs: List[Tuple[AudioChunk, str]]) -> str:
+        """
+        Merge transcription outputs from multiple chunks into a unified transcript.
+
+        Filters out '(No speech detected)' placeholders when other chunks contain speech.
+
+        Args:
+            chunk_outputs: List of (AudioChunk, transcript_text) tuples
+
+        Returns:
+            Merged transcript string
+        """
+        return merge_transcribe_transcripts(chunk_outputs)
+
+    @staticmethod
+    def adjust_transcript_timestamps(transcript: str, offset_seconds: float) -> str:
+        """
+        Adjust word-level and range timestamps in transcript text by adding offset_seconds.
+
+        Args:
+            transcript: Transcript text containing timestamp patterns
+            offset_seconds: Offset in seconds to add to all timestamps
+
+        Returns:
+            Transcript text with shifted timestamps
+        """
+        return adjust_transcript_timestamps(transcript, offset_seconds)
+
+
+def get_transcribe_max_duration(transcribe_config: Optional[Dict[str, Any]]) -> float:
+    """
+    Get the maximum safe chunk duration (in seconds) for Gemini Transcribe.
+
+    Returns:
+        1500.0 (25 min) if diarization or word_timestamp is enabled,
+        3000.0 (50 min) otherwise.
+    """
+    if not transcribe_config:
+        return TRANSCRIBE_STANDARD_MAX_DURATION
+    if transcribe_config.get("diarization") or transcribe_config.get("word_timestamp"):
+        return TRANSCRIBE_ADVANCED_MAX_DURATION
+    return TRANSCRIBE_STANDARD_MAX_DURATION
+
+
+def _parse_time_str(s: str) -> Optional[Tuple[float, str]]:
+    """Parse time string like '0.100s', '12.5', '01:23', '01:02:03.400'."""
+    s = s.strip()
+    if ":" in s:
+        parts = s.split(":")
+        try:
+            if len(parts) == 2:
+                mins = float(parts[0])
+                secs = float(parts[1])
+                has_ms = "." in parts[1]
+                return mins * 60 + secs, "timecode_m_ms" if has_ms else "timecode_m"
+            elif len(parts) == 3:
+                hrs = float(parts[0])
+                mins = float(parts[1])
+                secs = float(parts[2])
+                has_ms = "." in parts[2]
+                return hrs * 3600 + mins * 60 + secs, "timecode_h_ms" if has_ms else "timecode_h"
+        except ValueError:
+            return None
+    has_s = s.lower().endswith("s")
+    clean_s = s[:-1].strip() if has_s else s
+    try:
+        val = float(clean_s)
+        return val, "seconds_s" if has_s else "seconds"
+    except ValueError:
+        return None
+
+
+def _format_time_str(val: float, fmt_type: str, original_s: str) -> str:
+    """Format seconds value back according to format_type, matching original style."""
+    orig_clean = original_s.strip()
+    if fmt_type in ("seconds_s", "seconds"):
+        has_s = fmt_type == "seconds_s"
+        num_str = orig_clean[:-1] if has_s else orig_clean
+        if "." in num_str:
+            decimals = len(num_str.split(".")[1])
+            res = f"{val:.{decimals}f}"
+        else:
+            res = f"{val:.3f}".rstrip("0").rstrip(".") if not val.is_integer() else f"{int(val)}"
+        return f"{res}s" if has_s else res
+    elif fmt_type.startswith("timecode"):
+        hrs = int(val // 3600)
+        mins = int((val % 3600) // 60)
+        secs = val % 60
+        has_ms = "_ms" in fmt_type
+        if hrs > 0 or "timecode_h" in fmt_type:
+            if has_ms:
+                return f"{hrs:02d}:{mins:02d}:{secs:06.3f}"
+            return f"{hrs:02d}:{mins:02d}:{int(secs):02d}"
+        else:
+            if has_ms:
+                return f"{mins:02d}:{secs:06.3f}"
+            return f"{mins:02d}:{int(secs):02d}"
+    return f"{val:.3f}s"
+
+
+def adjust_transcript_timestamps(transcript: str, offset_seconds: float) -> str:
+    """
+    Adjust word-level and range timestamps in transcript text by adding offset_seconds.
+
+    Handles formats such as:
+    - (0.100s->0.450s) or (0.100s -> 0.450s)
+    - (0.100->0.450)
+    - (00:10->00:15) or (00:10 -> 00:15)
+    - [00:10 - 00:15]
+
+    Args:
+        transcript: Transcript text containing timestamp patterns
+        offset_seconds: Offset in seconds to add to all timestamps
+
+    Returns:
+        Transcript text with shifted timestamps
+    """
+    if offset_seconds <= 0 or not transcript:
+        return transcript
+
+    def _replace_ts(match: re.Match) -> str:
+        open_delim = match.group(1)
+        start_str = match.group(2)
+        sep = match.group(3)
+        end_str = match.group(4)
+        close_delim = match.group(5)
+
+        parsed_start = _parse_time_str(start_str)
+        parsed_end = _parse_time_str(end_str)
+
+        if not parsed_start or not parsed_end:
+            return match.group(0)
+
+        start_val, start_type = parsed_start
+        end_val, end_type = parsed_end
+
+        new_start = _format_time_str(start_val + offset_seconds, start_type, start_str)
+        new_end = _format_time_str(end_val + offset_seconds, end_type, end_str)
+
+        return f"{open_delim}{new_start}{sep}{new_end}{close_delim}"
+
+    pattern = re.compile(r"([\(\[])\s*([0-9a-zA-Z:.]+?)(\s*(?:->|–>|—>|to|-)\s*)([0-9a-zA-Z:.]+?)\s*([\)\]])")
+    return pattern.sub(_replace_ts, transcript)
+
+
+def merge_transcribe_transcripts(chunk_outputs: List[Tuple[AudioChunk, str]]) -> str:
+    """
+    Merge transcription outputs from multiple chunks into a unified transcript.
+
+    Filters out '(No speech detected)' placeholders when other chunks contain speech.
+
+    Args:
+        chunk_outputs: List of (AudioChunk, transcript_text) tuples
+
+    Returns:
+        Merged transcript string
+    """
+    if not chunk_outputs:
+        return ""
+
+    if len(chunk_outputs) == 1:
+        return chunk_outputs[0][1]
+
+    sorted_chunks = sorted(chunk_outputs, key=lambda x: x[0].index)
+
+    valid_texts = []
+    for _chunk, text in sorted_chunks:
+        t = text.strip()
+        if t and t != "(No speech detected)":
+            valid_texts.append(t)
+
+    if not valid_texts:
+        return "(No speech detected)"
+
+    return "\n\n".join(valid_texts)
 
 
 def check_ffmpeg_available() -> Tuple[bool, Optional[str]]:

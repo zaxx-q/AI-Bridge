@@ -77,6 +77,7 @@ class OnboardingWizard:
         "Refine",
         "Translate to English",
         "Answer",
+        "Humanize",
     }
     WIZARD_MINIMAL_SNIP: ClassVar[set[str]] = {
         "Quick Extract",
@@ -112,6 +113,14 @@ class OnboardingWizard:
                 self.root = ctk.CTk()
             else:
                 self.root = tk.Tk()
+
+        if self.use_ctk:
+            try:
+                from ..ctk_bootstrap import ensure_ctk_window_ready
+
+                ensure_ctk_window_ready(self.root)
+            except Exception:
+                pass
 
         self.root.title("Welcome to AIPromptBridge")
         self.root.geometry("750x700")
@@ -222,7 +231,7 @@ class OnboardingWizard:
             if self.use_ctk:
                 dot = ctk.CTkLabel(dots_sub, text="○", font=get_ctk_font(16, "bold"), text_color=c.overlay0)
             else:
-                dot = tk.Label(dots_sub, text="○", font=("Segoe UI", 12, "bold"), bg=c.surface0, fg=c.blockquote)
+                dot = tk.Label(dots_sub, text="○", font=get_tk_font(12, "bold"), bg=c.surface0, fg=c.blockquote)
             dot.pack(side="left", padx=5)
             self.step_dots.append(dot)
 
@@ -422,10 +431,10 @@ class OnboardingWizard:
             features_frame = ctk.CTkFrame(parent, fg_color="transparent")
             features_frame.pack(fill="x", expand=True, padx=20)
         else:
-            title = tk.Label(parent, text="Welcome to AIPromptBridge", font=("Segoe UI", 18, "bold"), bg=c.bg, fg=c.fg)
+            title = tk.Label(parent, text="Welcome to AIPromptBridge", font=get_tk_font(18, "bold"), bg=c.bg, fg=c.fg)
             title.pack(pady=(20, 5))
 
-            ver = tk.Label(parent, text=f"Version {__version__}", font=("Segoe UI", 9), bg=c.bg, fg=c.blockquote)
+            ver = tk.Label(parent, text=f"Version {__version__}", font=get_tk_font(9), bg=c.bg, fg=c.blockquote)
             ver.pack()
 
             desc = tk.Label(
@@ -433,7 +442,7 @@ class OnboardingWizard:
                 text="A Windows system-wide app that brings AI assistance to your fingertips.\n"
                 "Edit text, capture screens, transcribe audio, and chat with AI — all from your system tray.\n"
                 "Let's get you set up in just a few quick steps!",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 justify="center",
                 bg=c.bg,
                 fg=c.fg,
@@ -502,21 +511,21 @@ class OnboardingWizard:
                 )
                 body_lbl.pack(anchor="w")
             else:
-                icon_lbl = tk.Label(row, text=emoji, font=("Segoe UI", 18), width=4, bg=c.surface0, fg=c.fg)
+                icon_lbl = tk.Label(row, text=emoji, font=get_tk_font(18), width=4, bg=c.surface0, fg=c.fg)
                 icon_lbl.pack(side="left", padx=10)
 
                 txt_container = tk.Frame(row, bg=c.surface0)
                 txt_container.pack(side="left", fill="both", expand=True)
 
                 title_lbl = tk.Label(
-                    txt_container, text=name, font=("Segoe UI", 9, "bold"), anchor="w", bg=c.surface0, fg=c.fg
+                    txt_container, text=name, font=get_tk_font(9, "bold"), anchor="w", bg=c.surface0, fg=c.fg
                 )
                 title_lbl.pack(anchor="w")
 
                 body_lbl = tk.Label(
                     txt_container,
                     text=text,
-                    font=("Segoe UI", 8),
+                    font=get_tk_font(8),
                     anchor="w",
                     wraplength=530,
                     bg=c.surface0,
@@ -540,13 +549,13 @@ class OnboardingWizard:
             )
             subtitle.pack(pady=(0, 15))
         else:
-            title = tk.Label(parent, text="Configure API Keys", font=("Segoe UI", 14, "bold"), bg=c.bg, fg=c.fg)
+            title = tk.Label(parent, text="Configure API Keys", font=get_tk_font(14, "bold"), bg=c.bg, fg=c.fg)
             title.pack(pady=(10, 5))
 
             subtitle = tk.Label(
                 parent,
                 text="Add your API keys to get started. You can add multiple keys and organize them in pools.",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 justify="left",
                 bg=c.bg,
                 fg=c.blockquote,
@@ -577,7 +586,7 @@ class OnboardingWizard:
                 anchor="w", padx=15, pady=(15, 10)
             )
         else:
-            tk.Label(form_frame, text="Add New Key", font=("Segoe UI", 11, "bold"), bg=c.surface0, fg=c.fg).pack(
+            tk.Label(form_frame, text="Add New Key", font=get_tk_font(11, "bold"), bg=c.surface0, fg=c.fg).pack(
                 anchor="w", padx=15, pady=(12, 8)
             )
 
@@ -597,7 +606,7 @@ class OnboardingWizard:
                 anchor="w", padx=15, pady=(5, 2)
             )
         else:
-            tk.Label(form_frame, text="Provider Pool:", font=("Segoe UI", 9), bg=c.surface0, fg=c.fg).pack(
+            tk.Label(form_frame, text="Provider Pool:", font=get_tk_font(9), bg=c.surface0, fg=c.fg).pack(
                 anchor="w", padx=15, pady=(5, 2)
             )
 
@@ -631,7 +640,7 @@ class OnboardingWizard:
                 anchor="w", padx=15, pady=(5, 2)
             )
         else:
-            tk.Label(form_frame, text="API Key:", font=("Segoe UI", 9), bg=c.surface0, fg=c.fg).pack(
+            tk.Label(form_frame, text="API Key:", font=get_tk_font(9), bg=c.surface0, fg=c.fg).pack(
                 anchor="w", padx=15, pady=(5, 2)
             )
 
@@ -672,13 +681,13 @@ class OnboardingWizard:
             )
             self._btn_show_key.pack(side="right")
         else:
-            self._key_entry = tk.Entry(key_input_row, textvariable=self._key_entry_var, font=("Segoe UI", 9), show="*")
+            self._key_entry = tk.Entry(key_input_row, textvariable=self._key_entry_var, font=get_tk_font(9), show="*")
             self._key_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
             self._btn_show_key = tk.Button(
                 key_input_row,
                 text="👁",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=c.surface1,
                 fg=c.fg,
                 command=self._toggle_key_visibility,
@@ -691,7 +700,7 @@ class OnboardingWizard:
                 anchor="w", padx=15, pady=(5, 2)
             )
         else:
-            tk.Label(form_frame, text="Name / Label (Optional):", font=("Segoe UI", 9), bg=c.surface0, fg=c.fg).pack(
+            tk.Label(form_frame, text="Name / Label (Optional):", font=get_tk_font(9), bg=c.surface0, fg=c.fg).pack(
                 anchor="w", padx=15, pady=(5, 2)
             )
 
@@ -708,7 +717,7 @@ class OnboardingWizard:
                 text_color=c.fg,
             ).pack(fill="x", padx=15, pady=(0, 15))
         else:
-            tk.Entry(form_frame, textvariable=self._key_name_var, font=("Segoe UI", 9)).pack(
+            tk.Entry(form_frame, textvariable=self._key_name_var, font=get_tk_font(9)).pack(
                 fill="x", padx=15, pady=(0, 15)
             )
 
@@ -734,7 +743,7 @@ class OnboardingWizard:
             tk.Label(
                 list_container,
                 textvariable=self._list_header_var,
-                font=("Segoe UI", 10, "bold"),
+                font=get_tk_font(10, "bold"),
                 bg=c.surface0,
                 fg=c.fg,
             ).pack(anchor="w", padx=15, pady=(12, 8))
@@ -851,14 +860,14 @@ class OnboardingWizard:
             form_frame.pack(fill="both", expand=True, padx=5, pady=5, ipady=10)
         else:
             title = tk.Label(
-                parent, text="Step 2: Choose Default Model", font=("Segoe UI", 14, "bold"), bg=c.bg, fg=c.fg
+                parent, text="Step 2: Choose Default Model", font=get_tk_font(14, "bold"), bg=c.bg, fg=c.fg
             )
             title.pack(anchor="w", pady=(10, 5))
 
             subtitle = tk.Label(
                 parent,
                 text="Configure which AI provider and model will be your global default. You can change this anytime.",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 justify="left",
                 bg=c.bg,
                 fg=c.blockquote,
@@ -910,7 +919,7 @@ class OnboardingWizard:
             combo.pack(side="left")
         else:
             tk.Label(
-                row1, text="Provider:", font=("Segoe UI", 10, "bold"), width=14, anchor="w", bg=c.surface0, fg=c.fg
+                row1, text="Provider:", font=get_tk_font(10, "bold"), width=14, anchor="w", bg=c.surface0, fg=c.fg
             ).pack(side="left")
             combo = ttk.Combobox(
                 row1,
@@ -949,16 +958,16 @@ class OnboardingWizard:
             self._model_status_label.pack(side="left", padx=(10, 0))
         else:
             tk.Label(
-                row2, text="Model:", font=("Segoe UI", 10, "bold"), width=14, anchor="w", bg=c.surface0, fg=c.fg
+                row2, text="Model:", font=get_tk_font(10, "bold"), width=14, anchor="w", bg=c.surface0, fg=c.fg
             ).pack(side="left")
             self.model_combo = ttk.Combobox(row2, textvariable=self._model_var, values=[], width=26)
             self.model_combo.pack(side="left")
 
-            tk.Button(row2, text="🔄", font=("Segoe UI", 9), bg=c.surface1, fg=c.fg, command=self._refresh_models).pack(
+            tk.Button(row2, text="🔄", font=get_tk_font(9), bg=c.surface1, fg=c.fg, command=self._refresh_models).pack(
                 side="left", padx=(6, 0)
             )
 
-            self._model_status_label = tk.Label(row2, text="", font=("Segoe UI", 9), bg=c.surface0, fg=c.blockquote)
+            self._model_status_label = tk.Label(row2, text="", font=get_tk_font(9), bg=c.surface0, fg=c.blockquote)
             self._model_status_label.pack(side="left", padx=(8, 0))
 
         # Base URL row — only shown for custom (OAI-compatible) provider
@@ -991,13 +1000,13 @@ class OnboardingWizard:
             tk.Label(
                 self._base_url_row,
                 text="Base URL:",
-                font=("Segoe UI", 10, "bold"),
+                font=get_tk_font(10, "bold"),
                 width=14,
                 anchor="w",
                 bg=c.surface0,
                 fg=c.fg,
             ).pack(side="left")
-            tk.Entry(self._base_url_row, textvariable=self._base_url_var, font=("Segoe UI", 9), width=35).pack(
+            tk.Entry(self._base_url_row, textvariable=self._base_url_var, font=get_tk_font(9), width=35).pack(
                 side="left"
             )
 
@@ -1209,14 +1218,14 @@ class OnboardingWizard:
             subtitle.pack(anchor="w", pady=(0, 15))
         else:
             title = tk.Label(
-                parent, text="Step 3: Enable/Disable Tools", font=("Segoe UI", 14, "bold"), bg=c.bg, fg=c.fg
+                parent, text="Step 3: Enable/Disable Tools", font=get_tk_font(14, "bold"), bg=c.bg, fg=c.fg
             )
             title.pack(anchor="w", pady=(10, 5))
 
             subtitle = tk.Label(
                 parent,
                 text="Choose which tools to activate. Disabled tools won't register hotkeys or appear in menus.\nYou can change these anytime in Settings.",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 justify="left",
                 bg=c.bg,
                 fg=c.blockquote,
@@ -1323,7 +1332,7 @@ class OnboardingWizard:
                     card,
                     text=name,
                     variable=self._tool_vars[config_key],
-                    font=("Segoe UI", 10, "bold"),
+                    font=get_tk_font(10, "bold"),
                     bg=c.surface0,
                     fg=c.fg,
                     selectcolor=c.input_bg,
@@ -1331,7 +1340,7 @@ class OnboardingWizard:
                 tk.Label(
                     card,
                     text=desc,
-                    font=("Segoe UI", 8),
+                    font=get_tk_font(8),
                     bg=c.surface0,
                     fg=c.blockquote,
                     wraplength=600,
@@ -1349,7 +1358,7 @@ class OnboardingWizard:
                 anchor="w", pady=(15, 0)
             )
         else:
-            tk.Label(parent, text=note_text, font=("Segoe UI", 9), bg=c.bg, fg=c.blockquote).pack(
+            tk.Label(parent, text=note_text, font=get_tk_font(9), bg=c.bg, fg=c.blockquote).pack(
                 anchor="w", pady=(10, 0)
             )
 
@@ -1400,14 +1409,14 @@ class OnboardingWizard:
         else:
             # tk fallback - simple notebook or manual tabs
             title = tk.Label(
-                parent, text="Step 4: Choose Default Actions", font=("Segoe UI", 14, "bold"), bg=c.bg, fg=c.fg
+                parent, text="Step 4: Choose Default Actions", font=get_tk_font(14, "bold"), bg=c.bg, fg=c.fg
             )
             title.pack(anchor="w", pady=(10, 3))
 
             subtitle = tk.Label(
                 parent,
                 text="Select which actions appear in tool popups. Start minimal, you can enable more anytime in the Prompt Editor.",
-                font=("Segoe UI", 9),
+                font=get_tk_font(9),
                 bg=c.bg,
                 fg=c.blockquote,
                 justify="left",
@@ -1871,13 +1880,13 @@ class OnboardingWizard:
             summary_box = ctk.CTkFrame(parent, fg_color=c.surface0, corner_radius=8)
             summary_box.pack(fill="x", padx=40, pady=10, ipady=15)
         else:
-            title = tk.Label(parent, text="All Set! 🎉", font=("Segoe UI", 18, "bold"), bg=c.bg, fg=c.fg)
+            title = tk.Label(parent, text="All Set! 🎉", font=get_tk_font(18, "bold"), bg=c.bg, fg=c.fg)
             title.pack(pady=(20, 10))
 
             desc = tk.Label(
                 parent,
                 text="AIPromptBridge is fully configured and ready to use.\nBelow is a summary of your configuration:",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 justify="center",
                 bg=c.bg,
                 fg=c.fg,
@@ -1974,7 +1983,7 @@ class OnboardingWizard:
                 lbl_emoji = tk.Label(
                     summary_box,
                     text=emoji,
-                    font=("Segoe UI", 12),
+                    font=get_tk_font(12),
                     anchor="center",
                     bg=c.surface0,
                     fg=c.blockquote,
@@ -1983,13 +1992,11 @@ class OnboardingWizard:
                 lbl_emoji.grid(row=idx, column=0, padx=(15, 2), pady=4, sticky="e")
 
                 lbl_l = tk.Label(
-                    summary_box, text=label, font=("Segoe UI", 9, "bold"), anchor="e", bg=c.surface0, fg=c.blockquote
+                    summary_box, text=label, font=get_tk_font(9, "bold"), anchor="e", bg=c.surface0, fg=c.blockquote
                 )
                 lbl_l.grid(row=idx, column=1, padx=(2, 10), pady=4, sticky="e")
 
-                lbl_r = tk.Label(
-                    summary_box, text=val, font=("Segoe UI", 9, "bold"), anchor="w", bg=c.surface0, fg=c.fg
-                )
+                lbl_r = tk.Label(summary_box, text=val, font=get_tk_font(9, "bold"), anchor="w", bg=c.surface0, fg=c.fg)
                 lbl_r.grid(row=idx, column=2, padx=(10, 20), pady=4, sticky="w")
 
         next_text = (
@@ -2000,7 +2007,7 @@ class OnboardingWizard:
                 parent, text=next_text, font=get_ctk_font(11), justify="center", **get_ctk_label_colors(c, muted=True)
             ).pack(pady=(15, 5))
         else:
-            tk.Label(parent, text=next_text, font=("Segoe UI", 9), justify="center", bg=c.bg, fg=c.blockquote).pack(
+            tk.Label(parent, text=next_text, font=get_tk_font(9), justify="center", bg=c.bg, fg=c.blockquote).pack(
                 pady=(15, 5)
             )
 
@@ -2011,7 +2018,7 @@ class OnboardingWizard:
                 pady=(10, 5)
             )
         else:
-            tk.Label(parent, text=tips_title_text, font=("Segoe UI", 10, "bold"), bg=c.bg, fg=c.fg).pack(pady=(10, 5))
+            tk.Label(parent, text=tips_title_text, font=get_tk_font(10, "bold"), bg=c.bg, fg=c.fg).pack(pady=(10, 5))
 
         tips = [
             ("🔑", "Get a free API key from Google AI Studio (aistudio.google.com) to start quickly"),
@@ -2043,10 +2050,10 @@ class OnboardingWizard:
             for emoji, tip_text in tips:
                 tip_row = tk.Frame(tips_frame, bg=c.bg)
                 tip_row.pack(fill="x", pady=1)
-                tk.Label(tip_row, text=emoji, font=("Segoe UI", 12), bg=c.bg, fg=c.fg, width=3).pack(
+                tk.Label(tip_row, text=emoji, font=get_tk_font(12), bg=c.bg, fg=c.fg, width=3).pack(
                     side="left", padx=(0, 4)
                 )
-                tk.Label(tip_row, text=tip_text, font=("Segoe UI", 9), anchor="w", bg=c.bg, fg=c.blockquote).pack(
+                tk.Label(tip_row, text=tip_text, font=get_tk_font(9), anchor="w", bg=c.bg, fg=c.blockquote).pack(
                     side="left", fill="x", expand=True
                 )
 

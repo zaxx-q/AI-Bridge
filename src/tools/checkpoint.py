@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.utils import normalize_path_str
+
 
 @dataclass
 class FileProcessorCheckpoint:
@@ -49,6 +51,7 @@ class FileProcessorCheckpoint:
 
     # Audio processing settings (for resume without re-prompting)
     audio_preprocessing: Optional[Dict[str, Any]] = None
+    transcribe_config: Optional[Dict[str, Any]] = None  # Transcription config for gemini-3.5-transcribe
 
     # Custom instructions (for additional user context)
     custom_instructions: Optional[str] = None  # Batch-wide instructions
@@ -135,8 +138,25 @@ class FileProcessorCheckpoint:
         """Create from dictionary (filters out unknown arguments for compatibility)"""
         import inspect
 
+        data_copy = dict(data)
+        if data_copy.get("input_path") is not None:
+            data_copy["input_path"] = normalize_path_str(data_copy["input_path"])
+        if data_copy.get("output_path") is not None:
+            data_copy["output_path"] = normalize_path_str(data_copy["output_path"])
+        if "input_files" in data_copy and isinstance(data_copy["input_files"], list):
+            data_copy["input_files"] = [normalize_path_str(f) for f in data_copy["input_files"]]
+        if "completed_files" in data_copy and isinstance(data_copy["completed_files"], list):
+            data_copy["completed_files"] = [normalize_path_str(f) for f in data_copy["completed_files"]]
+        if "failed_files" in data_copy and isinstance(data_copy["failed_files"], list):
+            data_copy["failed_files"] = [
+                {"path": normalize_path_str(item["path"]), **{k: v for k, v in item.items() if k != "path"}}
+                if isinstance(item, dict) and "path" in item
+                else item
+                for item in data_copy["failed_files"]
+            ]
+
         sig = inspect.signature(cls)
-        valid_args = {k: v for k, v in data.items() if k in sig.parameters}
+        valid_args = {k: v for k, v in data_copy.items() if k in sig.parameters}
         return cls(**valid_args)
 
     def get_summary(self) -> Dict[str, Any]:
@@ -229,6 +249,7 @@ class FileProcessorCheckpoint:
             use_batch=original.use_batch,
             profile_name=original.profile_name,
             audio_preprocessing=original.audio_preprocessing,  # Preserve audio settings
+            transcribe_config=original.transcribe_config,  # Preserve transcribe config
             custom_instructions=original.custom_instructions,  # Preserve batch instructions
             per_file_instructions=failed_per_file_instructions,  # Preserve per-file for failed files
             skip_per_file_prompts=original.skip_per_file_prompts,  # Preserve skip preference
@@ -416,6 +437,7 @@ class CheckpointManager:
         delay: float,
         use_batch: bool = False,
         audio_preprocessing: Optional[Dict[str, Any]] = None,
+        transcribe_config: Optional[Dict[str, Any]] = None,
         custom_instructions: Optional[str] = None,
         skip_per_file_prompts: bool = False,
         include_filename: bool = True,
@@ -469,6 +491,7 @@ class CheckpointManager:
             use_batch=use_batch,
             profile_name=profile_name,
             audio_preprocessing=audio_preprocessing,
+            transcribe_config=transcribe_config,
             custom_instructions=custom_instructions,
             per_file_instructions={},
             skip_per_file_prompts=skip_per_file_prompts,
@@ -624,8 +647,14 @@ class TTSCheckpoint:
     def from_dict(cls, data: Dict[str, Any]) -> "TTSCheckpoint":
         import inspect
 
+        data_copy = dict(data)
+        if data_copy.get("input_path") is not None:
+            data_copy["input_path"] = normalize_path_str(data_copy["input_path"])
+        if data_copy.get("output_path") is not None:
+            data_copy["output_path"] = normalize_path_str(data_copy["output_path"])
+
         sig = inspect.signature(cls)
-        valid_args = {k: v for k, v in data.items() if k in sig.parameters}
+        valid_args = {k: v for k, v in data_copy.items() if k in sig.parameters}
         return cls(**valid_args)
 
     def get_summary(self) -> Dict[str, Any]:

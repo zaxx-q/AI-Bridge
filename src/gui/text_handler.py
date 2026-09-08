@@ -3,15 +3,28 @@
 Text selection and clipboard handler
 """
 
-import ctypes
 import logging
 import time
-from typing import Optional
 
-import pyperclip
+# Soft import: Linux can run without pyperclip when using the platform clipboard service.
+try:
+    import pyperclip
+except ImportError:  # pragma: no cover - optional on minimal Linux envs
+    pyperclip = None  # type: ignore[assignment]
+
 from pynput import keyboard as pykeyboard
 
+from ..platform import is_linux, is_windows
+from ..platform.clipboard import capture_selection_for_textedit
+from ..platform.clipboard import copy_text as platform_copy_text
+from ..platform.clipboard import paste_text as platform_paste_text
+from ..platform.input import (
+    copy_via_clipboard_shortcut,
+    paste_via_clipboard_shortcut,
+)
+
 # --- Win32 SendInput structures (module-level to avoid repeated class definitions) ---
+# Defined only for type/layout use on Windows; never touch windll on non-Windows.
 _INPUT_KEYBOARD = 1
 _KEYEVENTF_KEYUP = 0x0002
 _VK_CONTROL = 0x11
@@ -19,64 +32,70 @@ _VK_C = 0x43
 _VK_V = 0x56
 _WM_COPY = 0x0301
 
-_PUL = ctypes.POINTER(ctypes.c_ulong)
+if is_windows():
+    import ctypes
 
+    _PUL = ctypes.POINTER(ctypes.c_ulong)
 
-# --- Win32 GUITHREADINFO for finding the focused control within a window ---
-class _GUITHREADINFO(ctypes.Structure):
-    _fields_ = [
-        ("cbSize", ctypes.c_ulong),
-        ("flags", ctypes.c_ulong),
-        ("hwndActive", ctypes.c_void_p),
-        ("hwndFocus", ctypes.c_void_p),
-        ("hwndCapture", ctypes.c_void_p),
-        ("hwndMenuOwner", ctypes.c_void_p),
-        ("hwndMoveSize", ctypes.c_void_p),
-        ("hwndCaret", ctypes.c_void_p),
-        ("rcCaret", ctypes.c_long * 4),
-    ]
+    # --- Win32 GUITHREADINFO for finding the focused control within a window ---
+    class _GUITHREADINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", ctypes.c_ulong),
+            ("flags", ctypes.c_ulong),
+            ("hwndActive", ctypes.c_void_p),
+            ("hwndFocus", ctypes.c_void_p),
+            ("hwndCapture", ctypes.c_void_p),
+            ("hwndMenuOwner", ctypes.c_void_p),
+            ("hwndMoveSize", ctypes.c_void_p),
+            ("hwndCaret", ctypes.c_void_p),
+            ("rcCaret", ctypes.c_long * 4),
+        ]
 
+    class _KEYBDINPUT(ctypes.Structure):
+        _fields_ = [
+            ("wVk", ctypes.c_ushort),
+            ("wScan", ctypes.c_ushort),
+            ("dwFlags", ctypes.c_ulong),
+            ("time", ctypes.c_ulong),
+            ("dwExtraInfo", _PUL),
+        ]
 
-class _KEYBDINPUT(ctypes.Structure):
-    _fields_ = [
-        ("wVk", ctypes.c_ushort),
-        ("wScan", ctypes.c_ushort),
-        ("dwFlags", ctypes.c_ulong),
-        ("time", ctypes.c_ulong),
-        ("dwExtraInfo", _PUL),
-    ]
+    class _MOUSEINPUT(ctypes.Structure):
+        """Only used to ensure the INPUT union is large enough (MOUSEINPUT > KEYBDINPUT)."""
 
+        _fields_ = [
+            ("dx", ctypes.c_long),
+            ("dy", ctypes.c_long),
+            ("mouseData", ctypes.c_ulong),
+            ("dwFlags", ctypes.c_ulong),
+            ("time", ctypes.c_ulong),
+            ("dwExtraInfo", _PUL),
+        ]
 
-class _MOUSEINPUT(ctypes.Structure):
-    """Only used to ensure the INPUT union is large enough (MOUSEINPUT > KEYBDINPUT)."""
+    class _INPUT_UNION(ctypes.Union):
+        from typing import ClassVar, List, Tuple
 
-    _fields_ = [
-        ("dx", ctypes.c_long),
-        ("dy", ctypes.c_long),
-        ("mouseData", ctypes.c_ulong),
-        ("dwFlags", ctypes.c_ulong),
-        ("time", ctypes.c_ulong),
-        ("dwExtraInfo", _PUL),
-    ]
+        _fields_: ClassVar[List[Tuple[str, type]]] = [("mi", _MOUSEINPUT), ("ki", _KEYBDINPUT)]
 
+    class _INPUT(ctypes.Structure):
+        _fields_ = [("type", ctypes.c_ulong), ("_input", _INPUT_UNION)]
 
-class _INPUT_UNION(ctypes.Union):
-    from typing import ClassVar, List, Tuple
+    def _make_key_event(vk: int, up: bool = False) -> _INPUT:
+        """Create a single keyboard INPUT event."""
+        inp = _INPUT()
+        inp.type = _INPUT_KEYBOARD
+        inp._input.ki.wVk = vk
+        inp._input.ki.dwFlags = _KEYEVENTF_KEYUP if up else 0
+        return inp
+else:
+    # Stubs so attribute references in Windows-only methods are never evaluated on Linux.
+    ctypes = None  # type: ignore[assignment]
+    _GUITHREADINFO = None  # type: ignore[assignment,misc]
+    _INPUT = None  # type: ignore[assignment,misc]
+    _PUL = None  # type: ignore[assignment]
 
-    _fields_: ClassVar[List[Tuple[str, type]]] = [("mi", _MOUSEINPUT), ("ki", _KEYBDINPUT)]
-
-
-class _INPUT(ctypes.Structure):
-    _fields_ = [("type", ctypes.c_ulong), ("_input", _INPUT_UNION)]
-
-
-def _make_key_event(vk: int, up: bool = False) -> _INPUT:
-    """Create a single keyboard INPUT event."""
-    inp = _INPUT()
-    inp.type = _INPUT_KEYBOARD
-    inp._input.ki.wVk = vk
-    inp._input.ki.dwFlags = _KEYEVENTF_KEYUP if up else 0
-    return inp
+    def _make_key_event(vk: int, up: bool = False):  # type: ignore[misc]
+        raise RuntimeError("Win32 key events are only available on Windows")
 
 
 class TextHandler:
@@ -91,9 +110,11 @@ class TextHandler:
         logging.debug("TextHandler initialized")
 
     @staticmethod
-    def _send_copy_keystroke():
+    def _send_copy_keystroke() -> bool:
         """
-        Send a copy command using two parallel strategies (no delays):
+        Send a copy command (Ctrl+C / WM_COPY).
+
+        **Windows:** two parallel strategies (no delays):
 
         1. **WM_COPY** window message → tells the focused control to copy
            its selection directly, completely bypassing keyboard state.
@@ -105,7 +126,22 @@ class TextHandler:
 
         Both fire instantly.  Whichever the target app responds to first
         triggers the clipboard change detected by get_selected_text().
+
+        **Linux:** ``wlrctl`` virtual-keyboard Ctrl+C (optional hybrid capture).
+
+        Returns:
+            True if the platform reported a successful inject (best-effort).
         """
+        if is_linux():
+            ok = copy_via_clipboard_shortcut()
+            if not ok:
+                logging.debug("_send_copy_keystroke: wlrctl Ctrl+C failed or unavailable")
+            return ok
+
+        if not is_windows():
+            logging.debug("_send_copy_keystroke skipped (unsupported platform)")
+            return False
+
         user32 = ctypes.windll.user32
 
         # ── Strategy 1: WM_COPY window message ──────────────────────────
@@ -153,16 +189,31 @@ class TextHandler:
             logging.warning(f"SendInput: only {sent}/{n} events were injected")
 
         logging.debug(f"SendInput copy: ctrl_held={ctrl_held}, {sent}/{n} events sent")
+        return sent == n
 
     @staticmethod
-    def _send_paste_keystroke():
+    def _send_paste_keystroke() -> bool:
         """
-        Send a Ctrl+V paste command using Win32 SendInput with virtual key codes.
+        Send a Ctrl+V paste command.
 
-        Uses VK codes instead of character-based presses to avoid issues with
-        Caps Lock being on or non-English keyboard layouts (which can cause
-        pynput's keyboard.press('v') to send the wrong character).
+        **Windows:** Win32 SendInput with virtual key codes (avoids Caps Lock /
+        layout issues that can make pynput send the wrong character).
+
+        **Linux:** ``wlrctl`` virtual-keyboard Ctrl+V.
+
+        Returns:
+            True if the platform reported a successful inject (best-effort).
         """
+        if is_linux():
+            ok = paste_via_clipboard_shortcut()
+            if not ok:
+                logging.debug("_send_paste_keystroke: wlrctl Ctrl+V failed or unavailable")
+            return ok
+
+        if not is_windows():
+            logging.debug("_send_paste_keystroke skipped (unsupported platform)")
+            return False
+
         user32 = ctypes.windll.user32
 
         # Check if Ctrl is already physically held
@@ -191,19 +242,39 @@ class TextHandler:
             logging.warning(f"SendInput paste: only {sent}/{n} events were injected")
 
         logging.debug(f"SendInput paste: ctrl_held={ctrl_held}, {sent}/{n} events sent")
+        return sent == n
 
     def get_selected_text(self, sleep_duration: float = 0.01, max_wait: float = 0.4) -> str:
         """
-        Get the currently selected text from any application using polling.
-        Uses Windows clipboard sequence number to detect changes without modifying clipboard history.
+        Get the currently selected text from any application.
+
+        **Linux/Wayland:** hybrid capture — primary selection first (mouse
+        highlight, no clipboard pollution), then optional wlrctl Ctrl+C +
+        clipboard poll with restore when still empty. Existing clipboard text
+        alone is not treated as an active selection.
+
+        **Windows:** uses clipboard sequence number + SendInput Ctrl+C, then
+        restores the previous clipboard content.
 
         Args:
-            sleep_duration: Short delay before Ctrl+C for stability (default: 0.01s)
+            sleep_duration: Short delay before Ctrl+C for stability (Windows; default: 0.01s)
             max_wait: Maximum time to wait for clipboard content (default: 0.4s)
 
         Returns:
             The selected text, or empty string if none
         """
+        if is_linux():
+            try:
+                return capture_selection_for_textedit(timeout=max_wait, allow_ctrl_c=True)
+            except Exception as e:
+                logging.error(f"Linux selection capture failed: {e}")
+                return ""
+
+        # ── Windows path (unchanged strategy) ────────────────────────────
+        if pyperclip is None:
+            logging.error("pyperclip is required for selection capture on Windows")
+            return ""
+
         # Backup the clipboard in case we need to restore it
         # We only restore if we actually successfully copied new text (overwriting the user's clipboard)
         try:
@@ -270,6 +341,10 @@ class TextHandler:
         """
         Get selected text with a smart retry for slow applications.
 
+        **Linux:** hybrid capture once (primary → Ctrl+C). If empty,
+        retries the Ctrl+C path with a longer poll (1.2s) and one mid-wait re-send.
+
+        **Windows:**
         Fast path (attempt 1): default timing — works for most apps, returns in <100ms
         typically (exits as soon as clipboard changes). Max wait 0.4s.
 
@@ -281,6 +356,14 @@ class TextHandler:
         Returns:
             The selected text, or empty string if none
         """
+        if is_linux():
+            # Fast hybrid path (primary preferred; Ctrl+C only if needed)
+            selected_text = self.get_selected_text(max_wait=0.4)
+            if selected_text:
+                return selected_text
+            logging.warning("No text captured on first attempt, retrying with slow-app hybrid strategy")
+            return self._get_selected_text_slow_app()
+
         # Fast path — works for most apps
         selected_text = self.get_selected_text()
         if selected_text:
@@ -294,6 +377,10 @@ class TextHandler:
         """
         Retry strategy for slow applications (Electron/JavaFX).
 
+        **Linux:** longer hybrid Ctrl+C poll (1.2s) with one re-send after 0.4s.
+        Primary is still preferred first (no clipboard pollution when it has text).
+
+        **Windows:**
         - Waits 80ms before sending (gives Electron's event loop time to settle)
         - Polls for up to 1.2s with 20ms intervals
         - Re-sends the copy keystroke once after 0.4s if clipboard hasn't changed
@@ -302,6 +389,21 @@ class TextHandler:
         Returns:
             The selected text, or empty string if none
         """
+        if is_linux():
+            try:
+                return capture_selection_for_textedit(
+                    timeout=1.2,
+                    poll_interval=0.02,
+                    allow_ctrl_c=True,
+                    resend_after=0.4,
+                )
+            except Exception as e:
+                logging.error(f"Linux slow-app selection capture failed: {e}")
+                return ""
+
+        if not is_windows() or pyperclip is None:
+            return ""
+
         user32 = ctypes.windll.user32
 
         try:
@@ -374,6 +476,10 @@ class TextHandler:
         """
         Replace the currently selected text with new text.
 
+        **Windows:** clipboard + SendInput Ctrl+V, then restore clipboard.
+        **Linux:** platform clipboard (wl-copy) + wlrctl Ctrl+V, then restore
+        clipboard best-effort. Returns True only when paste injection succeeds.
+
         Args:
             new_text: The text to paste
 
@@ -381,6 +487,60 @@ class TextHandler:
             True if successful, False otherwise
         """
         if not new_text:
+            return False
+
+        if is_linux():
+            cleaned = new_text.rstrip("\n")
+            # Backup current clipboard (best-effort; may be empty)
+            try:
+                clipboard_backup = platform_paste_text(primary=False)
+            except Exception:
+                clipboard_backup = ""
+
+            try:
+                if not platform_copy_text(cleaned):
+                    logging.warning(
+                        "Linux replace_selected_text: failed to set clipboard (wl-clipboard missing or error)"
+                    )
+                    return False
+
+                # Brief settle for compositor clipboard sync
+                time.sleep(0.08)
+                if not self._send_paste_keystroke():
+                    logging.warning(
+                        "Linux replace_selected_text: clipboard set but paste key "
+                        "injection failed (is wlrctl installed and the target focused?)"
+                    )
+                    # Still try to restore clipboard
+                    try:
+                        if clipboard_backup is not None:
+                            platform_copy_text(clipboard_backup)
+                    except Exception:
+                        pass
+                    return False
+
+                time.sleep(0.1)
+
+                # Restore previous clipboard best-effort
+                try:
+                    if clipboard_backup is not None:
+                        platform_copy_text(clipboard_backup)
+                except Exception as e:
+                    logging.debug(f"Linux replace: clipboard restore failed: {e}")
+
+                logging.debug("Linux text replaced successfully via clipboard + wlrctl")
+                return True
+            except Exception as e:
+                logging.error(f"Linux replace_selected_text failed: {e}")
+                try:
+                    if clipboard_backup is not None:
+                        platform_copy_text(clipboard_backup)
+                except Exception:
+                    pass
+                return False
+
+        if pyperclip is None:
+            logging.error("pyperclip is required for replace_selected_text on Windows")
             return False
 
         # Backup clipboard
@@ -419,7 +579,13 @@ class TextHandler:
     @staticmethod
     def clear_clipboard():
         """Clear the system clipboard."""
+        if is_linux():
+            if not platform_copy_text(""):
+                logging.error("Error clearing clipboard via wl-copy")
+            return
         try:
+            if pyperclip is None:
+                raise RuntimeError("pyperclip not available")
             pyperclip.copy("")
         except Exception as e:
             logging.error(f"Error clearing clipboard: {e}")
@@ -435,7 +601,11 @@ class TextHandler:
         Returns:
             True if successful
         """
+        if is_linux():
+            return platform_copy_text(text if text is not None else "")
         try:
+            if pyperclip is None:
+                raise RuntimeError("pyperclip not available")
             pyperclip.copy(text)
             return True
         except Exception as e:

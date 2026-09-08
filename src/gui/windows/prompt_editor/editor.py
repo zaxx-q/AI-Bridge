@@ -23,6 +23,7 @@ from ...themes import (
     get_ctk_button_colors,
     get_ctk_font,
     get_ctk_label_colors,
+    get_tk_font,
     sync_ctk_appearance,
 )
 from ..utils import set_window_icon
@@ -120,6 +121,14 @@ class PromptEditorWindow(
             else:
                 self.root = tk.Tk()
                 self.root.configure(bg=self.colors.bg)
+
+        if self.use_ctk:
+            try:
+                from ...ctk_bootstrap import ensure_ctk_window_ready
+
+                ensure_ctk_window_ready(self.root)
+            except Exception:
+                pass
 
         self.root.title("AIPromptBridge Prompt Editor")
         self.root.geometry("1000x825")
@@ -314,12 +323,12 @@ class PromptEditorWindow(
             ).pack(side="left", padx=(20, 0))
         else:
             tk.Label(
-                title_frame, text="✏️ Prompt Editor", font=("Segoe UI", 16, "bold"), bg=self.colors.bg, fg=self.colors.fg
+                title_frame, text="✏️ Prompt Editor", font=get_tk_font(16, "bold"), bg=self.colors.bg, fg=self.colors.fg
             ).pack(side="left")
             tk.Label(
                 title_frame,
                 text="Edit prompts.json",
-                font=("Segoe UI", 10),
+                font=get_tk_font(10),
                 bg=self.colors.bg,
                 fg=self.colors.blockquote,
             ).pack(side="left", padx=(15, 0))
@@ -452,7 +461,7 @@ class PromptEditorWindow(
             )
         else:
             self.status_label = tk.Label(
-                btn_frame, text="", font=("Segoe UI", 10), bg=self.colors.bg, fg=self.colors.accent_green
+                btn_frame, text="", font=get_tk_font(10), bg=self.colors.bg, fg=self.colors.accent_green
             )
         self.status_label.pack(side="left", padx=20)
 

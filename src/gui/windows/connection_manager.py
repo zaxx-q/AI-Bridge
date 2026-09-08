@@ -33,6 +33,7 @@ from ..themes import (
     get_ctk_entry_colors,
     get_ctk_font,
     get_ctk_label_colors,
+    get_tk_font,
 )
 from .utils import set_window_icon
 
@@ -51,7 +52,7 @@ PROFILE_FIELDS = [
         "provider",
         "Provider",
         "combobox",
-        ["google", "anthropic", "openai", "openrouter", "xai", "mistral", "cohere", "custom"],
+        ["google", "anthropic", "openai", "openrouter", "xai", "mistral", "cohere", "custom", "transcription"],
     ),
     ("model", "Model", "model_dropdown", None),
     ("enabled", "Enabled", "toggle", None),
@@ -64,14 +65,34 @@ PROFILE_FIELDS = [
     ("max_tokens", "Max Tokens", "entry", None),
     ("request_timeout", "Request Timeout (s)", "entry", None),
     ("base_url", "Base URL", "entry", None),
+    ("transcribe_mode", "Transcription Mode", "combobox", ["VERBATIM", "SMART"]),
+    ("transcribe_diarization", "Speaker Diarization", "toggle", None),
+    ("transcribe_timestamps", "Word Timestamps", "toggle", None),
+    ("transcribe_language", "Language Hint", "entry", None),
+    ("transcribe_vocabulary", "Custom Vocabulary", "entry", None),
     ("api_key_name", "API Key Name", "key_name_dropdown", None),
     ("api_key_pool", "API Key Pool", "combobox", None),
 ]
+
+_ALL_NON_TRANSCRIPTION = {"google", "anthropic", "openai", "openrouter", "xai", "mistral", "cohere", "custom"}
 
 PROVIDER_FIELD_VISIBILITY = {
     "thinking_budget": {"google"},
     "thinking_level": {"google"},
     "reasoning_effort": {"openai", "openrouter", "xai", "mistral", "cohere", "custom"},
+    # Hide from transcription provider (show for all others):
+    "streaming": _ALL_NON_TRANSCRIPTION,
+    "thinking": _ALL_NON_TRANSCRIPTION,
+    "temperature": _ALL_NON_TRANSCRIPTION,
+    "max_tokens": _ALL_NON_TRANSCRIPTION,
+    "request_timeout": _ALL_NON_TRANSCRIPTION,
+    "base_url": _ALL_NON_TRANSCRIPTION,
+    # Transcription-specific fields:
+    "transcribe_mode": {"transcription"},
+    "transcribe_diarization": {"transcription"},
+    "transcribe_timestamps": {"transcription"},
+    "transcribe_language": {"transcription"},
+    "transcribe_vocabulary": {"transcription"},
 }
 
 # Thinking sub-fields that require thinking toggle to be ON
@@ -97,6 +118,11 @@ FIELD_HELP = {
     "max_tokens": "Maximum output tokens. Leave empty to use model default.",
     "request_timeout": "Request timeout in seconds. Leave empty to use the global timeout from settings.",
     "base_url": "Custom base URL for the API endpoint. Leave empty to use the provider's default URL.",
+    "transcribe_mode": "VERBATIM: exact word-for-word transcript. SMART: removes filler words, applies formatting. Smart mode is incompatible with diarization and timestamps.",
+    "transcribe_diarization": "Identify and label distinct speakers (spk_1, spk_2, etc.). Supports up to 8 speakers. Only available in VERBATIM mode.",
+    "transcribe_timestamps": "Include word-level start/end timestamps. May slightly reduce accuracy. Only available in VERBATIM mode.",
+    "transcribe_language": "BCP-47 language code (e.g., 'en-US', 'es-ES', 'ja-JP'). Leave empty for auto-detection with code-switching support.",
+    "transcribe_vocabulary": "Comma-separated domain terms, acronyms, or proper names to improve recognition (up to 1000 terms). Example: Kubernetes, BigQuery, gRPC",
     "api_key_name": "Use a specific named key from the pool. When set, key rotation is disabled and only this key will be used. Leave empty to use pool rotation.",
     "api_key_pool": "Override which key pool this profile uses. Leave empty to use provider default.",
 }
@@ -115,6 +141,11 @@ SUMMARY_ICONS = {
     "thinking_budget": "🧠",
     "thinking_level": "💡",
     "reasoning_effort": "🔬",
+    "transcribe_mode": "📝",
+    "transcribe_diarization": "👥",
+    "transcribe_timestamps": "⏱️",
+    "transcribe_language": "🌐",
+    "transcribe_vocabulary": "📖",
     "api_key_name": "🔑",
     "api_key_pool": "🗝️",
 }
@@ -215,7 +246,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
                 self, text="🔌  Connection Profiles", font=get_ctk_font(16, "bold"), **get_ctk_label_colors(c)
             ).pack(anchor="w", padx=20, pady=(15, 10))
         else:
-            tk.Label(self, text="🔌  Connection Profiles", font=("Segoe UI", 14, "bold"), bg=c.bg, fg=c.fg).pack(
+            tk.Label(self, text="🔌  Connection Profiles", font=get_tk_font(14, "bold"), bg=c.bg, fg=c.fg).pack(
                 anchor="w", padx=20, pady=(15, 10)
             )
 
@@ -282,10 +313,10 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
             self.name_entry.pack(side="left", fill="x", expand=True, padx=(8, 0))
         else:
             tk.Label(
-                row, text="Profile Name:", font=("Segoe UI", 10, "bold"), width=14, anchor="w", bg=c.bg, fg=c.fg
+                row, text="Profile Name:", font=get_tk_font(10, "bold"), width=14, anchor="w", bg=c.bg, fg=c.fg
             ).pack(side="left")
             self.name_var = tk.StringVar()
-            self.name_entry = tk.Entry(row, textvariable=self.name_var, font=("Segoe UI", 10), bg=c.input_bg, fg=c.fg)
+            self.name_entry = tk.Entry(row, textvariable=self.name_var, font=get_tk_font(10), bg=c.input_bg, fg=c.fg)
             self.name_entry.pack(side="left", fill="x", expand=True, padx=(5, 0))
 
         # --- Description ---
@@ -305,11 +336,11 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
                 **get_ctk_entry_colors(c),
             ).pack(side="left", fill="x", expand=True, padx=(8, 0))
         else:
-            tk.Label(row, text="Description:", font=("Segoe UI", 9), width=14, anchor="w", bg=c.bg, fg=c.fg).pack(
+            tk.Label(row, text="Description:", font=get_tk_font(9), width=14, anchor="w", bg=c.bg, fg=c.fg).pack(
                 side="left"
             )
             self.description_var = tk.StringVar()
-            tk.Entry(row, textvariable=self.description_var, font=("Segoe UI", 9), bg=c.input_bg, fg=c.fg).pack(
+            tk.Entry(row, textvariable=self.description_var, font=get_tk_font(9), bg=c.input_bg, fg=c.fg).pack(
                 side="left", fill="x", expand=True, padx=(5, 0)
             )
 
@@ -375,7 +406,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
                 ).pack(anchor="w", padx=12, pady=(8, 2))
         else:
             tk.Label(
-                self._summary_frame, text="Profile Summary", font=("Segoe UI", 11, "bold"), bg=c.surface0, fg=c.fg
+                self._summary_frame, text="Profile Summary", font=get_tk_font(11, "bold"), bg=c.surface0, fg=c.fg
             ).pack(anchor="w", padx=12, pady=(8, 2))
 
         # Summary content area (optimized to cache widgets)
@@ -395,7 +426,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
         else:
             self._summary_active_lbl = tk.Label(
                 self._summary_content,
-                font=("Segoe UI", 10, "bold"),
+                font=get_tk_font(10, "bold"),
                 bg=c.surface0,
                 fg=c.accent,
             )
@@ -440,18 +471,18 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
                 )
             else:
                 icon_lbl = tk.Label(
-                    self._summary_grid_frame, text=icon, font=("Segoe UI", 10), bg=c.surface0, fg=c.fg, width=3
+                    self._summary_grid_frame, text=icon, font=get_tk_font(10), bg=c.surface0, fg=c.fg, width=3
                 )
                 key_lbl = tk.Label(
                     self._summary_grid_frame,
                     text=f"{label_field}:",
-                    font=("Segoe UI", 10),
+                    font=get_tk_font(10),
                     bg=c.surface0,
                     fg=c.blockquote,
                     anchor="w",
                 )
                 val_lbl = tk.Label(
-                    self._summary_grid_frame, text="", font=("Segoe UI", 10, "bold"), bg=c.surface0, fg=c.fg, anchor="w"
+                    self._summary_grid_frame, text="", font=get_tk_font(10, "bold"), bg=c.surface0, fg=c.fg, anchor="w"
                 )
             self._summary_row_widgets[key_field] = (icon_lbl, key_lbl, val_lbl)
 
@@ -470,7 +501,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
         if self.use_ctk:
             self.save_status = ctk.CTkLabel(btn_row, text="", font=get_ctk_font(11), text_color=c.accent_green)
         else:
-            self.save_status = tk.Label(btn_row, text="", font=("Segoe UI", 9), bg=c.bg, fg=c.accent_green)
+            self.save_status = tk.Label(btn_row, text="", font=get_tk_font(9), bg=c.bg, fg=c.accent_green)
         self.save_status.pack(side="left", padx=12)
 
         self._on_provider_change("")
@@ -488,7 +519,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
             )
         else:
             help_label = tk.Label(
-                parent, text="?", font=("Segoe UI", 9, "bold"), bg=c.bg, fg=c.accent, cursor="question_arrow"
+                parent, text="?", font=get_tk_font(9, "bold"), bg=c.bg, fg=c.accent, cursor="question_arrow"
             )
         help_label.pack(side="left", padx=(2, 0))
         Tooltip(help_label, help_text)
@@ -508,7 +539,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
                 row, text="Enabled", variable=var, font=get_ctk_font(12), text_color=c.fg, fg_color=c.accent
             ).pack(side="left", padx=(8, 0))
         else:
-            font = ("Segoe UI", 9, "bold") if is_required else ("Segoe UI", 9)
+            font = get_tk_font(9, "bold") if is_required else get_tk_font(9)
             tk.Label(row, text=f"{label}:", font=font, width=14, anchor="w", bg=c.bg, fg=c.fg).pack(side="left")
             self._add_help_icon(row, key, c)
             tk.Checkbutton(row, text="Enabled", variable=var, bg=c.bg, fg=c.fg, selectcolor=c.input_bg).pack(
@@ -550,18 +581,18 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
         else:
             from tkinter import ttk as ttk_local
 
-            font = ("Segoe UI", 9, "bold") if is_required else ("Segoe UI", 9)
+            font = get_tk_font(9, "bold") if is_required else get_tk_font(9)
             tk.Label(row, text=f"{label}:", font=font, width=14, anchor="w", bg=c.bg, fg=c.fg).pack(side="left")
             self._add_help_icon(row, key, c)
             dropdown = ttk_local.Combobox(row, textvariable=var, values=[], width=22)
             dropdown.pack(side="left", padx=(5, 0))
             self._model_dropdown_widget = dropdown
 
-            tk.Button(row, text="🔄", font=("Segoe UI", 9), bg=c.surface1, fg=c.fg, command=self._refresh_models).pack(
+            tk.Button(row, text="🔄", font=get_tk_font(9), bg=c.surface1, fg=c.fg, command=self._refresh_models).pack(
                 side="left", padx=(4, 0)
             )
 
-            self._model_status_label = tk.Label(row, text="", font=("Segoe UI", 8), bg=c.bg, fg=c.blockquote, width=14)
+            self._model_status_label = tk.Label(row, text="", font=get_tk_font(8), bg=c.bg, fg=c.blockquote, width=14)
             self._model_status_label.pack(side="left", padx=(4, 0))
 
         # Track unsaved changes
@@ -572,7 +603,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
     def _build_combobox_field(self, row, key: str, label: str, options: list, c: ThemeColors):
         """Build a combobox/dropdown field."""
         var = tk.StringVar()
-        command = self._on_provider_change if key == "provider" else None
+        command = self._on_provider_change if key in ("provider", "transcribe_mode") else None
         is_required = key in REQUIRED_FIELDS
 
         if self.use_ctk:
@@ -596,7 +627,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
         else:
             from tkinter import ttk as ttk_local
 
-            font = ("Segoe UI", 9, "bold") if is_required else ("Segoe UI", 9)
+            font = get_tk_font(9, "bold") if is_required else get_tk_font(9)
             tk.Label(row, text=f"{label}:", font=font, width=14, anchor="w", bg=c.bg, fg=c.fg).pack(side="left")
             self._add_help_icon(row, key, c)
             combo = ttk_local.Combobox(row, textvariable=var, values=options or [], state="readonly", width=18)
@@ -623,11 +654,11 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
                 row, textvariable=var, font=get_ctk_font(12), height=30, width=250, **get_ctk_entry_colors(c)
             ).pack(side="left", padx=(8, 0))
         else:
-            font = ("Segoe UI", 9, "bold") if is_required else ("Segoe UI", 9)
+            font = get_tk_font(9, "bold") if is_required else get_tk_font(9)
             lbl = tk.Label(row, text=f"{label}:", font=font, width=14, anchor="w", bg=c.bg, fg=c.fg)
             lbl.pack(side="left")
             self._add_help_icon(row, key, c)
-            tk.Entry(row, textvariable=var, font=("Segoe UI", 9), bg=c.input_bg, fg=c.fg, width=25).pack(
+            tk.Entry(row, textvariable=var, font=get_tk_font(9), bg=c.input_bg, fg=c.fg, width=25).pack(
                 side="left", padx=(5, 0)
             )
 
@@ -657,7 +688,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
             dropdown.pack(side="left", padx=(8, 0))
             self._api_key_name_dropdown = dropdown
         else:
-            font = ("Segoe UI", 9, "bold") if is_required else ("Segoe UI", 9)
+            font = get_tk_font(9, "bold") if is_required else get_tk_font(9)
             tk.Label(row, text=f"{label}:", font=font, width=14, anchor="w", bg=c.bg, fg=c.fg).pack(side="left")
             self._add_help_icon(row, key, c)
             dropdown = ScrollableComboBox(
@@ -673,12 +704,11 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
 
     # ─── Provider-aware visibility ────────────────────────────────────────
 
-    def _on_provider_change(self, provider: str | None = None):
+    def _on_provider_change(self, *args):
         if hasattr(self, "_loading_profile") and self._loading_profile:
             return
-        if not provider:
-            provider_info = self.field_widgets.get("provider")
-            provider = provider_info["var"].get() if provider_info else ""
+        provider_info = self.field_widgets.get("provider")
+        provider = provider_info["var"].get() if provider_info else ""
 
         # Check thinking toggle state
         thinking_info = self.field_widgets.get("thinking")
@@ -702,6 +732,17 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
             if provider_ok and thinking_ok:
                 row.pack(fill="x", pady=3)
 
+        # Transcription provider SMART mode constraints
+        if provider == "transcription":
+            mode_info = self.field_widgets.get("transcribe_mode")
+            mode = mode_info["var"].get() if mode_info else "VERBATIM"
+            if mode == "SMART":
+                # Hide diarization and timestamps (incompatible with SMART mode)
+                for key in ("transcribe_diarization", "transcribe_timestamps"):
+                    row = self.field_rows.get(key)
+                    if row:
+                        row.pack_forget()
+
         # Dynamic bold for base_url label when provider is custom
         if self._custom_url_label:
             is_cond_required = False
@@ -713,12 +754,12 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
                 if self.use_ctk:
                     self._custom_url_label.configure(font=get_ctk_font(12, "bold"))
                 else:
-                    self._custom_url_label.configure(font=("Segoe UI", 9, "bold"))
+                    self._custom_url_label.configure(font=get_tk_font(9, "bold"))
             else:
                 if self.use_ctk:
                     self._custom_url_label.configure(font=get_ctk_font(12))
                 else:
-                    self._custom_url_label.configure(font=("Segoe UI", 9))
+                    self._custom_url_label.configure(font=get_tk_font(9))
 
         # Update summary when provider changes
         self._update_summary()
@@ -1010,7 +1051,7 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
             else:
                 self._summary_active_lbl.configure(
                     text="★ Active Profile",
-                    font=("Segoe UI", 10, "bold"),
+                    font=get_tk_font(10, "bold"),
                     fg=c.accent,
                 )
             self._summary_active_lbl.pack(anchor="w", pady=(2, 0))
@@ -1036,6 +1077,11 @@ class ConnectionProfileManager(ctk.CTkToplevel if HAVE_CTK else tk.Toplevel):
                 # Thinking sub-fields visibility
                 elif key_field in THINKING_FIELDS and not thinking_enabled:
                     visible = False
+                # Transcription SMART mode visibility constraints
+                elif provider == "transcription" and key_field in ("transcribe_diarization", "transcribe_timestamps"):
+                    mode_info = self.field_widgets.get("transcribe_mode")
+                    if mode_info and mode_info["var"].get() == "SMART":
+                        visible = False
 
             # Get display value
             val = ""

@@ -15,9 +15,19 @@ import threading
 import time
 from typing import Dict, Optional
 
+from ..platform import is_linux
+from ..platform.clipboard import copy_text as platform_copy_text
+from ..platform.clipboard import paste_text as platform_paste_text
+from ..platform.input import type_text as platform_type_text
 from .hotkey import HotkeyListener
 from .prompts import get_prompts_config
 from .text_handler import TextHandler
+
+# Minimum characters to buffer before typing during streaming.
+# Linux uses a larger buffer to reduce wlrctl subprocess overhead
+# (each buffer flush spawns a subprocess). Windows types per-character
+# via pynput so a smaller buffer is fine.
+_STREAM_BUFFER_CHARS = 80 if is_linux() else 20
 
 
 class TextEditToolApp:
@@ -107,11 +117,34 @@ class TextEditToolApp:
 
         logging.info(f"Starting TextEditTool with hotkey: {self.hotkey}")
 
-        # Create and start hotkey listener
+        # Create and start hotkey listener (no-op on Linux — use --trigger textedit / chat)
         self.hotkey_listener = HotkeyListener(shortcut=self.hotkey, callback=self._on_hotkey_pressed)
         self.hotkey_listener.start()
 
-        print(f"  ✅ TextEditTool: Hotkey '{self.hotkey}' registered")
+        if self.hotkey_listener.is_running():
+            print(f"  ✅ TextEditTool: Hotkey '{self.hotkey}' registered")
+        else:
+            # Linux IPC path — surface capture capabilities once at start
+            caps = "trigger via: --trigger textedit"
+            if is_linux():
+                try:
+                    from ..platform.clipboard import is_wl_clipboard_available
+                    from ..platform.input import is_wlrctl_available
+
+                    parts = []
+                    if is_wl_clipboard_available():
+                        parts.append("primary/clipboard")
+                    else:
+                        parts.append("wl-clipboard missing")
+                    if is_wlrctl_available():
+                        parts.append("hybrid Ctrl+C")
+                    else:
+                        parts.append("wlrctl missing (keyboard select limited)")
+                    if parts:
+                        caps = f"{'; '.join(parts)}; {caps}"
+                except Exception:
+                    pass
+            print(f"  ✅ TextEditTool: Ready ({caps})")
 
     def stop(self):
         """Stop the TextEditTool application."""
@@ -141,11 +174,43 @@ class TextEditToolApp:
         # Multiple concurrent invocations are allowed - each operates independently
         threading.Thread(target=self._show_popup, daemon=True).start()
 
+    def _get_popup_position(self) -> tuple[Optional[int], Optional[int]]:
+        """Get a compositor cursor position without querying Tk off its GUI thread."""
+        try:
+            from ..platform.pointer import get_pointer_position
+
+            position = get_pointer_position()
+            if position is not None:
+                return position[0], position[1] + 20
+        except Exception as exc:
+            logging.debug("Could not get compositor cursor position: %s", exc)
+        return None, None
+
+    def show_direct_chat(self):
+        """Open Direct Chat without reading the current selection or clipboard."""
+        logging.debug("Showing Direct Chat input popup")
+
+        from .core import GUICoordinator
+
+        on_tts = self._on_tts_requested if self.config.get("tts_enabled", True) else None
+        x, y = self._get_popup_position()
+        GUICoordinator.get_instance().request_input_popup(
+            on_submit=self._on_direct_chat,
+            on_close=self._on_popup_closed,
+            x=x,
+            y=y,
+            on_tts=on_tts,
+        )
+
     def _show_popup(self):
         """Show the appropriate popup window via GUICoordinator."""
         logging.debug("Showing popup window via GUICoordinator")
 
         from .core import GUICoordinator
+
+        # Capture before selection retrieval so the popup follows the invocation
+        # point even when a slow application needs a Ctrl+C retry.
+        x, y = self._get_popup_position()
 
         # Get selected text (captured locally to avoid race conditions
         # when multiple hotkey presses trigger concurrent popups)
@@ -166,6 +231,8 @@ class TextEditToolApp:
                 on_option_selected=self._on_option_selected,
                 on_close=self._on_popup_closed,
                 selected_text=selected_text,
+                x=x,
+                y=y,
                 on_tts=on_tts,
                 on_request_compare_text=self._on_request_compare_text,
             )
@@ -173,7 +240,11 @@ class TextEditToolApp:
             # No text selected - show simple input popup via coordinator
             logging.debug("No text selected, showing input popup")
             GUICoordinator.get_instance().request_input_popup(
-                on_submit=self._on_direct_chat, on_close=self._on_popup_closed, on_tts=on_tts
+                on_submit=self._on_direct_chat,
+                on_close=self._on_popup_closed,
+                x=x,
+                y=y,
+                on_tts=on_tts,
             )
 
     def _on_popup_closed(self):
@@ -541,9 +612,13 @@ class TextEditToolApp:
     def _type_text_chunk(self, text: str) -> bool:
         """
         Insert text chunk using keyboard typing with rate limiting.
-        Used for STREAMING mode only - types character by character.
+        Used for STREAMING mode only.
+
+        **Windows:** pynput character-by-character typing.
+        **Linux:** chunked ``wlrctl keyboard type`` (no per-character subprocess spam).
+
         Avoids clipboard to prevent filling clipboard managers.
-        Uses configurable delay between characters for stability.
+        Uses configurable delay (per character on Windows; between chunks on Linux).
 
         Newlines are sent as Shift+Enter to avoid triggering form submissions
         in applications like chat inputs, Discord, etc.
@@ -554,7 +629,26 @@ class TextEditToolApp:
         Returns:
             True if successful, False if aborted
         """
-        import time
+        if is_linux():
+            try:
+                # delay_ms handles inter-chunk delay within a single type_text() call.
+                # For streaming, each call typically has just one chunk (~80 chars),
+                # so we also add a proportional post-typing delay to throttle the
+                # rate of wlrctl invocations.
+                ok = platform_type_text(
+                    text,
+                    delay_ms=int(self.typing_delay_ms or 0),
+                    abort_check=lambda: self.streaming_aborted,
+                )
+                if ok and (self.typing_delay_ms or 0) > 0 and not self.streaming_aborted:
+                    # Proportional delay: (characters typed) × (ms per character)
+                    # This mirrors Windows per-character delay behavior.
+                    delay_s = (len(text) * float(self.typing_delay_ms)) / 1000.0
+                    time.sleep(delay_s)
+                return ok
+            except Exception as e:
+                logging.error(f"Error typing text chunk (Linux/wlrctl): {e}")
+                return False
 
         from pynput import keyboard as pykeyboard
 
@@ -604,18 +698,56 @@ class TextEditToolApp:
         This is faster than character-by-character typing and provides
         a better user experience when streaming is disabled.
 
+        **Windows:** pyperclip + SendInput Ctrl+V.
+        **Linux:** wl-copy + wlrctl Ctrl+V (no Win32 SendInput).
+
         Args:
             text: The text to paste
 
         Returns:
             True if successful, False otherwise
         """
-        import time
-
-        import pyperclip
-
         if not text:
             return False
+
+        if is_linux():
+            try:
+                clipboard_backup = platform_paste_text(primary=False)
+            except Exception:
+                clipboard_backup = ""
+
+            try:
+                cleaned_text = text.rstrip("\n")
+                if not platform_copy_text(cleaned_text):
+                    logging.error("Linux instant paste: failed to set clipboard")
+                    return False
+
+                time.sleep(0.05)
+                if not self.text_handler._send_paste_keystroke():
+                    logging.error("Linux instant paste: wlrctl Ctrl+V failed")
+                    try:
+                        platform_copy_text(clipboard_backup)
+                    except Exception:
+                        pass
+                    return False
+
+                time.sleep(0.1)
+                try:
+                    platform_copy_text(clipboard_backup)
+                except Exception:
+                    pass
+
+                logging.debug(f"Pasted {len(cleaned_text)} chars instantly (Linux)")
+                return True
+            except Exception as e:
+                logging.error(f"Error pasting text (Linux): {e}")
+                try:
+                    platform_copy_text(clipboard_backup)
+                except Exception:
+                    pass
+                return False
+
+        import pyperclip
 
         # Backup current clipboard
         try:
@@ -684,8 +816,6 @@ class TextEditToolApp:
             action_key: Label for logging and notification
             action_config: Optional action config dict (may contain connection_profile)
         """
-        import pyperclip
-
         from ..profile_resolver import resolve_profile
         from ..request_pipeline import RequestContext, RequestOrigin, RequestPipeline
 
@@ -712,9 +842,10 @@ class TextEditToolApp:
             return
 
         if ctx.response_text:
-            # Copy to clipboard
+            # Copy to clipboard (platform service on Linux / pyperclip on Windows)
             try:
-                pyperclip.copy(ctx.response_text)
+                if not self.text_handler.copy_to_clipboard(ctx.response_text):
+                    raise RuntimeError("copy_to_clipboard returned False")
 
                 # Play sound
                 from ..utils import play_sound
@@ -859,7 +990,7 @@ class TextEditToolApp:
                     # Buffer to accumulate chunks before typing (helps with Unicode)
                     chunk_buffer = []
                     buffer_size = 0
-                    MIN_BUFFER_CHARS = 20  # Accumulate at least 20 chars before typing
+                    MIN_BUFFER_CHARS = _STREAM_BUFFER_CHARS
                     typing_aborted = False
 
                     def type_chunk(chunk):

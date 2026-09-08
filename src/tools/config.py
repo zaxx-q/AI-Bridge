@@ -233,6 +233,26 @@ def get_file_type_mappings(config: Dict[str, Any]) -> Dict[str, List[str]]:
     return config.get("file_processor", {}).get("file_type_mappings", {})
 
 
+def save_tools_config(config: Dict[str, Any], filepath: str = TOOLS_CONFIG_FILE) -> bool:
+    """
+    Save tools configuration to JSON file.
+
+    Args:
+        config: Configuration dictionary to save
+        filepath: Path to tools_config.json
+
+    Returns:
+        True if saved successfully
+    """
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        return True
+    except IOError as e:
+        print(f"[Error] Failed to save tools config: {e}")
+        return False
+
+
 def list_available_prompts(config: Dict[str, Any], filter_input_type: str | None = None) -> List[Dict[str, Any]]:
     """
     List all available prompts for file processor.

@@ -17,9 +17,13 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional
 
+from ..platform import is_linux
 from .hotkey import HotkeyListener
 from .prompts import PromptsConfig
 from .screen_snip import CaptureResult
+
+# Minimum characters to buffer before typing during streaming (matches text_edit_tool).
+_STREAM_BUFFER_CHARS = 80 if is_linux() else 20
 
 
 class SnipToolApp:
@@ -86,7 +90,23 @@ class SnipToolApp:
         self.hotkey_listener = HotkeyListener(shortcut=self.hotkey, callback=self._on_hotkey_pressed)
         self.hotkey_listener.start()
 
-        print(f"  ✅ SnipTool: Hotkey '{self.hotkey}' registered")
+        if self.hotkey_listener.is_running():
+            print(f"  ✅ SnipTool: Hotkey '{self.hotkey}' registered")
+        else:
+            # Linux IPC path (no global pynput hotkeys)
+            capture_backend = ""
+            try:
+                from ..platform.detect import is_linux
+                from ..platform.screenshot import is_grim_slurp_available
+
+                if is_linux():
+                    if is_grim_slurp_available():
+                        capture_backend = "grim+slurp; "
+                    else:
+                        capture_backend = "grim/slurp missing — install both for capture; "
+            except Exception:
+                pass
+            print(f"  ✅ SnipTool: Ready ({capture_backend}trigger via: --trigger snip)")
 
     def stop(self):
         """Stop the snip tool."""
@@ -159,7 +179,16 @@ class SnipToolApp:
         # Get combined prompts for popup
         prompts_config = self._get_combined_prompts()
 
+        from ..platform.pointer import get_pointer_position
         from .core import GUICoordinator
+
+        x = y = None
+        try:
+            position = get_pointer_position()
+            if position is not None:
+                x, y = position[0], position[1] + 20
+        except Exception as exc:
+            logging.debug("Could not get compositor cursor position: %s", exc)
 
         GUICoordinator.get_instance().request_snip_popup(
             capture_result=capture_result,
@@ -167,6 +196,8 @@ class SnipToolApp:
             on_action=on_action_with_capture,
             on_close=self._on_popup_closed,
             on_request_compare_capture=self._on_request_compare_capture,
+            x=x,
+            y=y,
         )
 
     def _on_request_compare_capture(self, on_capture, on_cancel):
@@ -441,10 +472,9 @@ class SnipToolApp:
 
     def _copy_to_clipboard_with_notification(self, messages, action_key, action_config=None):
         """Execute non-streaming request, copy to clipboard, show notification."""
-        import pyperclip
-
         from ..profile_resolver import resolve_profile
         from ..request_pipeline import RequestContext, RequestOrigin, RequestPipeline
+        from .text_handler import TextHandler
 
         resolved = resolve_profile(action_config, self.config, self.ai_params, self.key_managers)
 
@@ -467,9 +497,10 @@ class SnipToolApp:
             return
 
         if ctx.response_text:
-            # Copy to clipboard
+            # Copy to clipboard (platform service on Linux / pyperclip on Windows)
             try:
-                pyperclip.copy(ctx.response_text)
+                if not TextHandler.copy_to_clipboard(ctx.response_text):
+                    raise RuntimeError("copy_to_clipboard returned False")
 
                 # Play sound
                 from ..utils import play_sound
@@ -533,7 +564,7 @@ class SnipToolApp:
             # Buffer to accumulate chunks before typing (helps with Unicode)
             chunk_buffer = []
             buffer_size = 0
-            MIN_BUFFER_CHARS = 20
+            MIN_BUFFER_CHARS = _STREAM_BUFFER_CHARS
             typing_aborted = False
 
             def type_chunk(chunk):
