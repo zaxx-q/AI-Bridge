@@ -1,6 +1,6 @@
 [project]
 name = "AIPromptBridge"
-version = "7.0.0"
+version = "8.2.0"
 # Stick to 3.13.x for Nuitka stability (3.14 not fully stable yet).
 # Exact interpreter for this repo is pinned in .python-version (3.13.14).
 requires-python = ">=3.13,<3.14"
