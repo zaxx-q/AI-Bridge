@@ -53,13 +53,13 @@ Linux does **not** use cx_Freeze. The outer launcher is `scripts/linux_launcher.
 _LAUNCHER="$(readlink -f "${BASH_SOURCE[0]}")"   # resolve PATH symlinks
 ROOT="$(cd "$(dirname "${_LAUNCHER}")" && pwd)"
 # --trigger → system python3 + aipb_trigger.py (stdlib IPC, ~tens of ms)
-# else     → Nuitka Internal with --launched-mode=console
-exec "$ROOT/bin/AIPromptBridge_Internal" --launched-mode=console "$@"
+# else     → conditional tmux wrapper (tmux new-session [-d] -A -s aipromptbridge …)
+#            wrapping "$ROOT/bin/AIPromptBridge_Internal" --launched-mode=console "$@"
 ```
 
-`--launched-mode` is required: `main.setup_workspace()` refuses a bare internal binary so CWD/config always resolve to the deploy root (parent of `bin/`). Symlink resolution lets users put only a link on `PATH` (e.g. `~/.local/bin/AIPromptBridge` → install root) without breaking the `bin/` lookup.
+`--launched-mode` is required: `main.setup_workspace()` refuses a bare internal binary so CWD/config always resolve to the deploy root (parent of `bin/`). Symlink resolution lets users put only a link on `PATH` (e.g. `~/.local/bin/AIPromptBridge` → install root) without breaking the `bin/` lookup. When `tmux` is available, normal launches are wrapped in `tmux new-session -A -s aipromptbridge` (and `-d` when `--tmux-detached` is passed by autostart).
 
-**`--trigger` fast path:** compositor binds must not cold-start the ~100MB Nuitka tree. The outer launcher execs `aipb_trigger.py` (stdlib-only; also in source as `scripts/aipb_trigger.py` / `python -m src.platform.ipc`) so hotkeys stay in the tens of milliseconds.
+**`--trigger` fast path:** compositor binds must not cold-start the ~100MB Nuitka tree or interact with tmux. The outer launcher execs `aipb_trigger.py` (stdlib-only; also in source as `scripts/aipb_trigger.py` / `python -m src.platform.ipc`) before any tmux check so hotkeys stay in the tens of milliseconds.
 
 ## Component 2: The Internal Application (Bin)
 

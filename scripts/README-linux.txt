@@ -41,9 +41,17 @@ Runtime system packages (not bundled)
   ffmpeg         pulse capture for system audio (+ optional sounds)
   libportaudio2  mic capture via PyAudio (if not fully bundled)
   StatusNotifier host (e.g. waybar / dms) for tray
+  tmux           persistent console session and tray terminal attachment (optional)
 
 Build baseline: glibc from Ubuntu 24.04 (x86_64). Older distros may
 need a newer glibc or a source install instead.
+
+Interactive console (tmux)
+--------------------------
+  When tmux is installed, launches run in a named session "aipromptbridge".
+  You can attach to the running console at any time:
+    - via tray menu: "Open Terminal (tmux)"
+    - via terminal:  tmux attach-session -t aipromptbridge
 
 Self-update
 -----------

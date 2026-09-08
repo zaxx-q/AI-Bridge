@@ -631,6 +631,11 @@ Linux Wayland (niri / wlroots) supported:
         ),
     )
     parser.add_argument(
+        "--tmux-detached",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--launched-mode",
         help=argparse.SUPPRESS,  # Hidden argument used by launchers
     )
@@ -996,6 +1001,16 @@ def main():
     # Heavy GUI/web imports are deferred until after this branch.
     if args.trigger:
         sys.exit(run_trigger_client(args.trigger))
+
+    if is_linux() and not _is_compiled():
+        from src.platform.tmux import maybe_exec_in_tmux
+
+        source_command = [sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]]
+        try:
+            maybe_exec_in_tmux(source_command, detached=args.tmux_detached)
+        except OSError as exc:
+            # Do not make tmux an application startup requirement.
+            print(f"⚠️  Could not start tmux session; continuing normally: {exc}")
 
     # Full application path — load Flask/GUI/tools now.
     _load_full_app_imports()

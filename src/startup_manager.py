@@ -8,6 +8,8 @@ Cross-platform launch-at-login:
   - Source: current interpreter + ``main.py``, ``Path=`` project root
   - Compiled (Nuitka split): outer ``AIPromptBridge`` shell launcher preferred,
     ``Path=`` deploy root so CWD-relative config works
+  - Appends ``--tmux-detached`` so autostart runs in a managed detached tmux session
+    when tmux is available.
 
 Supports launcher detection for Windows (``.exe``) and Linux (shell wrapper)
 Nuitka split builds, plus local development environments.
@@ -348,8 +350,12 @@ def _build_desktop_entry() -> Tuple[Optional[str], Optional[str]]:
     """
     Build desktop file body and error message.
 
-    Compiled: ``Exec=<launcher|binary>``, ``Path=<deploy root>``.
-    Source: ``Exec=<python> <main.py>``, ``Path=<project root>``.
+    Compiled: ``Exec=<launcher|binary> --tmux-detached``, ``Path=<deploy root>``.
+    Source: ``Exec=<python> <main.py> --tmux-detached``, ``Path=<project root>``.
+
+    Linux autostart requests a detached tmux session (``--tmux-detached``) when
+    tmux is available, keeping headless autostart interactive via ``tmux attach``
+    or the tray.
 
     Returns:
         (content, None) on success, or (None, error_message) on failure.
@@ -360,6 +366,9 @@ def _build_desktop_entry() -> Tuple[Optional[str], Optional[str]]:
         if is_compiled():
             return None, "Could not determine compiled executable path for autostart."
         return None, "Could not find main.py (is the project root correct?)"
+
+    if is_linux():
+        exec_line = f"{exec_line} --tmux-detached"
 
     path_line = str(root.resolve())
 

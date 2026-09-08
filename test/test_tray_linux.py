@@ -191,10 +191,60 @@ class TestTrayMenuLinux:
             assert mock_sni_cls.call_args.kwargs.get("title") == "AIPromptBridge"
             mock_sni_instance.run.assert_called_once()
 
+    def test_tmux_terminal_item_shown_when_available(self):
+        config_mock = {
+            "text_edit_tool_enabled": True,
+            "screen_snip_enabled": True,
+            "audio_tool_enabled": True,
+            "tts_enabled": True,
+        }
+        with (
+            patch("src.tray.is_windows", return_value=False),
+            patch("src.tray.is_linux", return_value=True),
+            patch("src.platform.tmux.is_tmux_available", return_value=True),
+            patch("src.web_server.CONFIG", config_mock),
+            patch("src.tray.HAVE_SYSTRAY", True),
+        ):
+            tray = TrayApp(allow_console_toggle=False)
+            opts = tray.build_menu_options()
+            names = [o[0] for o in opts]
+            assert any("Open Terminal" in n for n in names)
+
+    def test_tmux_terminal_item_hidden_when_unavailable(self):
+        config_mock = {
+            "text_edit_tool_enabled": True,
+            "screen_snip_enabled": True,
+            "audio_tool_enabled": True,
+            "tts_enabled": True,
+        }
+        with (
+            patch("src.tray.is_windows", return_value=False),
+            patch("src.tray.is_linux", return_value=True),
+            patch("src.platform.tmux.is_tmux_available", return_value=False),
+            patch("src.web_server.CONFIG", config_mock),
+            patch("src.tray.HAVE_SYSTRAY", True),
+        ):
+            tray = TrayApp(allow_console_toggle=False)
+            opts = tray.build_menu_options()
+            names = [o[0] for o in opts]
+            assert not any("Open Terminal" in n for n in names)
+
+    def test_on_open_tmux_terminal_handler(self):
+        with patch("src.platform.tmux.open_terminal_and_attach", return_value=(True, "Opened")) as mock_open:
+            tray = TrayApp()
+            tray._on_open_tmux_terminal(None)
+            mock_open.assert_called_once()
+
     def test_on_restart_compiled_linux_uses_execv(self):
         from pathlib import Path
 
         launcher_file = "/home/test/.local/AIPromptBridge/AIPromptBridge"
+        orig_is_file = Path.is_file
+
+        def mock_is_file(self):
+            if str(self) == launcher_file:
+                return True
+            return orig_is_file(self)
 
         with (
             patch("sys.platform", "linux"),
@@ -208,7 +258,7 @@ class TestTrayMenuLinux:
                 ],
             ),
             patch("src.startup_manager.get_launcher_path", return_value=launcher_file),
-            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "is_file", mock_is_file),
             patch("os.execv") as mock_execv,
         ):
             tray = TrayApp()

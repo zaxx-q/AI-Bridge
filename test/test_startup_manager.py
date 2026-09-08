@@ -84,6 +84,7 @@ def test_linux_autostart_enable_disable(tmp_path: Path, monkeypatch: pytest.Monk
     assert "Type=Application" in content
     assert "Name=AIPromptBridge" in content
     assert "Exec=" in content
+    assert "--tmux-detached" in content
     assert "Path=" in content
     assert "main.py" in content
     assert "X-GNOME-Autostart-enabled=true" in content
@@ -255,5 +256,6 @@ def test_linux_compiled_autostart_desktop(tmp_path: Path, monkeypatch: pytest.Mo
     content = desktop.read_text(encoding="utf-8")
     assert "main.py" not in content
     assert "AIPromptBridge_Internal" in content
+    assert "--tmux-detached" in content
     assert f"Path={deploy.resolve()}" in content or "Path=" in content
     sm.set_startup(False)

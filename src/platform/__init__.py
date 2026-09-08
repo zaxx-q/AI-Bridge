@@ -51,9 +51,19 @@ from .screenshot import (
     is_grim_slurp_available,
 )
 from .single_instance import InstanceLock, acquire_single_instance, acquire_single_instance_mutex
+from .tmux import (
+    TMUX_SESSION_NAME,
+    build_tmux_new_session_command,
+    is_inside_tmux,
+    is_tmux_available,
+    maybe_exec_in_tmux,
+    open_terminal_and_attach,
+    session_exists,
+)
 
 __all__ = [
     "KNOWN_TRIGGERS",
+    "TMUX_SESSION_NAME",
     "InstanceLock",
     "RawConsole",
     "TriggerServer",
@@ -61,6 +71,7 @@ __all__ = [
     "acquire_single_instance",
     "acquire_single_instance_mutex",
     "backend_supports_keystroke_delay",
+    "build_tmux_new_session_command",
     "capture_full_screen",
     "capture_output",
     "capture_region_interactive",
@@ -83,13 +94,17 @@ __all__ = [
     "has_primary_selection",
     "is_console_input_available",
     "is_grim_slurp_available",
+    "is_inside_tmux",
     "is_keyboard_input_available",
     "is_linux",
+    "is_tmux_available",
     "is_wayland",
     "is_windows",
     "is_wl_clipboard_available",
     "is_wlrctl_available",
     "list_types",
+    "maybe_exec_in_tmux",
+    "open_terminal_and_attach",
     "parse_reply",
     "paste_bytes",
     "paste_image_png",
@@ -97,5 +112,6 @@ __all__ = [
     "paste_via_clipboard_shortcut",
     "press_chord",
     "send_trigger",
+    "session_exists",
     "type_text",
 ]

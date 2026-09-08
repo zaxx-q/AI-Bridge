@@ -4,12 +4,9 @@
 
 ### New Features
 
-- **AI Audio Denoising & Enhancement Presets**: Added neural network noise reduction and speech enhancement presets to the audio processor and batch File Processor:
-  - **AI Noise Reduction**: Uses RNNoise (`arnndn`) to strip background hiss, fan noise, and hum while preserving clear speech.
-  - **AI Lecture Cleanup**: A multi-stage pipeline designed for classroom and lecture audio that combines rumble removal, neural noise reduction, speech level normalization, and clarity EQ.
-  - **AI Deep Denoise**: Neural noise suppression powered by DeepFilterNet, with automated 48kHz WAV conversion and speech leveling.
-  - **Bundled RNNoise Models**: Included 6 pre-trained `.rnnn` model profiles (`sh` Speech, `bd` Voice, `cb` Crowd, `std` Baseline, `mp` Noisy Environment, `lq` Voice in Noise) with an interactive model selection menu and audio preview playback.
+- **AI Audio Denoising & Enhancement Presets**: Added neural network noise reduction and speech enhancement presets to the audio processor and batch File Processor
 - **`wtype` Virtual Keyboard on Linux**: Added support for `wtype` as the default virtual keyboard backend on Wayland compositors. This enables smooth text streaming with native per-keystroke delay (`wtype -d`), full UTF-8 Unicode, and emoji support directly through standard input.
+- **Linux Tmux Console & Tray Terminal Attachment**: Added automatic `tmux` session management (`aipromptbridge`) on Linux. When `tmux` is available, application launches run inside a persistent session, XDG autostart runs detached in the background, and a new "Open Terminal (tmux)" tray action opens the desktop's default terminal (`xdg-terminal-exec`, `$TERMINAL`, or installed terminal emulators) attached to the active session. Secondary interactive launches attach to the existing session without starting duplicate processes, while `--trigger` IPC requests remain lightweight and tmux-free.
 
 ### Improvements
 

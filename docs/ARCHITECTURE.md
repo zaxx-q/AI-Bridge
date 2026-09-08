@@ -9,7 +9,7 @@ AIPromptBridge is a **Windows-first** Python desktop app with **Linux Wayland** 
 Major pieces:
 
 1. **Flask Web Server** - Internal REST API for session/model management
-2. **System Tray** - `infi.systray` (Windows) / `pystray` (Linux StatusNotifier)
+2. **System Tray** - `infi.systray` (Windows) / `StatusNotifier` / `pystray` (Linux)
 3. **CustomTkinter GUI** - Chat, session browser, popups, multi-theme UI
 4. **Rich Console Interface** - Terminal UI with structured logging
 5. **TextEditTool** - Selection capture + AI actions (hotkeys on Windows; IPC `--trigger` on Linux)
@@ -47,10 +47,10 @@ flowchart TB
         Shot["screenshot.py"]
         Inst["single_instance.py"]
     end
-    
+
     subgraph Pipeline["Request Pipeline"]
         RP["request_pipeline.py<br/>• Logging<br/>• Token tracking<br/>• Origin tracking<br/>• Abort signal propagation"]
-    end    
+    end
     subgraph APIClient["API Client"]
         AC["api_client.py<br/>create_provider()"]
     end
@@ -58,7 +58,7 @@ flowchart TB
     subgraph Registry["Provider Registry"]
         PR["registry.py<br/>ProviderDefinition & Registry"]
     end
-    
+
     subgraph Providers["Providers (BaseProvider)"]
         Gemini["GeminiNativeProvider<br/>(gemini_native.py)"]
         Anthropic["AnthropicProvider<br/>(anthropic.py)"]
@@ -69,11 +69,11 @@ flowchart TB
     subgraph GeminiSvcs["Gemini Services"]
         GS["gemini_services.py<br/>• Files API<br/>• Batch API<br/>• Native TTS"]
     end
-    
+
     subgraph KeyMgr["Key Manager"]
         KM["key_manager.py<br/>• Multiple keys per pool<br/>• Auto-rotation on 429/401/403<br/>• Exhaustion detection<br/>• Delay + retry same key on 5xx"]
     end
-    
+
     Tray --> Pipeline
     Flask --> Pipeline
     Console --> Tools
@@ -131,30 +131,30 @@ class BaseProvider:
 
 The `ProviderDefinition` dataclass (`src/providers/registry.py`) defines metadata for each provider, mapping provider type IDs to specific provider classes, authentication styles, default base URLs, and KeyStore key pools.
 
-| Provider ID | Display Name | Default Base URL | Auth Style | Provider Class | Key Pool |
-|---|---|---|---|---|---|
-| `google` | Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | `x-goog-api-key` header | `GeminiNativeProvider` | `google` |
-| `anthropic` | Anthropic Claude | `https://api.anthropic.com/v1` | `x-api-key` header | `AnthropicProvider` | `anthropic` |
-| `openai` | OpenAI | `https://api.openai.com/v1` | `Bearer` token | `OpenAICompatibleProvider` | `openai` |
-| `openrouter` | OpenRouter | `https://openrouter.ai/api/v1` | `Bearer` token | `OpenAICompatibleProvider` | `openrouter` |
-| `xai` | xAI / Grok | `https://api.x.ai/v1` | `Bearer` token | `OpenAICompatibleProvider` | `xai` |
-| `mistral` | Mistral | `https://api.mistral.ai/v1` | `Bearer` token | `OpenAICompatibleProvider` | `mistral` |
-| `cohere` | Cohere | `https://api.cohere.ai/compatibility/v1` | `Bearer` token | `OpenAICompatibleProvider` | `cohere` |
-| `custom` | Custom (OAI-Compatible) | *(user-provided)* | `Bearer` token | `OpenAICompatibleProvider` | `custom` |
+| Provider ID  | Display Name            | Default Base URL                                   | Auth Style              | Provider Class             | Key Pool     |
+| ------------ | ----------------------- | -------------------------------------------------- | ----------------------- | -------------------------- | ------------ |
+| `google`     | Google Gemini           | `https://generativelanguage.googleapis.com/v1beta` | `x-goog-api-key` header | `GeminiNativeProvider`     | `google`     |
+| `anthropic`  | Anthropic Claude        | `https://api.anthropic.com/v1`                     | `x-api-key` header      | `AnthropicProvider`        | `anthropic`  |
+| `openai`     | OpenAI                  | `https://api.openai.com/v1`                        | `Bearer` token          | `OpenAICompatibleProvider` | `openai`     |
+| `openrouter` | OpenRouter              | `https://openrouter.ai/api/v1`                     | `Bearer` token          | `OpenAICompatibleProvider` | `openrouter` |
+| `xai`        | xAI / Grok              | `https://api.x.ai/v1`                              | `Bearer` token          | `OpenAICompatibleProvider` | `xai`        |
+| `mistral`    | Mistral                 | `https://api.mistral.ai/v1`                        | `Bearer` token          | `OpenAICompatibleProvider` | `mistral`    |
+| `cohere`     | Cohere                  | `https://api.cohere.ai/compatibility/v1`           | `Bearer` token          | `OpenAICompatibleProvider` | `cohere`     |
+| `custom`     | Custom (OAI-Compatible) | _(user-provided)_                                  | `Bearer` token          | `OpenAICompatibleProvider` | `custom`     |
 
-*Factory resolution is managed via `create_provider(provider_type, key_manager, config)` in `registry.py`.*
+_Factory resolution is managed via `create_provider(provider_type, key_manager, config)` in `registry.py`._
 
 ### Retry and Key Rotation Logic
 
 Centralized error handling and key-rotation loops are managed automatically by the `BaseProvider` wrapper. If an error is encountered:
 
-| Error Type | Action | Delay |
-| ----------- | ------ | ----- |
-| **429 Rate Limit** | Rotate key immediately and retry | None |
-| **401/402/403 Auth** | Rotate key immediately and retry | None |
-| **5xx Server Error** | Delay and retry with the same key | `config.retry_delay` (Default: 5s) |
-| **Empty Response** | Rotate key, delay, and retry | 2 seconds |
-| **Network Error / Timeout** | Delay and retry | 1 second |
+| Error Type                  | Action                            | Delay                              |
+| --------------------------- | --------------------------------- | ---------------------------------- |
+| **429 Rate Limit**          | Rotate key immediately and retry  | None                               |
+| **401/402/403 Auth**        | Rotate key immediately and retry  | None                               |
+| **5xx Server Error**        | Delay and retry with the same key | `config.retry_delay` (Default: 5s) |
+| **Empty Response**          | Rotate key, delay, and retry      | 2 seconds                          |
+| **Network Error / Timeout** | Delay and retry                   | 1 second                           |
 
 ### Abort Signal Propagation
 
@@ -163,6 +163,7 @@ Every request call accepts an optional `threading.Event` as `abort_event`. Centr
 ### Inline Thinking Extraction
 
 For models served via OpenRouter or custom endpoints that emit reasoning text enclosed in tags (e.g. DeepSeek-R1) instead of using native API thinking JSON fields, `src/providers/inline_thinking.py` parses and separates thinking text from content blocks using robust regex patterns covering:
+
 - XML-style tags: `<think>`, `<thinking>`, `<thought>`
 - Pipe tags: `<|think|>`
 - Channel tags: `<|channel>thought`
@@ -170,6 +171,7 @@ For models served via OpenRouter or custom endpoints that emit reasoning text en
 ### Google Services Isolation
 
 To keep `gemini_native.py` focused purely on LLM text generation, all Google-specific secondary operations are isolated in `src/providers/gemini_services.py`:
+
 - **Files API** (`upload_file`, `delete_file`, `list_files`) - used for large file transfers
 - **Batch API** (`create_batch`) - used by `file_processor.py`
 - **Native TTS Generation** - generates official Gemini speech WAV waveforms
@@ -182,7 +184,7 @@ flowchart LR
         GC["GUICoordinator<br/>(singleton)"]
         Root["ctk.CTk()<br/>(single root)"]
     end
-    
+
     subgraph Windows["Windows (CTkToplevel)"]
         Chat["ChatWindow (windows/chat_window.py)"]
         Browser["SessionBrowser (windows/session_browser.py)"]
@@ -191,12 +193,12 @@ flowchart LR
         AudioUI["AudioAnalyzerWindow (windows/audio_analyzer.py)"]
         TTSUI["TTSWindow (windows/tts_window.py)"]
     end
-    
+
     subgraph OtherThreads["Other Threads"]
         Flask["Flask Thread"]
         Hotkey["Hotkey Thread"]
     end
-    
+
     OtherThreads -->|"request_window()"| GC
     GC -->|"queue-based creation"| Root
     Root --> Chat
@@ -224,18 +226,18 @@ To ensure robustness across different environments, AIPromptBridge includes a ce
 
 ### Window Types
 
-| Window | Purpose |
-| -------- | --------- |
-| `ChatWindow` | Interactive AI chat with streaming |
-| `SessionBrowserWindow` | Browse and restore saved sessions |
-| `PopupWindow` | TextEditTool selection/input dialogs with dual input (Edit/Ask), Compare mode, and scrollable ModifierBar |
-| `SnipPopup` | Result dialog for screen snipping with image preview and action carousel |
-| `AudioAnalyzerWindow` | Audio recording, playback, and analysis interface |
-| `TTSWindow` | Text-to-Speech generation with voice selection, AI Director, and audio playback |
-| `ErrorPopup` | Dialog for displaying API failures to user |
-| `TypingIndicator` | Tooltip showing typing status and abort hotkey |
-| `SettingsWindow` | GUI editor for config.ini with tabbed interface |
-| `PromptEditorWindow` | GUI editor for prompts.json with Playground testing |
+| Window                 | Purpose                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `ChatWindow`           | Interactive AI chat with streaming                                                                        |
+| `SessionBrowserWindow` | Browse and restore saved sessions                                                                         |
+| `PopupWindow`          | TextEditTool selection/input dialogs with dual input (Edit/Ask), Compare mode, and scrollable ModifierBar |
+| `SnipPopup`            | Result dialog for screen snipping with image preview and action carousel                                  |
+| `AudioAnalyzerWindow`  | Audio recording, playback, and analysis interface                                                         |
+| `TTSWindow`            | Text-to-Speech generation with voice selection, AI Director, and audio playback                           |
+| `ErrorPopup`           | Dialog for displaying API failures to user                                                                |
+| `TypingIndicator`      | Tooltip showing typing status and abort hotkey                                                            |
+| `SettingsWindow`       | GUI editor for config.ini with tabbed interface                                                           |
+| `PromptEditorWindow`   | GUI editor for prompts.json with Playground testing                                                       |
 
 ## Request Pipeline
 
@@ -271,8 +273,8 @@ Sessions are stored in `chat_sessions.json` with sequential IDs.
     "title": "First message preview...",
     "model_override": "gemini-3.1-pro-high",
     "messages": [
-      {"role": "user", "content": "..."},
-      {"role": "assistant", "content": "..."}
+      { "role": "user", "content": "..." },
+      { "role": "assistant", "content": "..." }
     ],
     "thinking_content": "...",
     "created_at": "2024-01-01T00:00:00",
@@ -293,6 +295,7 @@ When a session is initiated from the TextEditTool (e.g., asking a question about
 Prompts are managed centrally via `PromptsConfig` (loading `prompts.json` or defaults).
 
 #### Unified Configuration
+
 - `text_edit_tool`: Configuration for text selection actions (Ctrl+Space)
 - `snip_tool`: Configuration for screen snipping actions (Ctrl+Alt+X)
 - `audio_tool`: Configuration for audio analysis actions (Ctrl+Alt+A)
@@ -305,30 +308,35 @@ To keep developer-crafted prompts up-to-date across app updates without overwrit
 
 **1. Action Tagging (`_is_default`)**
 Each action/prompt dictionary carries an `_is_default` boolean:
-| Tag Value | Meaning | On Update |
-|-----------|---------|----------|
-| `true` | Stock default, unmodified | Replaced with latest version |
-| `false` | User-created or modified | Never overwritten |
-| *(missing)* | Pre-tagging migration | Compared to defaults and auto-tagged |
+
+| Tag Value   | Meaning                   | On Update                            |
+| ----------- | ------------------------- | ------------------------------------ |
+| `true`      | Stock default, unmodified | Replaced with latest version         |
+| `false`     | User-created or modified  | Never overwritten                    |
+| _(missing)_ | Pre-tagging migration     | Compared to defaults and auto-tagged |
 
 Merge logic runs at load time in `_ensure_sections()` (for `prompts.json`). Missing `_settings` keys are overlaid without overwriting existing values. When a user deletes a default action via the Prompt Editor, its name is recorded in `_settings.deleted_defaults` (a list). The merge logic skips any name in this list, preventing deleted defaults from reappearing on reload.
 
 **2. String Settings Tracking (`modified_settings`)**
 For string values inside `_settings` (e.g., `chat_system_instruction`), the `PromptEditor` actively tracks user overrides:
+
 - Changing a default string adds its key to `_settings.modified_settings`.
 - Reverting a string back to the exact default removes it from the list.
-During updates, any string *not* present in `_settings.modified_settings` will automatically absorb the latest default value.
+  During updates, any string _not_ present in `_settings.modified_settings` will automatically absorb the latest default value.
 
 **3. Deep Merged Arrays (`popup_groups`)**
 Instead of leaving `popup_groups` entirely isolated, the system performs a non-destructive deep merge:
+
 - New default groups are appended unless the group name appears in `_settings.deleted_groups`.
 - New default items within existing groups are appended unless the item appears in `_settings.deleted_group_items`.
 
 #### Modes
+
 - **Edit Mode** (`"edit"`): Strict text replacement (e.g., Proofread). Uses `base_output_rules_edit`.
 - **General Mode** (`"general"`): Conversational responses (e.g., Explain). Uses `base_output_rules_general`.
 
 #### Context Injection
+
 - `chat_system_instruction`: Used for initial direct chats via the popup.
 - `chat_window_system_instruction`: Default global instruction for follow-up conversations in chat windows.
 - **Origin-Awareness**: If `chat_use_origin_system_prompt` is enabled, sessions initiated from specific tool actions (e.g., `textedit:Explain`, `snip:Extract Text`) persist that action's system prompt for the entire conversation, preserving the specific persona/rules defined for that action.
@@ -363,21 +371,21 @@ Per-session profile override (chat window dropdown)
 
 ### Profile Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `provider` | `google`, `anthropic`, `openai`, `openrouter`, `xai`, `mistral`, `cohere`, `custom` | API provider ID |
-| `model` | string | Model identifier |
-| `streaming` | bool | Enable streaming responses |
-| `thinking` | bool | Enable thinking/reasoning |
-| `thinking_budget` | int | Gemini 2.5 thinking token budget (-1 = auto) |
-| `thinking_level` | `low`, `medium`, `high` | Gemini 3.x thinking level |
-| `reasoning_effort` | `low`, `medium`, `high` | OpenAI-compatible reasoning effort |
-| `temperature` | float or null | Sampling temperature |
-| `max_tokens` | int or null | Max output tokens |
-| `request_timeout` | int | Request timeout in seconds |
-| `base_url` | string | Base URL override for API requests (uses registry default if blank) |
-| `api_key_name` | string | Select key by display name |
-| `api_key_pool` | string | Key pool override |
+| Field              | Type                                                                                | Description                                                         |
+| ------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `provider`         | `google`, `anthropic`, `openai`, `openrouter`, `xai`, `mistral`, `cohere`, `custom` | API provider ID                                                     |
+| `model`            | string                                                                              | Model identifier                                                    |
+| `streaming`        | bool                                                                                | Enable streaming responses                                          |
+| `thinking`         | bool                                                                                | Enable thinking/reasoning                                           |
+| `thinking_budget`  | int                                                                                 | Gemini 2.5 thinking token budget (-1 = auto)                        |
+| `thinking_level`   | `low`, `medium`, `high`                                                             | Gemini 3.x thinking level                                           |
+| `reasoning_effort` | `low`, `medium`, `high`                                                             | OpenAI-compatible reasoning effort                                  |
+| `temperature`      | float or null                                                                       | Sampling temperature                                                |
+| `max_tokens`       | int or null                                                                         | Max output tokens                                                   |
+| `request_timeout`  | int                                                                                 | Request timeout in seconds                                          |
+| `base_url`         | string                                                                              | Base URL override for API requests (uses registry default if blank) |
+| `api_key_name`     | string                                                                              | Select key by display name                                          |
+| `api_key_pool`     | string                                                                              | Key pool override                                                   |
 
 ### Runtime Switching
 
@@ -394,36 +402,36 @@ Per-session profile override (chat window dropdown)
 
 `src/tray.py` exposes one `TrayApp` with platform backends:
 
-| OS | Backend | Notes |
-|----|---------|--------|
-| Windows | `infi.systray` | Native `.ico`; console show/hide + Windows Terminal HWND |
-| Linux | `pystray` | Needs a StatusNotifier host (waybar, dms, …); Pillow image from `icon.ico` |
+| OS      | Backend                                       | Notes                                                                                               |
+| ------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Windows | `infi.systray`                                | Native `.ico`; console show/hide + Windows Terminal HWND                                            |
+| Linux   | `StatusNotifierIcon` (pure D-Bus) / `pystray` | Needs a StatusNotifier host (waybar, dms, …); terminal attachment for `aipromptbridge` tmux session |
 
-Shared menu actions (session browser, chat, snip, audio, TTS, settings, prompts, profiles, updates, restart, quit) call the same tool/GUI entry points used by hotkeys or IPC triggers. Tool enable flags rebuild the menu via config change subscription.
+Shared menu actions (session browser, chat, snip, audio, TTS, settings, prompts, profiles, updates, restart, quit, and Linux "Open Terminal (tmux)") call the same tool/GUI entry points used by hotkeys or IPC triggers. Tool enable flags rebuild the menu via config change subscription.
 
-### Console window behavior (Windows)
+### Console window behavior
 
-| Action | Result |
-| -------- | -------- |
-| Click X on console | Button disabled (grayed out) |
-| Tray → Hide Console | Hides console window |
-| Tray → Show Console | Shows and focuses console |
-| Tray → Quit | Clean shutdown |
+| Action                       | Windows               | Linux                                                       |
+| ---------------------------- | --------------------- | ----------------------------------------------------------- |
+| Tray → Hide Console          | Hides console window  | N/A (no Win32 console HWND)                                 |
+| Tray → Show / Toggle Console | Shows/focuses console | N/A                                                         |
+| Tray → Open Terminal (tmux)  | N/A                   | Opens desktop terminal attached to `aipromptbridge` session |
+| Tray → Quit                  | Clean shutdown        | Clean shutdown                                              |
 
-Linux omits console toggle items (no Win32 console HWND control).
+Linux omits Windows console toggle items and instead provides **Open Terminal (tmux)** when `tmux` is available.
 
 ## Platform layer & Linux I/O
 
 OS-specific I/O is concentrated in `src/platform/` (no GUI imports):
 
-| Concern | Windows | Linux (Wayland / niri) |
-|---------|---------|-------------------------|
-| Invoke tools | pynput global hotkeys + tray | Unix-socket IPC: `main.py --trigger <name>` |
-| Single instance | Named mutex | Socket bind (same path as IPC) |
-| Clipboard / selection | pyperclip + SendInput / sequence numbers | `wl-copy`/`wl-paste`; primary first; hybrid Ctrl+C via `wlrctl` |
-| Type / paste into apps | pynput / SendInput | `wlrctl keyboard type` + chords |
-| Snip capture | Tk overlay + `PIL.ImageGrab` | `slurp` + `grim` → `CaptureResult` |
-| Desktop audio | PyAudioWPatch WASAPI loopback | `pactl` monitors + `ffmpeg -f pulse` (mic still PyAudio) |
+| Concern                | Windows                                  | Linux (Wayland / niri)                                          |
+| ---------------------- | ---------------------------------------- | --------------------------------------------------------------- |
+| Invoke tools           | pynput global hotkeys + tray             | Unix-socket IPC: `main.py --trigger <name>`                     |
+| Single instance        | Named mutex                              | Socket bind (same path as IPC)                                  |
+| Clipboard / selection  | pyperclip + SendInput / sequence numbers | `wl-copy`/`wl-paste`; primary first; hybrid Ctrl+C via `wlrctl` |
+| Type / paste into apps | pynput / SendInput                       | `wlrctl keyboard type` + chords                                 |
+| Snip capture           | Tk overlay + `PIL.ImageGrab`             | `slurp` + `grim` → `CaptureResult`                              |
+| Desktop audio          | PyAudioWPatch WASAPI loopback            | `pactl` monitors + `ffmpeg -f pulse` (mic still PyAudio)        |
 
 See [LINUX.md](LINUX.md) for packages, niri binds, and limitations.
 
@@ -449,11 +457,11 @@ The terminal interface (`src/terminal.py` and `src/console.py`) uses the `rich` 
 
 Different providers have different thinking mechanisms:
 
-| Provider | Config Key | Values |
-| ---------- | ----------- | -------- |
-| OpenAI-compatible | `reasoning_effort` | `low`, `medium`, `high` |
-| Gemini 2.5 | `thinking_budget` | Integer (tokens, -1 = auto) |
-| Gemini 3.x | `thinking_level` | `low`, `medium`, `high` |
+| Provider          | Config Key         | Values                      |
+| ----------------- | ------------------ | --------------------------- |
+| OpenAI-compatible | `reasoning_effort` | `low`, `medium`, `high`     |
+| Gemini 2.5        | `thinking_budget`  | Integer (tokens, -1 = auto) |
+| Gemini 3.x        | `thinking_level`   | `low`, `medium`, `high`     |
 
 ## Configuration System
 
@@ -489,14 +497,14 @@ The theme system (`src/gui/themes.py`) provides centralized color management wit
 
 ### Available Themes
 
-| Theme | Description | Variants |
-| ------- | ------------- | ---------- |
-| `catppuccin` | Warm pastel colors | Mocha (dark), Latte (light) |
-| `dracula` | Dark purple-based | Classic (dark), Pro (light) |
-| `nord` | Arctic blue palette | Polar Night (dark), Snow Storm (light) |
-| `gruvbox` | Retro earthy colors | Dark, Light |
-| `minimal` | Clean, minimal design | Dark, Light |
-| `highcontrast` | Maximum readability | Dark, Light |
+| Theme          | Description           | Variants                               |
+| -------------- | --------------------- | -------------------------------------- |
+| `catppuccin`   | Warm pastel colors    | Mocha (dark), Latte (light)            |
+| `dracula`      | Dark purple-based     | Classic (dark), Pro (light)            |
+| `nord`         | Arctic blue palette   | Polar Night (dark), Snow Storm (light) |
+| `gruvbox`      | Retro earthy colors   | Dark, Light                            |
+| `minimal`      | Clean, minimal design | Dark, Light                            |
+| `highcontrast` | Maximum readability   | Dark, Light                            |
 
 ### Configuration
 
@@ -526,15 +534,15 @@ is_dark = ThemeRegistry.is_dark_mode()
 
 The `ThemeColors` dataclass provides standardized color names with legacy property aliases:
 
-| Standard | Legacy Alias | Purpose |
-| ---------- | -------------- | --------- |
-| `bg` | `base` | Primary background |
-| `fg` | `text` | Primary text |
-| `accent` | `blue` | Primary accent color |
-| `accent_green` | `green` | Success/positive |
-| `accent_red` | `red` | Error/danger |
-| `code_bg` | `mantle` | Code block background |
-| `blockquote` | `subtext0` | Muted text |
+| Standard       | Legacy Alias | Purpose               |
+| -------------- | ------------ | --------------------- |
+| `bg`           | `base`       | Primary background    |
+| `fg`           | `text`       | Primary text          |
+| `accent`       | `blue`       | Primary accent color  |
+| `accent_green` | `green`      | Success/positive      |
+| `accent_red`   | `red`        | Error/danger          |
+| `code_bg`      | `mantle`     | Code block background |
+| `blockquote`   | `subtext0`   | Muted text            |
 
 ## Emoji Support (Twemoji)
 
@@ -552,13 +560,13 @@ The `EmojiRenderer` class manages the loading, caching, and rendering of emoji i
 ### Rendering Modes
 
 1.  **Markdown Rendering (`src/gui/utils.py`)**:
-    *   During markdown parsing, text segments are processed by `insert_with_emojis(text_widget, text, tags)`.
-    *   It uses `text_widget.image_create()` to embed the PNG images directly into the flow of the rich text.
+    - During markdown parsing, text segments are processed by `insert_with_emojis(text_widget, text, tags)`.
+    - It uses `text_widget.image_create()` to embed the PNG images directly into the flow of the rich text.
 
 2.  **Widget Content (`src/gui/custom_widgets.py`)**:
-    *   `prepare_emoji_content(text, size)` extracts leading emojis from button or label text.
-    *   It returns the text (without emoji) and a `CTkImage` to be used with the `compound="left"` property.
-    *   This is used by `create_emoji_button`, `create_section_header`, and `upgrade_tabview_with_icons`.
+    - `prepare_emoji_content(text, size)` extracts leading emojis from button or label text.
+    - It returns the text (without emoji) and a `CTkImage` to be used with the `compound="left"` property.
+    - This is used by `create_emoji_button`, `create_section_header`, and `upgrade_tabview_with_icons`.
 
 ## Settings Infrastructure
 
@@ -568,18 +576,18 @@ GUI editor for `config.ini` (`src/gui/settings_window.py`):
 
 Modularized as a package (`src/gui/windows/settings_window/`):
 
-| Module | Contents |
-|--------|----------|
-| `config_io.py` | `ConfigData`, `parse_config_full()`, `save_config_full()` — pure data layer |
-| `widgets.py` | `ToggleSwitch`, `FormFieldsMixin` — uniform layout constants and field helpers |
-| `core.py` | Core `SettingsWindow` composing all tab mixins, window lifecycle, save/reset |
-| `tab_general.py` | `GeneralTabMixin` — startup, behavior, updates, server settings |
-| `tab_provider.py` | `ProviderTabMixin` — active profile selector, key pool assignments, request settings |
-| `tab_generation.py` | `GenerationTabMixin` — typing speed settings |
-| `tab_tools.py` | `ToolsTabMixin` — TextEditTool, ScreenSnip, Audio Tool |
-| `tab_tts.py` | `TTSTabMixin` — TTS voice, AI Director, export & playback |
-| `tab_keys.py` | `KeysTabMixin` — API key management per provider |
-| `tab_theme.py` | `ThemeTabMixin` — theme/mode, chat colors, live preview |
+| Module              | Contents                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| `config_io.py`      | `ConfigData`, `parse_config_full()`, `save_config_full()` — pure data layer          |
+| `widgets.py`        | `ToggleSwitch`, `FormFieldsMixin` — uniform layout constants and field helpers       |
+| `core.py`           | Core `SettingsWindow` composing all tab mixins, window lifecycle, save/reset         |
+| `tab_general.py`    | `GeneralTabMixin` — startup, behavior, updates, server settings                      |
+| `tab_provider.py`   | `ProviderTabMixin` — active profile selector, key pool assignments, request settings |
+| `tab_generation.py` | `GenerationTabMixin` — typing speed settings                                         |
+| `tab_tools.py`      | `ToolsTabMixin` — TextEditTool, ScreenSnip, Audio Tool                               |
+| `tab_tts.py`        | `TTSTabMixin` — TTS voice, AI Director, export & playback                            |
+| `tab_keys.py`       | `KeysTabMixin` — API key management per provider                                     |
+| `tab_theme.py`      | `ThemeTabMixin` — theme/mode, chat colors, live preview                              |
 
 - **Tabbed Interface**: General, Provider (profile selector + key pools), Generation (typing settings), Tools, TTS, API Keys, Theme
 - **Uniform Layout**: Standardized field widths and hint positioning via `FormFieldsMixin`
@@ -594,17 +602,17 @@ Modularized as a package (`src/gui/windows/settings_window/`):
 
 GUI editor for `prompts.json` — modularized as a package (`src/gui/windows/prompt_editor/`):
 
-| Module | Contents |
-|--------|----------|
-| `editor.py` | Core `PromptEditorWindow` composing all tab mixins, window lifecycle |
-| `data.py` | JSON I/O (`load_options`, `save_options`), constants |
-| `dialogs.py` | `TestResultDialog` (streaming API test viewer) |
-| `tab_actions.py` | `ActionsTabMixin` — action list, editor, CRUD operations |
-| `tab_settings.py` | `SettingsTabMixin` — settings form, `_get_current_setting()` |
-| `tab_modifiers.py` | `ModifiersTabMixin` — modifier CRUD, default tools |
-| `tab_groups.py` | `GroupsTabMixin` — group CRUD, default tracking |
-| `tab_playground.py` | `PlaygroundTabMixin` — preview, image/audio/snip, API testing |
-| `tab_tts_playground.py` | `TTSPlaygroundMixin` — TTS director, generation, playback |
+| Module                  | Contents                                                             |
+| ----------------------- | -------------------------------------------------------------------- |
+| `editor.py`             | Core `PromptEditorWindow` composing all tab mixins, window lifecycle |
+| `data.py`               | JSON I/O (`load_options`, `save_options`), constants                 |
+| `dialogs.py`            | `TestResultDialog` (streaming API test viewer)                       |
+| `tab_actions.py`        | `ActionsTabMixin` — action list, editor, CRUD operations             |
+| `tab_settings.py`       | `SettingsTabMixin` — settings form, `_get_current_setting()`         |
+| `tab_modifiers.py`      | `ModifiersTabMixin` — modifier CRUD, default tools                   |
+| `tab_groups.py`         | `GroupsTabMixin` — group CRUD, default tracking                      |
+| `tab_playground.py`     | `PlaygroundTabMixin` — preview, image/audio/snip, API testing        |
+| `tab_tts_playground.py` | `TTSPlaygroundMixin` — TTS director, generation, playback            |
 
 - **Actions Tab**: Edit actions for TextEditTool, SnipTool, and AudioTool
 - **Connection Profiles**: Per-action dropdown to assign connection profiles for AI configuration overrides
@@ -641,9 +649,11 @@ To support clean deployment with Nuitka, the application uses a split structure:
 - **Bin**: Contains the heavy standalone application (`bin/AIPromptBridge_Internal.exe`) and dependencies.
 
 ### Compilation State Detection
+
 The application relies heavily on knowing whether it's running from source or compiled to determine where to find assets, configs, and the launcher. This logic is centralized in `src.utils.is_compiled()`, providing a single source of truth across all modules by checking for Nuitka (`__compiled__`) and PyInstaller (`sys.frozen`) build flags.
 
 Workspace logic is handled inline in `main.py` via `setup_workspace()`:
+
 - **From source**: No CWD change needed; runs in the project directory as-is.
 - **Compiled + launcher** (`--launched-mode`): CWD is set to the launcher's directory (parent of `bin/`).
 - **Compiled + no launcher**: Refuses to start — the internal binary must be launched via a launcher.
@@ -659,10 +669,10 @@ AIPromptBridge includes a built-in self-update system that checks GitHub Release
 
 The update process is split across two executables to work around Windows file locking:
 
-| Phase | Executor | Purpose |
-|-------|----------|---------|
-| **1. Detection & Download** | `src/updater.py` (Main App) | Query GitHub API, download zip, extract to `_update_staging/` |
-| **2. File Replacement** | `launcher_console.py` (Launcher) | Swap `bin/` directories, update root files, relaunch |
+| Phase                       | Executor                         | Purpose                                                       |
+| --------------------------- | -------------------------------- | ------------------------------------------------------------- |
+| **1. Detection & Download** | `src/updater.py` (Main App)      | Query GitHub API, download zip, extract to `_update_staging/` |
+| **2. File Replacement**     | `launcher_console.py` (Launcher) | Swap `bin/` directories, update root files, relaunch          |
 
 ### Signal Flow
 
@@ -671,30 +681,30 @@ The update process is split across two executables to work around Windows file l
 
 ### Behavior by Install Type
 
-| Install Type | Behavior |
-|--------------|----------|
-| Compiled (exe) | Full self-update: download, extract, apply, relaunch |
-| Source (python) | Notification-only with link to releases page |
+| Install Type    | Behavior                                             |
+| --------------- | ---------------------------------------------------- |
+| Compiled (exe)  | Full self-update: download, extract, apply, relaunch |
+| Source (python) | Notification-only with link to releases page         |
 
 ### Entry Points
 
-| Entry Point | Location |
-|-------------|----------|
+| Entry Point        | Location                                                      |
+| ------------------ | ------------------------------------------------------------- |
 | Startup auto-check | `main.py` → `background_update_check()` (non-blocking thread) |
-| Terminal `U` key | `terminal.py` → `check_and_prompt_terminal()` |
-| Tray menu | `tray.py` → `_on_check_updates()` (GUI confirmation dialog) |
-| Settings toggle | `settings_window.py` → `update_check_enabled` checkbox |
+| Terminal `U` key   | `terminal.py` → `check_and_prompt_terminal()`                 |
+| Tray menu          | `tray.py` → `_on_check_updates()` (GUI confirmation dialog)   |
+| Settings toggle    | `settings_window.py` → `update_check_enabled` checkbox        |
 
 ### Startup Recovery
 
 `startup_recovery()` in `src/updater.py` runs early in `main()` to handle interrupted updates:
 
-| Scenario | Recovery |
-|----------|----------|
+| Scenario                           | Recovery                              |
+| ---------------------------------- | ------------------------------------- |
 | `_bin_old/` exists, `bin/` missing | Rollback: rename `_bin_old/` → `bin/` |
-| Stale manifest without staging dir | Remove manifest |
-| Leftover staging without manifest | Remove staging dir |
-| Leftover backup after success | Remove `_bin_old/` |
+| Stale manifest without staging dir | Remove manifest                       |
+| Leftover staging without manifest  | Remove staging dir                    |
+| Leftover backup after success      | Remove `_bin_old/`                    |
 
 ### Root File Update Strategy (Windows)
 
@@ -745,19 +755,19 @@ flowchart TB
         S4["Step 4: Output Configuration"]
         S5["Step 5: Execution Settings"]
     end
-    
+
     subgraph Checkpoint["Checkpoint System"]
         CM["TTSCheckpointManager"]
         CP["TTSCheckpoint"]
         FC["Failed Checkpoint"]
     end
-    
+
     subgraph TTS["TTS Generation"]
         TD["TTSToolApp"]
         DIR["AI Director"]
         API["GeminiNativeProvider"]
     end
-    
+
     S1 --> S2 --> S3 --> S4 --> S5
     S5 --> CM
     CM --> CP
@@ -771,24 +781,24 @@ flowchart TB
 
 The `TTSCheckpointManager` extends the base checkpoint system with TTS-specific functionality:
 
-| Method | Purpose |
-|--------|---------|
-| `create()` | Create new checkpoint with all TTS parameters |
-| `save()` | Save checkpoint to `tts_checkpoint.json` |
-| `load()` | Load existing checkpoint |
-| `load_failed()` | Load failed-segments checkpoint |
-| `create_failed_checkpoint()` | Save failed segments for retry |
+| Method                       | Purpose                                       |
+| ---------------------------- | --------------------------------------------- |
+| `create()`                   | Create new checkpoint with all TTS parameters |
+| `save()`                     | Save checkpoint to `tts_checkpoint.json`      |
+| `load()`                     | Load existing checkpoint                      |
+| `load_failed()`              | Load failed-segments checkpoint               |
+| `create_failed_checkpoint()` | Save failed segments for retry                |
 
 ### Keyboard Controls
 
 During processing, the following keyboard controls are available:
 
-| Key | Action |
-|-----|--------|
-| `P` | Pause processing |
-| `S` | Stop and save progress |
-| `Enter` | Resume from pause |
-| `q` | Quit during pause |
+| Key     | Action                 |
+| ------- | ---------------------- |
+| `P`     | Pause processing       |
+| `S`     | Stop and save progress |
+| `Enter` | Resume from pause      |
+| `q`     | Quit during pause      |
 
 ### Integration
 

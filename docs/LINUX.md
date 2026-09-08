@@ -52,6 +52,7 @@ binds {
 | `wtype` (recommended) / `wlrctl`                 | Virtual keyboard: smooth Unicode/emoji typing, Ctrl+V/C (TextEdit replace/type, selection capture)            |
 | `grim`, `slurp`                                  | Screen region capture (SnipTool)                                                                              |
 | PortAudio (+ `PyAudio` wheel)                    | Mic + desktop-monitor recording                                                                               |
+| Optional: `tmux`                                 | Persistent console session and tray terminal attachment (`aipromptbridge` session)                            |
 | Optional: `paplay` / `pw-play` / `ffplay`        | Snip/textedit feedback sounds                                                                                 |
 | StatusNotifier host (e.g. dms, waybar)           | Tray icon via `pystray`                                                                                       |
 
@@ -101,6 +102,7 @@ Do **not** try to `LD_LIBRARY_PATH` over uv’s `libtcl9tk9.0.so` with distro Tk
 | Type / paste into apps   | pynput / SendInput                    | `wtype` (smooth per-keystroke typing, Unicode/emojis) or `wlrctl` (+ `wl-copy` for paste)                                                                      |
 | Snip                     | Tk overlay + `PIL.ImageGrab`          | `slurp` geometry + `grim -g` → same `CaptureResult`                                                                                                            |
 | System audio             | WASAPI loopback (PyAudioWPatch)       | PipeWire/Pulse **monitor** sources via `pactl` + `ffmpeg -f pulse` (PortAudio often has no Pulse host API)                                                     |
+| Interactive console      | Win32 console HWND + Toggle Console   | Named `tmux` session (`aipromptbridge`) + **Open Terminal (tmux)** tray action                                                                                 |
 | Sounds                   | `winsound`                            | `paplay` / `pw-play` / `ffplay`                                                                                                                                |
 | Settings → Tools hotkeys | Editable global hotkey fields         | Read-only **IPC trigger** command list                                                                                                                         |
 
@@ -111,11 +113,27 @@ Settings → **General** → **Launch at Login** toggles an XDG autostart entry 
 |                   |                                                                                                                     |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
 | File              | `$XDG_CONFIG_HOME/autostart/aipromptbridge.desktop` (default `~/.config/autostart/`)                                |
-| `Exec` (source)   | Current interpreter + absolute `main.py` (same venv as the running app)                                             |
-| `Exec` (compiled) | Outer launcher `…/AIPromptBridge` (shell wrapper) when present; else `sys.executable`                               |
+| `Exec` (source)   | Current interpreter + absolute `main.py --tmux-detached` (same venv as the running app)                             |
+| `Exec` (compiled) | Outer launcher `…/AIPromptBridge --tmux-detached` when present; else `sys.executable --tmux-detached`               |
 | `Path`            | Deploy / project root (CWD-relative `config.ini` / `keys.json` / sessions; for `bin/` internals = parent of `bin/`) |
 
 Implemented in `src/startup_manager.py` (`set_startup` / `is_startup_enabled` / `get_startup_info`).
+
+### Interactive console and tmux integration
+
+When `tmux` is installed:
+
+- **Normal manual launches:** outside tmux, the app creates or attaches to a named tmux session `aipromptbridge` (`tmux new-session -A -s aipromptbridge …`). A second manual launch attaches its terminal to the existing session rather than starting a duplicate app process.
+- **Autostart:** launched with `--tmux-detached`, creating or reusing the session in the background without needing a visible terminal.
+- **Tray attachment:** the tray menu provides **Open Terminal (tmux)**, which opens the desktop's default terminal (`xdg-terminal-exec`, `$TERMINAL`, or discovered terminal emulators) attached to `aipromptbridge`.
+- **Manual attachment:** attach anytime from any terminal with:
+  ```bash
+  tmux attach-session -t aipromptbridge
+  ```
+- **Inside tmux:** if `$TMUX` is already set (e.g. running inside an existing user pane), the app runs directly without creating nested sessions.
+- **IPC triggers:** `--trigger` bypasses tmux entirely, ensuring compositor keybinds remain fast.
+
+If `tmux` is not installed, the app launches directly as before without errors.
 
 **niri caveat:** a bare niri session often does **not** process XDG autostart by itself. The toggle still writes the standard desktop file (for GNOME/KDE/XFCE and sessions that run `dex` / systemd user autostart). On pure niri, also add something like:
 
@@ -157,7 +175,7 @@ AIPromptBridge-…-linux-x86_64/
   README-linux.txt
 ```
 
-**Runtime packages** are still required (same table as [System packages](#system-packages)): `wl-clipboard`, `wtype` (or `wlrctl`), `grim`, `slurp`, `pactl`, `ffmpeg`, PortAudio, StatusNotifier host.
+**Runtime packages** are still required (same table as [System packages](#system-packages)): `wl-clipboard`, `wtype` (or `wlrctl`), `grim`, `slurp`, `pactl`, `ffmpeg`, PortAudio, StatusNotifier host, and optional `tmux`.
 
 **glibc:** built on **Ubuntu 24.04** x86_64. Older distributions may not run the binary; use a source install instead.
 
@@ -192,11 +210,11 @@ Interactive console commands (`--show-console`) and batch Pause/Stop keys use `s
 - **Selections:** Wayland primary selection can remain indefinitely after a mouse highlight even after deselecting. TextEdit uses an active Ctrl+C query directly into the focused application (works with Google Docs, browser canvas/DOM, and text editors) to avoid resurrecting stale primary selections. Terminal mouse selection fallback can be enabled via `linux_selection_fallback_primary = true` in `config.ini`.
 - **Popup position:** Hyprland cursor IPC places popups near the visible cursor. niri 26.04 has no public cursor-position IPC, so Tk/Xwayland coordinates are the fallback and may be stale when the focused app is native Wayland.
 - Snip UX uses **slurp** (not the Windows frozen dim overlay).
-- Interactive console keys require a real TTY (`stdin.isatty()`); piped/redirected stdin falls back to tray / `--trigger`.
+- Interactive console keys require a real TTY (`stdin.isatty()`); headless launches (such as autostart) can be attached interactively via tray **Open Terminal (tmux)** or `tmux attach-session -t aipromptbridge` when `tmux` is installed.
 - Self-update **apply** works for compiled installs on both Windows and Linux; source installs are notification-only.
 - Multi-compositor (GNOME/KDE) support is best-effort; niri/wlroots is the validated target.
 - **GUI fonts / corners:** uv standalone Python’s no-xft Tk cannot render modern fonts; use distro `python3.13-tkinter` (see above). Theme tweaks alone will not fix bitmap text.
-- **Autostart:** XDG `.desktop` is written; pure niri may still need `spawn-at-startup` (see above).
+- **Autostart:** XDG `.desktop` runs detached via `--tmux-detached` (managed by tmux when present); pure niri may still need `spawn-at-startup` (see above).
 
 ## Related docs
 

@@ -501,6 +501,25 @@ class TrayApp:
             else:
                 print("[Warning] System tray not available on this platform")
 
+    def _on_open_tmux_terminal(self, systray):
+        """Open the desktop terminal and attach it to AIPromptBridge's tmux session."""
+        try:
+            from .console import print_error, print_info, print_warning
+            from .platform.tmux import open_terminal_and_attach
+
+            ok, message = open_terminal_and_attach()
+            if ok:
+                print_info(message)
+            else:
+                print_warning(message)
+        except Exception as exc:
+            try:
+                from .console import print_error
+
+                print_error(f"Could not open tmux terminal: {exc}")
+            except Exception:
+                print(f"[Error] Could not open tmux terminal: {exc}")
+
     def _on_toggle_console(self, systray):
         """Toggle console visibility based on actual window state"""
         visible = is_console_visible()
@@ -593,6 +612,7 @@ class TrayApp:
                         os._exit(0)
                     else:
                         os.execv(str(launcher_path), cmd)
+                        return
             except Exception as e:
                 print(f"[Error] Launcher restart failed, falling back: {e}")
 
@@ -1179,6 +1199,17 @@ class TrayApp:
         if self.allow_console_toggle and is_windows():
             raw_options.append(("💻 Toggle Console", self._on_toggle_console))
             raw_options.append(SEP)
+
+        # Linux: Open Terminal (tmux) when tmux is available
+        if is_linux():
+            try:
+                from .platform.tmux import is_tmux_available
+
+                if is_tmux_available():
+                    raw_options.append(("💻 Open Terminal (tmux)", self._on_open_tmux_terminal))
+                    raw_options.append(SEP)
+            except Exception:
+                pass
 
         # Always show Session Browser (not a tool)
         raw_options.append(("🔍 Session Browser", self._on_session_browser))

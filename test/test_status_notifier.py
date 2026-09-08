@@ -127,6 +127,36 @@ class TestTrayAppSniIntegration:
             assert any(l and "Screen Snip" in l for l in labels)
             assert any(e.default for e in entries if e.label and "Session Browser" in e.label)
 
+    def test_build_sni_menu_with_tmux_available(self):
+        from src.tray import TrayApp
+
+        config_mock = {
+            "text_edit_tool_enabled": True,
+            "screen_snip_enabled": True,
+            "audio_tool_enabled": True,
+            "tts_enabled": True,
+        }
+        with (
+            patch("src.tray.is_windows", return_value=False),
+            patch("src.tray.is_linux", return_value=True),
+            patch("src.platform.tmux.is_tmux_available", return_value=True),
+            patch("src.web_server.CONFIG", config_mock),
+            patch("src.tray.HAVE_SYSTRAY", True),
+            patch("src.tray.HAVE_STATUS_NOTIFIER", True),
+            patch("src.tray.TrayMenuEntry", sn.TrayMenuEntry),
+        ):
+            tray = TrayApp(allow_console_toggle=True)
+            entries = tray._build_sni_menu_entries()
+            labels = [e.label for e in entries if e.label]
+            assert any("Open Terminal" in l for l in labels)
+            # Verify Session Browser remains default and Open Terminal is not default
+            terminal_entries = [e for e in entries if e.label and "Open Terminal" in e.label]
+            assert len(terminal_entries) == 1
+            assert terminal_entries[0].default is False
+            browser_entries = [e for e in entries if e.label and "Session Browser" in e.label]
+            assert len(browser_entries) == 1
+            assert browser_entries[0].default is True
+
     def test_update_tray_menu_sni(self):
         from src.tray import TrayApp
 
